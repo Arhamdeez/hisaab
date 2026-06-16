@@ -150,7 +150,7 @@ class StatMiniCard extends StatelessWidget {
 
     return GlassContainer(
       radius: AppRadius.lg,
-      blur: 10,
+      enableBlur: false,
       padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

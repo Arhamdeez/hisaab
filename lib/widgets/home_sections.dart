@@ -107,7 +107,7 @@ class HomeCategoriesCard extends StatelessWidget {
         ),
         GlassContainer(
           radius: AppRadius.lg,
-          blur: 10,
+          enableBlur: false,
           padding: EdgeInsets.zero,
           child: Column(
             children: [
@@ -235,7 +235,7 @@ class HomeRecentActivity extends StatelessWidget {
           const HomeSectionLabel(title: 'Latest activity'),
           GlassContainer(
             radius: AppRadius.lg,
-            blur: 10,
+            enableBlur: false,
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
             child: Text(
               'No transactions this month yet',
@@ -261,7 +261,7 @@ class HomeRecentActivity extends StatelessWidget {
         ),
         GlassContainer(
           radius: AppRadius.lg,
-          blur: 10,
+          enableBlur: false,
           padding: EdgeInsets.zero,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

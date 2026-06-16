@@ -6,11 +6,14 @@ import android.content.Intent
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
 import org.json.JSONObject
+
+private const val INGEST_TAG = "HisaabIngest"
 
 class IngestPlugin(
     private val context: Context,
@@ -73,8 +76,10 @@ class IngestPlugin(
         fun deliver(context: Context, event: Map<String, Any?>) {
             val sink = eventSink
             if (sink != null) {
+                Log.d(INGEST_TAG, "deliver -> live sink: $event")
                 sink.success(event)
             } else {
+                Log.d(INGEST_TAG, "deliver -> buffered (no sink): $event")
                 persist(context, event)
             }
         }
@@ -139,7 +144,8 @@ class IngestPlugin(
         private val movementRegex = Regex(
             "debited|credited|spent|withdrawn|deducted|transferred|received|" +
                 "paid|sent|purchase|txn|transaction|debit|credit|refund|" +
-                "cashback|deposited|salary",
+                "cashback|deposited|salary|got|sent to|transfer|withdrawal|" +
+                "payment|fee|charged|bill",
             RegexOption.IGNORE_CASE,
         )
 
@@ -179,10 +185,12 @@ class IngestPlugin(
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    Log.d(INGEST_TAG, "Flutter event sink attached")
                     eventSink = events
                 }
 
                 override fun onCancel(arguments: Any?) {
+                    Log.d(INGEST_TAG, "Flutter event sink detached")
                     eventSink = null
                 }
             })
@@ -199,6 +207,16 @@ class IngestPlugin(
 }
 
 class NotificationCaptureService : NotificationListenerService() {
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        Log.d(INGEST_TAG, "NotificationListener CONNECTED — access granted, capturing")
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        Log.d(INGEST_TAG, "NotificationListener DISCONNECTED — access revoked/stopped")
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn == null) return
         val pkg = sbn.packageName ?: return
@@ -215,13 +233,21 @@ class NotificationCaptureService : NotificationListenerService() {
         val text = listOf(title, content)
             .filter { it.isNotBlank() }
             .joinToString(" — ")
+
+        Log.d(INGEST_TAG, "posted pkg=$pkg text=\"$text\"")
+
         if (text.isBlank()) return
 
         // Capture from known payment apps, OR from any app whose notification
         // clearly describes a transaction (amount + movement keyword).
         val monitored = IngestPlugin.shouldMonitor(pkg)
-        if (!monitored && !IngestPlugin.looksLikeTransaction(text)) return
+        val looksLike = IngestPlugin.looksLikeTransaction(text)
+        if (!monitored && !looksLike) {
+            Log.d(INGEST_TAG, "  dropped (monitored=$monitored looksLike=$looksLike)")
+            return
+        }
 
+        Log.d(INGEST_TAG, "  CAPTURED (monitored=$monitored looksLike=$looksLike)")
         IngestPlugin.deliver(
             applicationContext,
             mapOf(

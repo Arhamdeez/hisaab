@@ -142,7 +142,8 @@ class TransactionParser {
   static final _movementKeywords = RegExp(
     r'debited|credited|spent|withdrawn|deducted|transferred|received|'
     r'\bpaid\b|\bsent\b|purchase|\btxn\b|transaction|\bdebit\b|\bcredit\b|'
-    r'refund|cashback|deposited|salary',
+    r'refund|cashback|deposited|salary|\bgot\b|transfer|withdrawal|'
+    r'payment|charged|\bbill\b',
     caseSensitive: false,
   );
 
@@ -216,6 +217,7 @@ class TransactionParser {
       'refund',
       'cashback',
       'added to',
+      'got',
     ];
     const debitWords = [
       'debited',

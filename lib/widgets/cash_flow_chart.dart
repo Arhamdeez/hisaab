@@ -24,7 +24,7 @@ class SpendingTrendChart extends StatelessWidget {
 
     return GlassContainer(
       radius: AppRadius.xl,
-      blur: 10,
+      enableBlur: false,
       padding: const EdgeInsets.fromLTRB(20, 20, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -148,7 +148,7 @@ class CashFlowChart extends StatelessWidget {
 
     return GlassContainer(
       radius: AppRadius.xl,
-      blur: 10,
+      enableBlur: false,
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

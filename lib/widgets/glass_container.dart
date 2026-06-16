@@ -134,9 +134,12 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // No live backdrop blur: these surfaces are used inside scrolling lists
+    // (and repeated many times), where stacked BackdropFilters cause jank.
+    // The glass look is carried by translucency + luminous edges instead.
     return GlassContainer(
       radius: radius,
-      blur: 10,
+      enableBlur: false,
       padding: padding,
       margin: margin,
       child: child,
@@ -150,62 +153,64 @@ class AppBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(color: AppColors.background),
-      child: Stack(
-        clipBehavior: Clip.none,
-        fit: StackFit.expand,
-        children: [
-          // Brighter, more saturated colour blobs so the glass visibly
-          // refracts and smears them — this is what makes the blur read.
-          Align(
-            alignment: const Alignment(0.7, -1.05),
-            child: _GlowOrb(
-              size: 420,
-              color: AppColors.primary.withValues(alpha: 0.45),
-              blur: 110,
-            ),
-          ),
-          Align(
-            alignment: const Alignment(-0.85, -0.45),
-            child: _GlowOrb(
-              size: 320,
-              color: AppColors.glowWine.withValues(alpha: 0.7),
-              blur: 100,
-            ),
-          ),
-          Align(
-            alignment: const Alignment(0.9, 0.5),
-            child: _GlowOrb(
-              size: 300,
-              color: AppColors.saved.withValues(alpha: 0.22),
-              blur: 120,
-            ),
-          ),
-          Align(
-            alignment: const Alignment(-0.6, 1.05),
-            child: _GlowOrb(
-              size: 340,
-              color: AppColors.primaryDim.withValues(alpha: 0.4),
-              blur: 120,
-            ),
-          ),
-          // Hold the centre slightly darker so foreground text stays legible
-          // over the busier backdrop.
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(0, -0.1),
-                radius: 1.1,
-                colors: [
-                  AppColors.background.withValues(alpha: 0.0),
-                  AppColors.background.withValues(alpha: 0.35),
-                ],
-                stops: const [0.55, 1.0],
+    // RepaintBoundary isolates this static, blur-heavy backdrop into its own
+    // cached layer so it is painted once — not re-rendered every scroll frame.
+    return RepaintBoundary(
+      child: DecoratedBox(
+        decoration: const BoxDecoration(color: AppColors.background),
+        child: Stack(
+          clipBehavior: Clip.none,
+          fit: StackFit.expand,
+          children: [
+            // Saturated colour blobs so glass surfaces have colour to refract.
+            Align(
+              alignment: const Alignment(0.7, -1.05),
+              child: _GlowOrb(
+                size: 420,
+                color: AppColors.primary.withValues(alpha: 0.45),
+                blur: 90,
               ),
             ),
-          ),
-        ],
+            Align(
+              alignment: const Alignment(-0.85, -0.45),
+              child: _GlowOrb(
+                size: 320,
+                color: AppColors.glowWine.withValues(alpha: 0.7),
+                blur: 85,
+              ),
+            ),
+            Align(
+              alignment: const Alignment(0.9, 0.5),
+              child: _GlowOrb(
+                size: 300,
+                color: AppColors.saved.withValues(alpha: 0.22),
+                blur: 95,
+              ),
+            ),
+            Align(
+              alignment: const Alignment(-0.6, 1.05),
+              child: _GlowOrb(
+                size: 340,
+                color: AppColors.primaryDim.withValues(alpha: 0.4),
+                blur: 95,
+              ),
+            ),
+            // Hold the centre slightly darker so foreground text stays legible.
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0, -0.1),
+                  radius: 1.1,
+                  colors: [
+                    AppColors.background.withValues(alpha: 0.0),
+                    AppColors.background.withValues(alpha: 0.35),
+                  ],
+                  stops: const [0.55, 1.0],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

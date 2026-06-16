@@ -223,7 +223,7 @@ class _HeaderIconButton extends StatelessWidget {
           children: [
             GlassContainer(
               radius: 22,
-              blur: 12,
+              enableBlur: false,
               padding: EdgeInsets.zero,
               child: SizedBox(
                 width: 44,
@@ -265,7 +265,7 @@ class _MonthSelector extends StatelessWidget {
           width: double.infinity,
           child: GlassContainer(
             radius: AppRadius.lg,
-            blur: 10,
+            enableBlur: false,
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
             child: Row(
             children: [
