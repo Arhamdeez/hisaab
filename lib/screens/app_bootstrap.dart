@@ -33,19 +33,9 @@ class _AppBootstrapState extends State<AppBootstrap> {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final Widget child;
-
-    if (!_splashDone || _onboardingComplete == null) {
-      child = SplashScreen(
-        key: const ValueKey('splash'),
-        onComplete: () {
-          if (mounted) setState(() => _splashDone = true);
-        },
-      );
-    } else if (!_onboardingComplete!) {
-      child = OnboardingScreen(
+  Widget _appContent() {
+    if (!_onboardingComplete!) {
+      return OnboardingScreen(
         key: const ValueKey('onboarding'),
         onComplete: () async {
           final provider = context.read<TransactionProvider>();
@@ -56,20 +46,35 @@ class _AppBootstrapState extends State<AppBootstrap> {
           await provider.reload();
         },
       );
-    } else {
-      child = const MainShell(key: ValueKey('shell'));
+    }
+    return const MainShell(key: ValueKey('shell'));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_splashDone) {
+      return SplashGate(
+        ready: _onboardingComplete != null,
+        onFinished: () {
+          if (mounted) setState(() => _splashDone = true);
+        },
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const AppBackground(),
+            _onboardingComplete == null
+                ? const SizedBox.shrink()
+                : _appContent(),
+          ],
+        ),
+      );
     }
 
     return Stack(
       fit: StackFit.expand,
       children: [
         const AppBackground(),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 480),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          child: child,
-        ),
+        _appContent(),
       ],
     );
   }

@@ -35,7 +35,8 @@ class BalanceHeroCard extends StatelessWidget {
 
     return GlassContainer(
       radius: AppRadius.xl,
-      blur: 12,
+      blur: 14,
+      accentGlow: true,
       tint: AppColors.glassFillStrong,
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
       child: Column(
@@ -102,8 +103,8 @@ class BalanceHeroCard extends StatelessWidget {
                           formatCurrency(netCash.abs()),
                           style: theme.textTheme.titleLarge?.copyWith(
                             color: netCash >= 0
-                                ? AppColors.saved
-                                : AppColors.primary,
+                                ? AppColors.income
+                                : AppColors.expense,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -132,7 +133,7 @@ class BalanceHeroCard extends StatelessWidget {
                 Text(
                   '${formatPercent(usedPercent)} used',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppColors.primary,
+                    color: AppColors.expense,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -180,7 +181,7 @@ class _BudgetProgressBar extends StatelessWidget {
               alignment: Alignment.centerLeft,
               widthFactor: progress.clamp(0.0, 1.0),
               child: const DecoratedBox(
-                decoration: BoxDecoration(color: AppColors.primary),
+                decoration: BoxDecoration(color: AppColors.ui),
               ),
             ),
           ],
@@ -214,7 +215,7 @@ class StatMiniCard extends StatelessWidget {
 
     return GlassContainer(
       radius: AppRadius.lg,
-      enableBlur: false,
+      blur: 10,
       padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

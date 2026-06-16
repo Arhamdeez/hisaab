@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import 'core/database/app_database.dart';
@@ -24,6 +25,12 @@ Future<void> main() async {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
+
+  // Warm the font files before the first frame to avoid startup jank.
+  GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w400);
+  GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600);
+  GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700);
+  await GoogleFonts.pendingFonts();
 
   final database = AppDatabase();
   final repository = TransactionRepository(database);

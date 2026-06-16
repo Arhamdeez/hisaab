@@ -197,12 +197,13 @@ class _SpendFocusHeroState extends State<SpendFocusHero> {
         : (cashFlowOnly ? 'CASH OUT' : 'TOTAL SPENT');
     final heroAmount = showNetHero ? net.abs() : widget.totalSpent;
     final heroColor = showNetHero
-        ? (net >= 0 ? AppColors.saved : AppColors.primary)
+        ? (net >= 0 ? AppColors.income : AppColors.expense)
         : AppColors.textPrimary;
 
     return GlassContainer(
       radius: AppRadius.xl,
-      blur: 12,
+      blur: 16,
+      accentGlow: true,
       tint: AppColors.glassFillStrong,
       padding: const EdgeInsets.fromLTRB(24, 30, 24, 28),
       child: Column(
@@ -286,7 +287,7 @@ class _SpendFocusHeroState extends State<SpendFocusHero> {
                       icon: Icons.savings_outlined,
                       label: remaining >= 0 ? 'Left' : 'Over',
                       value: formatCompactCurrency(remaining.abs()),
-                      color: remaining >= 0 ? AppColors.saved : AppColors.primary,
+                      color: remaining >= 0 ? AppColors.income : AppColors.expense,
                     ),
                   ),
                 ],
@@ -309,7 +310,7 @@ class _NetPositionChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isSurplus = net >= 0;
-    final accent = isSurplus ? AppColors.income : AppColors.primaryGlow;
+    final accent = isSurplus ? AppColors.income : AppColors.expense;
     final label = isSurplus ? 'Net surplus' : 'Net deficit';
     final icon = isSurplus
         ? Icons.trending_up_rounded
@@ -319,9 +320,23 @@ class _NetPositionChip extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: accent.withValues(alpha: 0.35)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            accent.withValues(alpha: 0.18),
+            accent.withValues(alpha: 0.06),
+          ],
+        ),
+        border: Border.all(color: accent.withValues(alpha: 0.42)),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.16),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -331,8 +346,13 @@ class _NetPositionChip extends StatelessWidget {
             height: 28,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: accent.withValues(alpha: 0.16),
-              border: Border.all(color: accent.withValues(alpha: 0.4)),
+              gradient: LinearGradient(
+                colors: [
+                  accent.withValues(alpha: 0.28),
+                  accent.withValues(alpha: 0.12),
+                ],
+              ),
+              border: Border.all(color: accent.withValues(alpha: 0.45)),
             ),
             child: Icon(icon, size: 15, color: accent),
           ),
@@ -518,7 +538,7 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final netColor = widget.net >= 0 ? AppColors.income : AppColors.primaryGlow;
+    final netColor = widget.net >= 0 ? AppColors.income : AppColors.expense;
 
     final inactiveFooter = Column(
       children: [
@@ -543,7 +563,7 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
               child: _NetFlowStat(
                 label: 'Cash out',
                 value: formatCompactCurrency(widget.cashOut),
-                color: AppColors.primaryGlow,
+                color: AppColors.expense,
               ),
             ),
           ],
@@ -581,7 +601,7 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
             borderRadius: BorderRadius.circular(AppRadius.lg),
             color: widget.active
                 ? netColor.withValues(alpha: 0.14)
-                : AppColors.backgroundElevated,
+                : AppColors.glassFillStrong,
             border: Border.all(
               color: widget.active
                   ? netColor.withValues(alpha: 0.65)
@@ -728,7 +748,7 @@ class _CashFlowGauge extends StatelessWidget {
             if (inShare < 1)
               Expanded(
                 flex: ((1 - inShare) * 100).round().clamp(1, 100),
-                child: const ColoredBox(color: AppColors.primary),
+                child: const ColoredBox(color: AppColors.expense),
               ),
           ],
         ),
@@ -782,13 +802,16 @@ class BudgetSlider extends StatelessWidget {
                     height: _trackH,
                     width: fillW,
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [AppColors.primaryDim, AppColors.primary],
+                      gradient: LinearGradient(
+                        colors: [
+                          AppColors.expense.withValues(alpha: 0.85),
+                          AppColors.expense,
+                        ],
                       ),
                       borderRadius: BorderRadius.circular(AppRadius.pill),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.4),
+                          color: AppColors.expense.withValues(alpha: 0.35),
                           blurRadius: 12,
                           offset: const Offset(0, 2),
                         ),
@@ -804,7 +827,7 @@ class BudgetSlider extends StatelessWidget {
                         shape: BoxShape.circle,
                         color: AppColors.textPrimary,
                         border: Border.all(
-                          color: AppColors.primary,
+                          color: AppColors.ui,
                           width: 3,
                         ),
                         boxShadow: [
@@ -829,7 +852,7 @@ class BudgetSlider extends StatelessWidget {
             Text(
               '${formatPercent(pct * 100)} of income',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: AppColors.primary,
+                color: AppColors.textSecondary,
                 fontWeight: FontWeight.w600,
               ),
             ),

@@ -1,63 +1,72 @@
 import 'package:flutter/material.dart';
 
-/// Vintage Hearth palette — dark wine edition.
-///
-/// A deep, warm red-black base with a confident wine-red accent pushed to the
-/// foreground. Ash grey and linen stay as cool/warm neutrals so the red reads
-/// rich and premium without feeling flat.
+/// Frosty black — monochrome glass UI; brand red for logo only;
+/// green/red reserved for cash in / cash out.
 abstract final class AppColors {
-  // Core palette
-  static const wine = Color(0xFF7A2420);
-  static const ashGrey = Color(0xFFADBDAB);
-  static const linen = Color(0xFFF0E5DE);
+  // Brand — logo & wordmark accent only.
+  static const brand = Color(0xFFE84842);
+  static const brandGlow = Color(0xFFFF6B63);
+  static const brandDim = Color(0xFFB8322C);
 
-  // Base surfaces — warm red near-black.
-  static const background = Color(0xFF160A0A);
-  static const backgroundElevated = Color(0xFF210E0E);
-  static const surface = Color(0x0DFFFFFF);
-  static const surfaceHigh = Color(0x1AFFFFFF);
+  /// Legacy aliases used by the logo mark.
+  static const primary = brand;
+  static const primaryGlow = brandGlow;
+  static const primaryDim = brandDim;
+
+  // UI chrome — frosty white (buttons, nav, focus rings, accents).
+  static const ui = Color(0xFFFFFFFF);
+  static const uiMuted = Color(0x99FFFFFF);
+  static const accent = ui;
+
+  // Cash-flow semantics.
+  static const income = Color(0xFF5EEA9A);
+  static const cashIn = income;
+  static const expense = Color(0xFFFF5A55);
+  static const cashOut = expense;
+  static const saved = income;
+  static const warning = Color(0xFFE8B86D);
+
+  // Surfaces — pure black.
+  static const background = Color(0xFF000000);
+  static const backgroundElevated = Color(0xFF111111);
+  static const surface = Color(0x12FFFFFF);
+  static const surfaceHigh = Color(0x20FFFFFF);
   static const surfaceMuted = Color(0x08FFFFFF);
 
-  // Brand accent — a fuller, more saturated red.
-  static const primary = Color(0xFFD9453F);
-  static const primaryDim = Color(0xFFA8322D);
-  static const primaryGlow = Color(0xFFF26A64);
-
-  static const accent = primary;
-
-  // Status colours.
-  static const income = Color(0xFF5FB98C);
-  static const saved = Color(0xFF7FA0A8);
-  static const expense = Color(0xFFE0726C);
-  static const warning = Color(0xFFD9A152);
-
-  // Text — warm linen neutrals on the dark wine base.
-  static const textPrimary = Color(0xFFF5ECEA);
-  static const textSecondary = Color(0xFFD2C4C1);
-  static const textOnPrimary = Color(0xFFFFFFFF);
-  static const textMuted = Color(0xFFA1908C);
-  static const textDim = Color(0xFF73625F);
+  // Text — cool white/grey.
+  static const textPrimary = Color(0xFFFFFFFF);
+  static const textSecondary = Color(0xB3FFFFFF);
+  static const textOnPrimary = Color(0xFF000000);
+  static const textMuted = Color(0x80FFFFFF);
+  static const textDim = Color(0x59FFFFFF);
 
   // Lines & shadows.
-  static const border = Color(0x1FFFFFFF);
-  static const borderLight = Color(0x33FFFFFF);
-  static const shadow = Color(0x80000000);
+  static const border = Color(0x22FFFFFF);
+  static const borderLight = Color(0x38FFFFFF);
+  static const shadow = Color(0xCC000000);
 
-  // Glass surfaces — translucent over the dark wine ambience.
-  static const glassFill = Color(0x0FFFFFFF);
-  static const glassFillStrong = Color(0x1FFFFFFF);
-  static const glassBorder = Color(0x38FFFFFF);
-  static const glassHighlight = Color(0x26FFFFFF);
+  // Frosty glass — white translucent panels on black.
+  static const glassFill = Color(0x12FFFFFF);
+  static const glassFillStrong = Color(0x1CFFFFFF);
+  static const glassFillDeep = Color(0x0AFFFFFF);
+  static const glassBorder = Color(0x30FFFFFF);
+  static const glassHighlight = Color(0x28FFFFFF);
+  static const glassSpecular = Color(0x18FFFFFF);
 
-  // Ambient wine glow blobs (background).
-  static const glowMaroon = Color(0xFF7A1F1C);
-  static const glowMaroonDeep = Color(0xFF4A1110);
-  static const glowWine = Color(0xFF9B2D29);
-  static const glowAsh = Color(0xFFADBDAB);
-
-  static const gradientStart = Color(0xFF2C100E);
-  static const gradientMid = Color(0xFF1A0B0A);
-  static const gradientEnd = Color(0xFF110707);
+  // Background — flat black with optional subtle grey lift.
+  static const gradientStart = Color(0xFF000000);
+  static const gradientMid = Color(0xFF060606);
+  static const gradientEnd = Color(0xFF000000);
+  static const glowSoft = Color(0xFFFFFFFF);
 
   static const navBar = Color(0x00000000);
+
+  // Legacy warm tokens (unused in frosty theme — kept for asset compat).
+  static const wine = brand;
+  static const ashGrey = Color(0xFF8A8A8A);
+  static const linen = Color(0xFFF5F5F5);
+  static const glowMaroon = Color(0xFF333333);
+  static const glowMaroonDeep = Color(0xFF1A1A1A);
+  static const glowWine = Color(0xFF444444);
+  static const glowAsh = Color(0xFF666666);
 }

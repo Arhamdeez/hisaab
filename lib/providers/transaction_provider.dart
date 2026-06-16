@@ -19,6 +19,10 @@ class TransactionProvider extends ChangeNotifier {
   DateTime _selectedMonth = DateTime.now();
   bool _loaded = false;
 
+  String? _summaryCacheKey;
+  MonthlySummary? _summaryCache;
+  final Map<String, List<Transaction>> _monthTxCache = {};
+
   List<Transaction> get transactions => List.unmodifiable(_transactions);
   DateTime get selectedMonth => _selectedMonth;
   bool get isLoaded => _loaded;
@@ -39,19 +43,46 @@ class TransactionProvider extends ChangeNotifier {
   Future<void> load() async {
     _transactions = await _repository.getAll();
     _loaded = true;
+    _invalidateCaches();
     notifyListeners();
   }
+
+  void _invalidateCaches() {
+    _summaryCacheKey = null;
+    _summaryCache = null;
+    _monthTxCache.clear();
+  }
+
+  static String _monthKey(DateTime month) => '${month.year}-${month.month}';
 
   Future<void> reload() => load();
 
   List<Transaction> transactionsForMonth(DateTime month) {
-    return confirmedTransactions.where((t) {
-      return t.occurredAt.year == month.year &&
-          t.occurredAt.month == month.month;
-    }).toList();
+    final key = _monthKey(month);
+    return _monthTxCache.putIfAbsent(key, () {
+      return confirmedTransactions
+          .where(
+            (t) =>
+                t.occurredAt.year == month.year &&
+                t.occurredAt.month == month.month,
+          )
+          .toList();
+    });
+  }
+
+  /// Newest confirmed transactions for [month], for home "latest activity".
+  List<Transaction> recentForMonth(DateTime month, {int limit = 5}) {
+    final sorted = List<Transaction>.from(transactionsForMonth(month))
+      ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+    if (sorted.length <= limit) return sorted;
+    return sorted.sublist(0, limit);
   }
 
   MonthlySummary summaryForMonth(DateTime month) {
+    final key = _monthKey(month);
+    if (_summaryCacheKey == key && _summaryCache != null) {
+      return _summaryCache!;
+    }
     final txs = transactionsForMonth(month);
     final debits = txs.where((t) => t.isDebit);
     final credits = txs.where((t) => !t.isDebit);
@@ -95,7 +126,7 @@ class TransactionProvider extends ChangeNotifier {
           t.occurredAt.month == month.month;
     }).length;
 
-    return MonthlySummary(
+    final result = MonthlySummary(
       year: month.year,
       month: month.month,
       totalDebit: totalDebit,
@@ -108,6 +139,9 @@ class TransactionProvider extends ChangeNotifier {
       bySource: bySource,
       topMerchants: topMerchants.take(5).toList(),
     );
+    _summaryCacheKey = key;
+    _summaryCache = result;
+    return result;
   }
 
   void setSelectedMonth(DateTime month) {

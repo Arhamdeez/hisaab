@@ -41,10 +41,7 @@ class TransactionTile extends StatelessWidget {
               Container(
                 width: 42,
                 height: 42,
-                decoration: BoxDecoration(
-                  color: transaction.category.color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
+                decoration: AppDecorations.iconBadge(transaction.category.color),
                 child: Icon(
                   transaction.category.icon,
                   color: transaction.category.color,
@@ -79,7 +76,7 @@ class TransactionTile extends StatelessWidget {
                   Text(
                     '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
                     style: theme.textTheme.titleMedium?.copyWith(
-                      color: isDebit ? AppColors.textPrimary : AppColors.income,
+                      color: isDebit ? AppColors.expense : AppColors.income,
                       fontWeight: FontWeight.w700,
                     ),
                   ),

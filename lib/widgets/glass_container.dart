@@ -3,21 +3,23 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 
-/// Frosted linen glass — light blur, warm translucency, soft edges.
+/// iOS-style frosted glass — backdrop blur, translucent tint, specular edge.
 class GlassContainer extends StatelessWidget {
   const GlassContainer({
     super.key,
     required this.child,
-    this.radius = 24,
+    this.radius = AppRadius.xl,
     this.padding,
     this.margin,
-    this.blur = 10,
+    this.blur = 14,
     this.tint,
     this.enableBlur = true,
-    this.borderWidth = 0.75,
+    this.borderWidth = 0.85,
     this.showShadow = true,
+    this.accentGlow = false,
   });
 
   final Widget child;
@@ -29,24 +31,27 @@ class GlassContainer extends StatelessWidget {
   final bool enableBlur;
   final double borderWidth;
   final bool showShadow;
+  final bool accentGlow;
 
   @override
   Widget build(BuildContext context) {
     final fill = tint ?? AppColors.glassFill;
     final br = BorderRadius.circular(radius);
+    final specularH = (radius * 0.5).clamp(10.0, 24.0);
 
-    Widget body = DecoratedBox(
+    Widget panel = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: br,
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            AppColors.glassHighlight.withValues(alpha: 0.14),
+            AppColors.glassHighlight,
             fill,
-            AppColors.primary.withValues(alpha: 0.04),
+            AppColors.glassFillDeep,
+            AppColors.glassFillStrong,
           ],
-          stops: const [0.0, 0.45, 1.0],
+          stops: const [0.0, 0.25, 0.65, 1.0],
         ),
         border: Border.all(
           color: AppColors.glassBorder,
@@ -61,7 +66,7 @@ class GlassContainer extends StatelessWidget {
             right: 0,
             child: IgnorePointer(
               child: Container(
-                height: (radius * 0.55).clamp(12.0, 28.0),
+                height: specularH,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.vertical(
                     top: Radius.circular(radius),
@@ -70,8 +75,8 @@ class GlassContainer extends StatelessWidget {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.white.withValues(alpha: 0.16),
-                      Colors.white.withValues(alpha: 0.0),
+                      AppColors.glassSpecular,
+                      Colors.transparent,
                     ],
                   ),
                 ),
@@ -86,31 +91,43 @@ class GlassContainer extends StatelessWidget {
       ),
     );
 
-    body = ClipRRect(
+    panel = ClipRRect(
       borderRadius: br,
       child: enableBlur
           ? BackdropFilter(
               filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-              child: body,
+              child: panel,
             )
-          : body,
+          : panel,
     );
 
-    Widget surface = showShadow
+    Widget surface = showShadow || accentGlow
         ? DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: br,
               boxShadow: [
-                BoxShadow(
-                  color: AppColors.shadow,
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
+                if (showShadow) ...[
+                  BoxShadow(
+                    color: AppColors.shadow.withValues(alpha: 0.55),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+                if (accentGlow) ...AppDecorations.heroGlow(),
+                if (showShadow && !accentGlow)
+                  BoxShadow(
+                    color: AppColors.ui.withValues(alpha: 0.06),
+                    blurRadius: 32,
+                    spreadRadius: -8,
+                    offset: const Offset(0, 12),
+                  ),
               ],
             ),
-            child: body,
+            child: panel,
           )
-        : body;
+        : panel;
+
+    surface = RepaintBoundary(child: surface);
 
     if (margin != null) {
       return Padding(padding: margin!, child: surface);
@@ -119,7 +136,7 @@ class GlassContainer extends StatelessWidget {
   }
 }
 
-/// Glass list/card surface — use instead of opaque [AppDecorations.card].
+/// Glass list/card surface.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
@@ -127,18 +144,22 @@ class GlassCard extends StatelessWidget {
     this.padding,
     this.margin,
     this.radius = AppRadius.lg,
+    this.accentGlow = false,
   });
 
   final Widget child;
   final EdgeInsetsGeometry? padding;
   final EdgeInsetsGeometry? margin;
   final double radius;
+  final bool accentGlow;
 
   @override
   Widget build(BuildContext context) {
     return GlassContainer(
       radius: radius,
-      enableBlur: false,
+      blur: 10,
+      tint: AppColors.glassFillStrong,
+      accentGlow: accentGlow,
       padding: padding,
       margin: margin,
       child: child,
@@ -146,105 +167,14 @@ class GlassCard extends StatelessWidget {
   }
 }
 
-/// Dark Vintage Hearth ambience — deep red-black base with wine glow washes
-/// so glass layers have warm colour to refract.
+/// Pure black canvas — optional subtle grey lift for glass depth.
 class AppBackground extends StatelessWidget {
   const AppBackground({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              AppColors.gradientStart,
-              AppColors.gradientMid,
-              AppColors.gradientEnd,
-            ],
-          ),
-        ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          fit: StackFit.expand,
-          children: [
-            Align(
-              alignment: const Alignment(0.75, -1.05),
-              child: _GlowOrb(
-                size: 440,
-                color: AppColors.primary.withValues(alpha: 0.42),
-                blur: 95,
-              ),
-            ),
-            Align(
-              alignment: const Alignment(-0.85, -0.4),
-              child: _GlowOrb(
-                size: 360,
-                color: AppColors.glowWine.withValues(alpha: 0.6),
-                blur: 90,
-              ),
-            ),
-            Align(
-              alignment: const Alignment(0.9, 0.5),
-              child: _GlowOrb(
-                size: 320,
-                color: AppColors.glowMaroon.withValues(alpha: 0.45),
-                blur: 100,
-              ),
-            ),
-            Align(
-              alignment: const Alignment(-0.55, 1.05),
-              child: _GlowOrb(
-                size: 380,
-                color: AppColors.primaryDim.withValues(alpha: 0.4),
-                blur: 95,
-              ),
-            ),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(0, -0.1),
-                  radius: 1.15,
-                  colors: [
-                    AppColors.background.withValues(alpha: 0.0),
-                    AppColors.background.withValues(alpha: 0.4),
-                  ],
-                  stops: const [0.5, 1.0],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _GlowOrb extends StatelessWidget {
-  const _GlowOrb({
-    required this.size,
-    required this.color,
-    this.blur = 60,
-  });
-
-  final double size;
-  final Color color;
-  final double blur;
-
-  @override
-  Widget build(BuildContext context) {
-    return ImageFiltered(
-      imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color,
-        ),
-      ),
+    return const RepaintBoundary(
+      child: ColoredBox(color: AppColors.background),
     );
   }
 }

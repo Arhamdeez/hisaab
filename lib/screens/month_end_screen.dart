@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/theme/app_decorations.dart';
 import '../core/utils/app_refresh.dart';
 import '../core/utils/formatters.dart';
 import '../models/transaction.dart';
@@ -52,16 +53,37 @@ class MonthEndScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Month-end report',
-                        style: Theme.of(context).textTheme.headlineLarge,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        formatMonthYear(provider.selectedMonth),
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: AppColors.textMuted,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const AppAccentBar(height: 28),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Month-end report',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineLarge
+                                      ?.copyWith(letterSpacing: -0.4),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  formatMonthYear(provider.selectedMonth),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: AppColors.textMuted,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                              ],
                             ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 20),
                       BalanceHeroCard(
@@ -292,7 +314,7 @@ class _StatGrid extends StatelessWidget {
               label: net >= 0 ? 'Net cash' : 'Net out',
               value: formatCurrency(net.abs()),
               icon: Icons.compare_arrows_rounded,
-              color: net >= 0 ? AppColors.saved : AppColors.primary,
+              color: net >= 0 ? AppColors.income : AppColors.expense,
             ),
           ),
         ],
@@ -309,7 +331,7 @@ class _StatGrid extends StatelessWidget {
                   (summary.dailySpending.where((d) => d > 0).length.clamp(1, 31)),
             ),
             icon: Icons.trending_up_rounded,
-            color: AppColors.primary,
+            color: AppColors.ui,
           ),
         ),
         const SizedBox(width: 12),

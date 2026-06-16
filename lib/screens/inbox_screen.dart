@@ -77,7 +77,7 @@ class _EmptyInbox extends StatelessWidget {
               height: 72,
               decoration: BoxDecoration(
                 color: AppColors.accent.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: AppRadius.borderLg,
               ),
               child: const Icon(
                 Icons.check_circle_outline_rounded,
@@ -137,7 +137,7 @@ class _ReviewCard extends StatelessWidget {
                   color: confidence >= 80
                       ? AppColors.accent.withValues(alpha: 0.12)
                       : AppColors.warning.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: AppRadius.borderXs,
                 ),
                 child: Text(
                   '${confidence.toStringAsFixed(0)}% match',
@@ -215,7 +215,7 @@ class _ReviewCard extends StatelessWidget {
                 child: FilledButton(
                   onPressed: onConfirm,
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: AppColors.ui,
                     foregroundColor: AppColors.textOnPrimary,
                     minimumSize: const Size(0, 46),
                     shape: RoundedRectangleBorder(

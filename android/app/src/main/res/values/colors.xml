@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Matches AppColors.background so the native launch window blends into
-         the in-app animated splash with no white flash. -->
-    <color name="splash_background">#FF160A0A</color>
+    <!-- Matches AppColors.background — seamless handoff to in-app splash. -->
+    <color name="splash_background">#FF000000</color>
+    <color name="ic_launcher_background">#FF000000</color>
 </resources>

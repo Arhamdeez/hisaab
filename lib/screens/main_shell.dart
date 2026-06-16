@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -31,29 +33,28 @@ class _MainShellState extends State<MainShell>
   // the previous screen (e.g. Inbox -> Home) instead of exiting the app.
   final List<int> _history = [];
   IngestService? _ingestService;
+  Timer? _reloadDebounce;
 
   // Drives the fade-slide transition played each time the active tab changes.
   late final AnimationController _pageAnim;
   // +1 slides the new page in from the right (moving forward), -1 from the left.
   double _direction = 1;
 
-  // Bottom bar shows indices 0–2 (Home, Transactions, Report). Settings and
-  // Inbox are not bottom-bar tabs — they're reached from the Home header
-  // (gear + notification bell).
-  static const _screens = [
-    HomeScreen(),
-    TransactionsScreen(),
-    MonthEndScreen(),
-    SettingsScreen(),
-    InboxScreen(),
-  ];
+  late final List<Widget> _screens;
 
   @override
   void initState() {
     super.initState();
+    _screens = [
+      const RepaintBoundary(child: HomeScreen()),
+      const RepaintBoundary(child: TransactionsScreen()),
+      const RepaintBoundary(child: MonthEndScreen()),
+      const RepaintBoundary(child: SettingsScreen()),
+      const RepaintBoundary(child: InboxScreen()),
+    ];
     _pageAnim = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 320),
+      duration: const Duration(milliseconds: 240),
       value: 1,
     );
     _ingestService = context.read<IngestService>();
@@ -68,13 +69,18 @@ class _MainShellState extends State<MainShell>
 
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
     _pageAnim.dispose();
     _ingestService?.removeListener(_onIngestUpdate);
     super.dispose();
   }
 
   void _onIngestUpdate() {
-    context.read<TransactionProvider>().reload();
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      context.read<TransactionProvider>().reload();
+    });
   }
 
   /// Replays the fade-slide transition for a switch from [from] to [to].
@@ -126,21 +132,21 @@ class _MainShellState extends State<MainShell>
             fit: StackFit.expand,
             children: [
               const AppBackground(),
-              AnimatedBuilder(
-                animation: _pageAnim,
-                builder: (context, _) {
-                  final t = Curves.easeOutCubic.transform(_pageAnim.value);
-                  return Opacity(
-                    opacity: (0.4 + 0.6 * t).clamp(0.0, 1.0),
-                    child: Transform.translate(
-                      offset: Offset((1 - t) * 22 * _direction, 0),
-                      child: Transform.scale(
-                        scale: 0.985 + 0.015 * t,
-                        child: IndexedStack(index: _index, children: _screens),
+              RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: _pageAnim,
+                  builder: (context, child) {
+                    final t = Curves.easeOutCubic.transform(_pageAnim.value);
+                    return Opacity(
+                      opacity: (0.55 + 0.45 * t).clamp(0.0, 1.0),
+                      child: Transform.translate(
+                        offset: Offset((1 - t) * 14 * _direction, 0),
+                        child: child,
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                  child: IndexedStack(index: _index, children: _screens),
+                ),
               ),
               // Overlay the bar on top of the gradient so BackdropFilter blurs
               // the real background instead of the scaffold's opaque bottom slot.
@@ -181,7 +187,7 @@ class _MainShellState extends State<MainShell>
                     onPressed: () => _showAddSheet(context),
                     elevation: 0,
                     highlightElevation: 0,
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: AppColors.ui,
                     foregroundColor: AppColors.textOnPrimary,
                     icon: const Icon(Icons.add_rounded),
                     label: const Text('Add'),
@@ -313,7 +319,7 @@ class _MainShellState extends State<MainShell>
                       },
                       style: FilledButton.styleFrom(
                         minimumSize: const Size(double.infinity, 54),
-                        backgroundColor: AppColors.primary,
+                        backgroundColor: AppColors.ui,
                         foregroundColor: AppColors.textOnPrimary,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(AppRadius.md),

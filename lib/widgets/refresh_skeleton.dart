@@ -117,11 +117,11 @@ class HomeRefreshSkeleton extends StatelessWidget {
             Row(
               children: [
                 const Expanded(
-                  child: SkeletonBone(height: 14, width: 72, radius: 6),
+                  child: SkeletonBone(height: 14, width: 72, radius: AppRadius.xxs),
                 ),
-                const SkeletonBone(height: 44, width: 44, radius: 22),
+                const SkeletonBone(height: 44, width: 44, radius: AppRadius.iconButton),
                 const SizedBox(width: 10),
-                const SkeletonBone(height: 44, width: 44, radius: 22),
+                const SkeletonBone(height: 44, width: 44, radius: AppRadius.iconButton),
               ],
             ),
             const SizedBox(height: 28),
@@ -129,7 +129,7 @@ class HomeRefreshSkeleton extends StatelessWidget {
             const SizedBox(height: 20),
             const SkeletonBone(height: 220, radius: AppRadius.xl),
             const SizedBox(height: 28),
-            const SkeletonBone(height: 18, width: 140, radius: 8),
+            const SkeletonBone(height: 18, width: 140, radius: AppRadius.xs),
             const SizedBox(height: 14),
             for (var i = 0; i < 3; i++) ...[
               const SkeletonBone(height: 64, radius: AppRadius.lg),
@@ -182,9 +182,9 @@ class ReportRefreshSkeleton extends StatelessWidget {
           AppSpacing.navBottom,
         ),
         children: [
-          const SkeletonBone(height: 32, width: 200, radius: 10),
+          const SkeletonBone(height: 32, width: 200, radius: AppRadius.sm),
           const SizedBox(height: 8),
-          const SkeletonBone(height: 16, width: 120, radius: 6),
+          const SkeletonBone(height: 16, width: 120, radius: AppRadius.xxs),
           const SizedBox(height: 20),
           const SkeletonBone(height: 180, radius: AppRadius.xl),
           const SizedBox(height: 24),
@@ -215,9 +215,9 @@ class InboxRefreshSkeleton extends StatelessWidget {
         physics: const NeverScrollableScrollPhysics(),
         padding: AppSpacing.page,
         children: [
-          const SkeletonBone(height: 32, width: 160, radius: 10),
+          const SkeletonBone(height: 32, width: 160, radius: AppRadius.sm),
           const SizedBox(height: 8),
-          const SkeletonBone(height: 16, width: 260, radius: 6),
+          const SkeletonBone(height: 16, width: 260, radius: AppRadius.xxs),
           const SizedBox(height: 20),
           for (var i = 0; i < 2; i++) ...[
             const SkeletonBone(height: 168, radius: AppRadius.lg),

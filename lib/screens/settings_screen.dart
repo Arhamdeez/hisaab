@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/theme/app_decorations.dart';
 import '../widgets/glass_container.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
@@ -93,7 +94,7 @@ class SettingsScreen extends StatelessWidget {
                 Navigator.pop(dialogContext, parsed ?? prefs.monthlyIncome);
               },
               style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
+                backgroundColor: AppColors.ui,
                 foregroundColor: AppColors.textOnPrimary,
               ),
               child: const Text('Save'),
@@ -118,9 +119,21 @@ class SettingsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Settings',
-                  style: Theme.of(context).textTheme.headlineLarge,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const AppAccentBar(height: 28),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Settings',
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineLarge
+                            ?.copyWith(letterSpacing: -0.4),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: AppSpacing.section),
                 _SettingsGroup(
@@ -241,11 +254,6 @@ class SettingsScreen extends StatelessWidget {
                         onTap: () => _editMonthlyIncome(context, prefs),
                       ),
                     const _SettingsTile(
-                      icon: Icons.currency_rupee_rounded,
-                      title: 'Currency',
-                      subtitle: 'PKR (Rs)',
-                    ),
-                    const _SettingsTile(
                       icon: Icons.category_outlined,
                       title: 'Categories',
                       subtitle: 'Food, Transport, Bills, and more',
@@ -284,14 +292,20 @@ class _SettingsGroup extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 10),
-          child: Text(
-            title.toUpperCase(),
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: AppColors.textMuted,
-              letterSpacing: 1.1,
-              fontWeight: FontWeight.w600,
-            ),
+          padding: const EdgeInsets.only(left: 2, bottom: 10),
+          child: Row(
+            children: [
+              const AppAccentBar(height: 16),
+              const SizedBox(width: 8),
+              Text(
+                title.toUpperCase(),
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: AppColors.textMuted,
+                  letterSpacing: 1.2,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
         ),
         GlassCard(
@@ -343,11 +357,8 @@ class _SettingsTile extends StatelessWidget {
               Container(
                 width: 36,
                 height: 36,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                ),
-                child: Icon(icon, color: AppColors.primary, size: 18),
+                decoration: AppDecorations.iconBadge(AppColors.ui),
+                child: Icon(icon, color: AppColors.ui, size: 18),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -406,11 +417,8 @@ class _SettingsSwitchTile extends StatelessWidget {
           Container(
             width: 36,
             height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-            child: Icon(icon, color: AppColors.primary, size: 18),
+            decoration: AppDecorations.iconBadge(AppColors.ui),
+            child: Icon(icon, color: AppColors.ui, size: 18),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -431,8 +439,8 @@ class _SettingsSwitchTile extends StatelessWidget {
           Switch.adaptive(
             value: value,
             onChanged: onChanged,
-            activeTrackColor: AppColors.primary.withValues(alpha: 0.5),
-            activeThumbColor: AppColors.primary,
+            activeTrackColor: AppColors.ui.withValues(alpha: 0.5),
+            activeThumbColor: AppColors.ui,
           ),
         ],
       ),
@@ -455,7 +463,7 @@ class _StatusPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: AppRadius.borderXs,
       ),
       child: Text(
         text,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
 import '../models/transaction.dart';
@@ -28,8 +29,10 @@ class HomeSectionLabel extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          const AppAccentBar(),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -46,30 +49,15 @@ class HomeSectionLabel extends StatelessWidget {
                   Text(
                     subtitle!,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppColors.textMuted,
+                      color: AppColors.textSecondary,
                     ),
                   ),
                 ],
               ],
             ),
           ),
-          if (actionLabel != null)
-            TextButton(
-              onPressed: onAction,
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text(
-                actionLabel!,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
+          if (actionLabel != null && onAction != null)
+            AppActionChip(label: actionLabel!, onTap: onAction!),
         ],
       ),
     );
@@ -107,7 +95,8 @@ class HomeCategoriesCard extends StatelessWidget {
         ),
         GlassContainer(
           radius: AppRadius.lg,
-          enableBlur: false,
+          blur: 10,
+          tint: AppColors.glassFillStrong,
           padding: EdgeInsets.zero,
           child: Column(
             children: [
@@ -154,10 +143,7 @@ class _CategoryLine extends StatelessWidget {
           Container(
             width: 36,
             height: 36,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
+            decoration: AppDecorations.iconBadge(color),
             child: Icon(summary.category.icon, color: color, size: 18),
           ),
           const SizedBox(width: 12),
@@ -191,9 +177,10 @@ class _CategoryLine extends StatelessWidget {
                         borderRadius: BorderRadius.circular(AppRadius.pill),
                         child: LinearProgressIndicator(
                           value: pct,
-                          minHeight: 4,
+                          minHeight: 5,
                           backgroundColor: AppColors.surfaceHigh,
                           color: color,
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
                         ),
                       ),
                     ),
@@ -235,7 +222,8 @@ class HomeRecentActivity extends StatelessWidget {
           const HomeSectionLabel(title: 'Latest activity'),
           GlassContainer(
             radius: AppRadius.lg,
-            enableBlur: false,
+            blur: 10,
+            tint: AppColors.glassFillStrong,
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
             child: Text(
               'No transactions this month yet',
@@ -261,7 +249,8 @@ class HomeRecentActivity extends StatelessWidget {
         ),
         GlassContainer(
           radius: AppRadius.lg,
-          enableBlur: false,
+          blur: 10,
+          tint: AppColors.glassFillStrong,
           padding: EdgeInsets.zero,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -273,8 +262,8 @@ class HomeRecentActivity extends StatelessWidget {
                     groups[g].label,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: AppColors.textMuted,
-                          letterSpacing: 0.6,
-                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.8,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                 ),
@@ -352,10 +341,7 @@ class _RecentLine extends StatelessWidget {
           Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
+            decoration: AppDecorations.iconBadge(color),
             child: Icon(transaction.category.icon, color: color, size: 18),
           ),
           const SizedBox(width: 12),
@@ -388,7 +374,7 @@ class _RecentLine extends StatelessWidget {
               Text(
                 '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
                 style: theme.textTheme.titleMedium?.copyWith(
-                  color: isDebit ? AppColors.textPrimary : AppColors.income,
+                  color: isDebit ? AppColors.expense : AppColors.income,
                   fontWeight: FontWeight.w700,
                 ),
               ),

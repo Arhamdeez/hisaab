@@ -86,7 +86,7 @@ class SourceBadge extends StatelessWidget {
       TransactionSource.notification => (
           'Notification',
           Icons.notifications_active_outlined,
-          AppColors.primary,
+          AppColors.ui,
         ),
       TransactionSource.sms => ('SMS', Icons.sms_outlined, AppColors.income),
       TransactionSource.gmail => ('Gmail', Icons.mail_outline, AppColors.warning),
@@ -97,7 +97,7 @@ class SourceBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: AppRadius.borderXs,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -146,7 +146,7 @@ class SectionHeader extends StatelessWidget {
             child: Text(
               action!,
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: AppColors.primary,
+                    color: AppColors.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
             ),

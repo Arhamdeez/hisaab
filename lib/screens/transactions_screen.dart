@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/app_refresh.dart';
 import '../widgets/glass_container.dart';
@@ -121,11 +122,35 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   0,
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    const AppAccentBar(height: 28),
+                    const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        'Transactions',
-                        style: Theme.of(context).textTheme.headlineLarge,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Transactions',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineLarge
+                                ?.copyWith(
+                                  letterSpacing: -0.4,
+                                ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            formatMonthYear(selected),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  color: AppColors.textMuted,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ],
                       ),
                     ),
                     _SortButton(
@@ -182,14 +207,52 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                           padding: AppSpacing.page,
                           children: [
                             SizedBox(
-                              height: MediaQuery.sizeOf(context).height * 0.25,
+                              height: MediaQuery.sizeOf(context).height * 0.2,
                             ),
-                            Text(
-                              'No transactions found',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(color: AppColors.textMuted),
+                            GlassContainer(
+                              radius: AppRadius.xl,
+                              blur: 12,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 28,
+                                vertical: 32,
+                              ),
+                              child: Column(
+                                children: [
+                                  Container(
+                                    width: 56,
+                                    height: 56,
+                                    decoration: AppDecorations.iconBadge(
+                                      AppColors.textMuted,
+                                    ),
+                                    child: const Icon(
+                                      Icons.receipt_long_rounded,
+                                      color: AppColors.textMuted,
+                                      size: 26,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'No transactions found',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Try a different filter or search term',
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: AppColors.textMuted,
+                                        ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         )
@@ -279,7 +342,7 @@ class _SortButton extends StatelessWidget {
               Icon(
                 s.icon,
                 size: 18,
-                color: selected ? AppColors.primary : AppColors.textMuted,
+                color: selected ? AppColors.ui : AppColors.textMuted,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -287,7 +350,7 @@ class _SortButton extends StatelessWidget {
                   s.label,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: selected
-                        ? AppColors.primary
+                        ? AppColors.ui
                         : AppColors.textPrimary,
                     fontWeight:
                         selected ? FontWeight.w600 : FontWeight.w500,
@@ -298,7 +361,7 @@ class _SortButton extends StatelessWidget {
                 const Icon(
                   Icons.check_rounded,
                   size: 16,
-                  color: AppColors.primary,
+                  color: AppColors.ui,
                 ),
             ],
           ),
@@ -308,11 +371,11 @@ class _SortButton extends StatelessWidget {
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        decoration: BoxDecoration(
-          color: AppColors.glassFill,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          border: Border.all(color: AppColors.glassBorder),
-        ),
+          decoration: BoxDecoration(
+            color: AppColors.glassFillStrong,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            border: Border.all(color: AppColors.glassBorder),
+          ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -324,7 +387,7 @@ class _SortButton extends StatelessWidget {
               child: const Icon(
                 Icons.swap_vert_rounded,
                 size: 16,
-                color: AppColors.primary,
+                color: AppColors.ui,
               ),
             ),
             const SizedBox(width: 6),
@@ -377,6 +440,7 @@ class _CashFlowSummary extends StatelessWidget {
     final theme = Theme.of(context);
 
     return GlassCard(
+      accentGlow: true,
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
       child: IntrinsicHeight(
         child: Row(
@@ -419,7 +483,7 @@ class _CashFlowSummary extends StatelessWidget {
                       Icon(
                         Icons.compare_arrows_rounded,
                         size: 14,
-                        color: net >= 0 ? AppColors.saved : AppColors.primary,
+                        color: net >= 0 ? AppColors.income : AppColors.expense,
                       ),
                       const SizedBox(width: 6),
                       Text(
@@ -436,7 +500,7 @@ class _CashFlowSummary extends StatelessWidget {
                     formatCompactCurrency(net.abs()),
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w700,
-                      color: net >= 0 ? AppColors.saved : AppColors.primary,
+                      color: net >= 0 ? AppColors.income : AppColors.expense,
                     ),
                   ),
                 ],
@@ -458,6 +522,7 @@ class _AveragesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassCard(
+      accentGlow: true,
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
       child: IntrinsicHeight(
         child: Row(
@@ -506,19 +571,19 @@ class _AvgStat extends StatelessWidget {
     final theme = Theme.of(context);
     return Column(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 14, color: AppColors.textMuted),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: AppColors.textMuted,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+        Container(
+          width: 28,
+          height: 28,
+          decoration: AppDecorations.iconBadge(AppColors.ui),
+          child: Icon(icon, size: 14, color: AppColors.ui),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: AppColors.textMuted,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 6),
         Text(
@@ -547,7 +612,7 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final activeColor = color ?? AppColors.primary;
+    final activeColor = color ?? AppColors.ui;
 
     return Padding(
       padding: const EdgeInsets.only(right: 8),
@@ -557,15 +622,32 @@ class _FilterChip extends StatelessWidget {
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
           decoration: BoxDecoration(
-            color: selected
-                ? activeColor.withValues(alpha: 0.14)
-                : AppColors.glassFill,
+            gradient: selected
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      activeColor.withValues(alpha: 0.22),
+                      activeColor.withValues(alpha: 0.08),
+                    ],
+                  )
+                : null,
+            color: selected ? null : AppColors.glassFill,
             borderRadius: BorderRadius.circular(AppRadius.pill),
             border: Border.all(
               color: selected
                   ? activeColor.withValues(alpha: 0.55)
                   : AppColors.glassBorder,
             ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: activeColor.withValues(alpha: 0.22),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
           ),
           child: Text(
             label,

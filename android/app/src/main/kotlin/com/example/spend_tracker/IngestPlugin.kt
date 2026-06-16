@@ -1,5 +1,6 @@
 package com.example.spend_tracker
 
+import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -52,6 +53,8 @@ class IngestPlugin(
             "com.infrasofttech.indianbank",           // Indian Bank
             "com.amazon.mShop.android.shopping",      // Amazon (Amazon Pay)
             "com.whatsapp",                           // WhatsApp Pay
+            "app.com.brd",                            // UBL Digital (Pakistan)
+            "com.ubluk.dc",                           // UBL UK
         )
 
         // Lower-cased substrings that strongly suggest a banking / payments app.
@@ -60,7 +63,7 @@ class IngestPlugin(
             "bhim", "gpay", "hdfc", "icici", "sbi", "axis", "kotak",
             "yesbank", "idbi", "pnb", "baroda", "canara", "rbl", "indus",
             "federal", "paisa", "razorpay", "payu", "mobikwik", "freecharge",
-            "cred", "finance",
+            "cred", "finance", "ubl", "brd",
         )
 
         // Suppress duplicate onNotificationPosted bursts (same pkg + body within
@@ -181,6 +184,42 @@ class IngestPlugin(
             return amountRegex.containsMatchIn(text) &&
                 movementRegex.containsMatchIn(text)
         }
+
+        /**
+         * Pulls every human-readable line from a notification — banking apps
+         * (e.g. UBL Digital) often put the transaction body in [bigText],
+         * [textLines], or MessagingStyle [messages] instead of [text].
+         */
+        fun extractNotificationText(extras: android.os.Bundle?): String {
+            if (extras == null) return ""
+            val parts = LinkedHashSet<String>()
+
+            fun add(cs: CharSequence?) {
+                val t = cs?.toString()?.trim()
+                if (!t.isNullOrBlank()) parts.add(t)
+            }
+
+            add(extras.getCharSequence(Notification.EXTRA_TITLE))
+            add(extras.getCharSequence(Notification.EXTRA_TEXT))
+            add(extras.getCharSequence(Notification.EXTRA_BIG_TEXT))
+            add(extras.getCharSequence(Notification.EXTRA_SUB_TEXT))
+            add(extras.getCharSequence(Notification.EXTRA_INFO_TEXT))
+            add(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT))
+
+            extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.forEach { add(it) }
+
+            @Suppress("DEPRECATION")
+            val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+            if (messages != null) {
+                for (parcelable in messages) {
+                    if (parcelable is android.os.Bundle) {
+                        add(parcelable.getCharSequence("text"))
+                    }
+                }
+            }
+
+            return parts.joinToString(" — ")
+        }
     }
 
     init {
@@ -248,14 +287,7 @@ class NotificationCaptureService : NotificationListenerService() {
         if (pkg == applicationContext.packageName) return
 
         val extras = sbn.notification.extras
-        val title = extras?.getCharSequence("android.title")?.toString() ?: ""
-        val body = extras?.getCharSequence("android.text")?.toString() ?: ""
-        val bigText = extras?.getCharSequence("android.bigText")?.toString() ?: ""
-        // Prefer the expanded body text when present (carries the full message).
-        val content = if (bigText.isNotBlank()) bigText else body
-        val text = listOf(title, content)
-            .filter { it.isNotBlank() }
-            .joinToString(" — ")
+        val text = IngestPlugin.extractNotificationText(extras)
 
         Log.d(INGEST_TAG, "posted pkg=$pkg text=\"$text\"")
 

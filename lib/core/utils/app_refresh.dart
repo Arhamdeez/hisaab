@@ -385,13 +385,13 @@ class _OrbBackdrop extends StatelessWidget {
         ),
         border: Border.all(
           color: active
-              ? AppColors.primary.withValues(alpha: 0.5)
+              ? AppColors.ui.withValues(alpha: 0.5)
               : AppColors.glassBorder,
         ),
         boxShadow: [
           BoxShadow(
             color: active
-                ? AppColors.primary.withValues(alpha: 0.24)
+                ? AppColors.ui.withValues(alpha: 0.18)
                 : AppColors.shadow,
             blurRadius: active ? 18 : 12,
             spreadRadius: active ? -2 : -4,
@@ -416,13 +416,13 @@ class _PullRingPainter extends CustomPainter {
     ..strokeCap = StrokeCap.round;
 
   static final _arc = Paint()
-    ..color = AppColors.primary
+    ..color = AppColors.ui
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.4
     ..strokeCap = StrokeCap.round;
 
   static final _arcArmed = Paint()
-    ..color = AppColors.primaryGlow
+    ..color = AppColors.ui
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.4
     ..strokeCap = StrokeCap.round;
@@ -452,9 +452,9 @@ class _SpinRingPainter extends CustomPainter {
   static final _arc = Paint()
     ..shader = const SweepGradient(
       colors: [
-        Color(0x006F1D1B),
-        AppColors.primary,
-        AppColors.primaryGlow,
+        Color(0x00FFFFFF),
+        AppColors.ui,
+        AppColors.uiMuted,
       ],
       stops: [0.0, 0.7, 1.0],
     ).createShader(const Rect.fromLTWH(0, 0, 38, 38))

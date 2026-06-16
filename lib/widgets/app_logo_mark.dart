@@ -23,7 +23,7 @@ class AppLogoMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tint = color ??
-        (emphasized ? AppColors.primary : AppColors.textPrimary);
+        (emphasized ? AppColors.brand : AppColors.textPrimary);
 
     Widget child = Image.asset(
       _assetPath,

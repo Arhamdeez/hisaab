@@ -118,14 +118,37 @@ class TransactionParser {
       id: 9,
       name: 'Generic Debit',
       pattern:
-          r'(?:debited|spent|paid|withdrawn).*?(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d+)?)',
+          r'(?:debited|spent|paid|withdrawn).*?(?:Rs\.?|PKR|INR|₹|₨)\s*([\d,]+(?:\.\d+)?)',
       enabled: true,
     ),
     ParserRule(
       id: 10,
       name: 'Generic Credit',
       pattern:
-          r'(?:credited|received|deposited).*?(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d+)?)',
+          r'(?:credited|received|deposited).*?(?:Rs\.?|PKR|INR|₹|₨)\s*([\d,]+(?:\.\d+)?)',
+      enabled: true,
+    ),
+    ParserRule(
+      id: 11,
+      name: 'UBL / PKR Debit',
+      pattern:
+          r'(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?).*?(?:debited|debit|deducted|withdrawn|spent|paid)',
+      sourceHint: 'notification',
+      enabled: true,
+    ),
+    ParserRule(
+      id: 12,
+      name: 'UBL / PKR Credit',
+      pattern:
+          r'(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?).*?(?:credited|credit|deposited|received)',
+      sourceHint: 'notification',
+      enabled: true,
+    ),
+    ParserRule(
+      id: 13,
+      name: 'PKR Debit (amount after verb)',
+      pattern:
+          r'(?:debited|deducted|withdrawn).*?(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?)',
       enabled: true,
     ),
   ];

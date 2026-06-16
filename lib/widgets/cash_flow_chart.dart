@@ -26,7 +26,7 @@ class SpendingTrendChart extends StatelessWidget {
 
     return GlassContainer(
       radius: AppRadius.xl,
-      enableBlur: false,
+      blur: 10,
       padding: const EdgeInsets.fromLTRB(20, 20, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -97,15 +97,15 @@ class SpendingTrendChart extends StatelessWidget {
                     ),
                     isCurved: true,
                     curveSmoothness: 0.35,
-                    color: AppColors.primary,
+                    color: AppColors.ui,
                     barWidth: 3,
                     isStrokeCapRound: true,
                     dotData: FlDotData(
                       show: true,
                       getDotPainter: (spot, percent, bar, index) =>
                           FlDotCirclePainter(
-                        radius: 4,
-                        color: AppColors.primary,
+                        radius: AppRadius.dot,
+                        color: AppColors.ui,
                         strokeWidth: 2,
                         strokeColor: AppColors.background,
                       ),
@@ -116,8 +116,8 @@ class SpendingTrendChart extends StatelessWidget {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          AppColors.primary.withValues(alpha: 0.25),
-                          AppColors.primary.withValues(alpha: 0.0),
+                          AppColors.ui.withValues(alpha: 0.25),
+                          AppColors.ui.withValues(alpha: 0.0),
                         ],
                       ),
                     ),
@@ -179,7 +179,7 @@ class CashFlowChart extends StatelessWidget {
 
     return GlassContainer(
       radius: AppRadius.xl,
-      enableBlur: false,
+      blur: 10,
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -189,7 +189,7 @@ class CashFlowChart extends StatelessWidget {
           Text(
             formatCurrency(totalExpense),
             style: theme.textTheme.titleMedium?.copyWith(
-              color: AppColors.primary,
+              color: AppColors.expense,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -291,19 +291,19 @@ class CashFlowChart extends StatelessWidget {
                               toY: weeks[i].total,
                               width: weeks.length > 4 ? 26 : 34,
                               borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(8),
+                                top: Radius.circular(AppRadius.xs),
                               ),
                               backDrawRodData: BackgroundBarChartRodData(
                                 show: true,
                                 toY: niceMax,
-                                color: AppColors.primary.withValues(alpha: 0.08),
+                                color: AppColors.surfaceHigh,
                               ),
-                              gradient: const LinearGradient(
+                              gradient: LinearGradient(
                                 begin: Alignment.bottomCenter,
                                 end: Alignment.topCenter,
                                 colors: [
-                                  AppColors.primaryDim,
-                                  AppColors.primary,
+                                  AppColors.expense.withValues(alpha: 0.75),
+                                  AppColors.expense,
                                 ],
                               ),
                             ),
@@ -387,7 +387,7 @@ class CategoryDonutChart extends StatelessWidget {
             return PieChartSectionData(
               value: s.value,
               color: s.color,
-              radius: 32,
+              radius: AppRadius.hero,
               title: pct >= 8 ? '${pct.toStringAsFixed(0)}%' : '',
               titleStyle: const TextStyle(
                 fontSize: 10,

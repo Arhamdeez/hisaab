@@ -60,6 +60,16 @@ void main() {
     expect(result!.occurredAt, fallback);
   });
 
+  test('parses UBL Digital PKR debit notification', () {
+    final result = parser.parse(
+      'UBL Digital — Dear Customer, PKR 2,500.00 has been debited from A/C ***1234 on 16-JUN-2026',
+      source: TransactionSource.notification,
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 2500);
+    expect(result.type, TransactionType.debit);
+  });
+
   test('builds stable fingerprint', () {
     final fp1 = TransactionParser.buildFingerprint(
       amount: 500,

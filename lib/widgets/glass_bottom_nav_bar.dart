@@ -1,7 +1,10 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
-import 'glass_container.dart';
+import '../core/theme/app_decorations.dart';
+import '../core/theme/app_spacing.dart';
 
 class GlassNavDestination {
   const GlassNavDestination({
@@ -17,7 +20,7 @@ class GlassNavDestination {
   final int? badgeCount;
 }
 
-/// Compact floating glass tab bar tuned for five destinations.
+/// Floating frosted tab bar with a sliding pill indicator.
 class GlassBottomNavBar extends StatelessWidget {
   const GlassBottomNavBar({
     super.key,
@@ -30,15 +33,17 @@ class GlassBottomNavBar extends StatelessWidget {
   final ValueChanged<int> onSelected;
   final List<GlassNavDestination> destinations;
 
-  static const _iconSize = 22.0;
-  static const _barHeight = 62.0;
-  static const _glassPaddingV = 12.0;
+  static const _iconSize = 20.0;
+  static const _barHeight = 66.0;
+  static const _outerHPad = 18.0;
+  static const _glassPaddingV = 10.0;
+  static const _innerPad = 4.0;
 
   /// Space to reserve at the bottom of scroll views so content clears the bar.
   static double reservedHeight(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final outerBottom = bottomInset > 0 ? bottomInset + 6 : 16.0;
-    return _barHeight + _glassPaddingV + outerBottom + 10;
+    final outerBottom = bottomInset > 0 ? bottomInset + 8 : 18.0;
+    return _barHeight + _glassPaddingV + outerBottom + 12;
   }
 
   @override
@@ -49,32 +54,128 @@ class GlassBottomNavBar extends StatelessWidget {
       type: MaterialType.transparency,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          20,
+          _outerHPad,
           0,
-          20,
-          bottomInset > 0 ? bottomInset + 6 : 16,
+          _outerHPad,
+          bottomInset > 0 ? bottomInset + 8 : 18,
         ),
-        child: GlassContainer(
-          radius: 28,
-          blur: 22,
-          // Extra see-through so the gradient shows through the bar.
-          tint: AppColors.glassFill,
-          borderWidth: 0.5,
-          showShadow: false,
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          child: SizedBox(
-            height: _barHeight,
-            child: Row(
-              children: [
-                for (var i = 0; i < destinations.length; i++)
-                  Expanded(
-                    child: _NavItem(
-                      destination: destinations[i],
-                      selected: selectedIndex == i,
-                      onTap: () => onSelected(i),
-                    ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: AppRadius.borderXxl,
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.shadow.withValues(alpha: 0.65),
+                blurRadius: 28,
+                offset: const Offset(0, 14),
+                spreadRadius: -4,
+              ),
+              BoxShadow(
+                color: AppColors.ui.withValues(alpha: 0.06),
+                blurRadius: 40,
+                spreadRadius: -10,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: AppRadius.borderXxl,
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: AppRadius.borderXxl,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppColors.glassHighlight,
+                      AppColors.glassFillDeep,
+                      AppColors.glassFillStrong,
+                    ],
+                    stops: const [0.0, 0.45, 1.0],
                   ),
-              ],
+                  border: Border.all(
+                    color: AppColors.glassBorder,
+                    width: 0.9,
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: IgnorePointer(
+                        child: Container(
+                          height: 1,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.transparent,
+                                AppColors.glassSpecular,
+                                Colors.transparent,
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(_innerPad),
+                      child: SizedBox(
+                        height: _barHeight - _innerPad * 2,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final count = destinations.length;
+                            final slotWidth = constraints.maxWidth / count;
+                            const indicatorInset = 2.0;
+
+                            return Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                AnimatedPositioned(
+                                  duration: const Duration(milliseconds: 320),
+                                  curve: Curves.easeOutCubic,
+                                  left: selectedIndex * slotWidth + indicatorInset,
+                                  top: indicatorInset,
+                                  bottom: indicatorInset,
+                                  width: slotWidth - indicatorInset * 2,
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      borderRadius: AppRadius.borderLg,
+                                      color: AppColors.ui,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppColors.ui
+                                              .withValues(alpha: 0.18),
+                                          blurRadius: 12,
+                                          offset: const Offset(0, 3),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                Row(
+                                  children: [
+                                    for (var i = 0; i < count; i++)
+                                      Expanded(
+                                        child: _NavItem(
+                                          destination: destinations[i],
+                                          selected: selectedIndex == i,
+                                          onTap: () => onSelected(i),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -97,48 +198,52 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = selected ? AppColors.primary : AppColors.textSecondary;
+    final color =
+        selected ? AppColors.textOnPrimary : AppColors.textDim;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        splashColor: AppColors.primary.withValues(alpha: 0.08),
-        highlightColor: AppColors.primary.withValues(alpha: 0.04),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          decoration: BoxDecoration(
-            color: selected
-                ? AppColors.primary.withValues(alpha: 0.14)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _NavIcon(
-                icon: selected ? destination.selectedIcon : destination.icon,
-                color: color,
-                badgeCount: destination.badgeCount,
-              ),
-              const SizedBox(height: 3),
-              Text(
-                destination.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontSize: 10,
-                  height: 1.1,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                  color: color,
-                  letterSpacing: 0.1,
+        borderRadius: AppRadius.borderLg,
+        splashColor: AppColors.ui.withValues(alpha: 0.12),
+        highlightColor: AppColors.ui.withValues(alpha: 0.06),
+        child: SizedBox(
+          height: double.infinity,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _NavIcon(
+                  icon: selected ? destination.selectedIcon : destination.icon,
+                  color: selected ? AppColors.textOnPrimary : color,
+                  selected: selected,
+                  badgeCount: destination.badgeCount,
                 ),
-              ),
-            ],
+                const SizedBox(height: 2),
+                AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: selected ? 10 : 9.5,
+                        height: 1.0,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                        color: selected ? AppColors.textOnPrimary : color,
+                        letterSpacing: selected ? 0.12 : 0.04,
+                      ) ??
+                      const TextStyle(),
+                  child: Text(
+                    destination.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -150,11 +255,13 @@ class _NavIcon extends StatelessWidget {
   const _NavIcon({
     required this.icon,
     required this.color,
+    required this.selected,
     this.badgeCount,
   });
 
   final IconData icon;
   final Color color;
+  final bool selected;
   final int? badgeCount;
 
   @override
@@ -162,27 +269,48 @@ class _NavIcon extends StatelessWidget {
     final showBadge = badgeCount != null && badgeCount! > 0;
 
     return SizedBox(
-      width: 28,
-      height: 26,
+      width: 26,
+      height: 24,
       child: Stack(
-        clipBehavior: Clip.none,
+        clipBehavior: Clip.hardEdge,
         alignment: Alignment.center,
         children: [
-          Icon(icon, size: GlassBottomNavBar._iconSize, color: color),
+          if (selected)
+            Positioned(
+              child: Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.ui.withValues(alpha: 0.08),
+                ),
+              ),
+            ),
+          AnimatedScale(
+            scale: selected ? 1.05 : 1.0,
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+            child: Icon(
+              icon,
+              size: GlassBottomNavBar._iconSize,
+              color: color,
+            ),
+          ),
           if (showBadge)
             Positioned(
-              top: -2,
-              right: -2,
+              top: -3,
+              right: -1,
               child: Container(
-                constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
-                padding: const EdgeInsets.symmetric(horizontal: 3),
+                constraints: const BoxConstraints(minWidth: 15, minHeight: 15),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
                 decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(99),
+                  color: AppColors.brand,
+                  borderRadius: AppRadius.borderPill,
                   border: Border.all(
-                    color: AppColors.glassFillStrong,
+                    color: AppColors.glassFillDeep,
                     width: 1.5,
                   ),
+                  boxShadow: AppDecorations.heroGlow(),
                 ),
                 child: Text(
                   badgeCount! > 9 ? '9+' : '$badgeCount',
@@ -190,8 +318,8 @@ class _NavIcon extends StatelessWidget {
                   style: const TextStyle(
                     color: AppColors.textOnPrimary,
                     fontSize: 8,
-                    fontWeight: FontWeight.w700,
-                    height: 1.2,
+                    fontWeight: FontWeight.w800,
+                    height: 1.15,
                   ),
                 ),
               ),

@@ -11,9 +11,9 @@ abstract final class AppTheme {
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: const ColorScheme.dark(
-        primary: AppColors.primary,
+        primary: AppColors.ui,
         onPrimary: AppColors.textOnPrimary,
-        secondary: AppColors.primaryGlow,
+        secondary: AppColors.textSecondary,
         onSecondary: AppColors.textPrimary,
         surface: AppColors.backgroundElevated,
         onSurface: AppColors.textPrimary,
@@ -46,7 +46,7 @@ abstract final class AppTheme {
         ),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: AppColors.primary,
+        backgroundColor: AppColors.ui,
         foregroundColor: AppColors.textOnPrimary,
         elevation: 0,
         highlightElevation: 0,
@@ -56,7 +56,7 @@ abstract final class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: AppColors.navBar,
-        indicatorColor: AppColors.primary.withValues(alpha: 0.12),
+        indicatorColor: AppColors.glassFillStrong,
         surfaceTintColor: Colors.transparent,
         height: 72,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
@@ -64,20 +64,20 @@ abstract final class AppTheme {
           return GoogleFonts.plusJakartaSans(
             fontSize: 11,
             fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-            color: selected ? AppColors.primary : AppColors.textMuted,
+            color: selected ? AppColors.ui : AppColors.textMuted,
           );
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return IconThemeData(
-            color: selected ? AppColors.primary : AppColors.textMuted,
+            color: selected ? AppColors.ui : AppColors.textMuted,
             size: 22,
           );
         }),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.glassFill,
+        fillColor: AppColors.glassFillStrong,
         labelStyle: const TextStyle(color: AppColors.textSecondary),
         hintStyle: const TextStyle(color: AppColors.textMuted),
         border: OutlineInputBorder(
@@ -91,7 +91,7 @@ abstract final class AppTheme {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.md),
           borderSide: const BorderSide(
-            color: AppColors.primary,
+            color: AppColors.ui,
             width: 1.4,
           ),
         ),
@@ -102,31 +102,68 @@ abstract final class AppTheme {
         style: ButtonStyle(
           backgroundColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.selected)) {
-              return AppColors.primary.withValues(alpha: 0.22);
+              return AppColors.glassFillStrong;
             }
             return AppColors.surfaceHigh;
           }),
           foregroundColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.selected)) {
-              return AppColors.primary;
+              return AppColors.ui;
             }
             return AppColors.textSecondary;
           }),
         ),
       ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.textPrimary,
+          side: const BorderSide(color: AppColors.borderLight),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: AppRadius.borderMd,
+          ),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.textSecondary,
+          shape: RoundedRectangleBorder(
+            borderRadius: AppRadius.borderMd,
+          ),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.backgroundElevated,
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.borderLg,
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: AppColors.backgroundElevated,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.borderMd,
+        ),
+      ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: AppColors.backgroundElevated.withValues(alpha: 0.96),
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xxl)),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: AppColors.primary,
+          backgroundColor: AppColors.ui,
           foregroundColor: AppColors.textOnPrimary,
           elevation: 0,
+          shadowColor: AppColors.shadow.withValues(alpha: 0.45),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
+        ).copyWith(
+          overlayColor: WidgetStateProperty.all(
+            AppColors.textOnPrimary.withValues(alpha: 0.12),
           ),
         ),
       ),
@@ -139,7 +176,7 @@ abstract final class AppTheme {
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return AppColors.primary;
+            return AppColors.ui;
           }
           return AppColors.surfaceHigh;
         }),

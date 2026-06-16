@@ -3,12 +3,14 @@ import 'package:provider/provider.dart';
 
 import '../core/brand.dart';
 import '../core/theme/app_colors.dart';
+import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart' show AppRadius;
 import '../core/utils/app_refresh.dart';
 import '../core/utils/formatters.dart';
 import '../navigation/shell_scope.dart';
 import '../providers/app_preferences.dart';
 import '../providers/transaction_provider.dart';
+import '../widgets/app_logo_mark.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/centered_content.dart';
 import '../widgets/spend_focus_hero.dart';
@@ -32,10 +34,7 @@ class HomeScreen extends StatelessWidget {
         final income = prefs.resolveIncome(summary);
 
         // Show the most recently-dated activity first.
-        final recent = (provider.transactionsForMonth(month).toList()
-              ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt)))
-            .take(5)
-            .toList();
+        final recent = provider.recentForMonth(month);
 
         return SafeArea(
           child: AppRefreshScroll(
@@ -106,16 +105,26 @@ class _BrandHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'CASH FLOW',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: AppColors.textDim,
-            letterSpacing: 1.8,
-            fontWeight: FontWeight.w600,
-            fontSize: 11,
-          ),
+        Row(
+          children: [
+            const AppLogoMark(size: 16, color: AppColors.brand),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: AppDecorations.pillChip(),
+              child: Text(
+                'CASH FLOW',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                  letterSpacing: 1.6,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: 10),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -132,7 +141,7 @@ class _BrandHeader extends StatelessWidget {
                   TextSpan(text: AppBrand.name),
                   TextSpan(
                     text: '.',
-                    style: TextStyle(color: AppColors.primary),
+                    style: TextStyle(color: AppColors.brand),
                   ),
                 ],
               ),
@@ -177,8 +186,8 @@ class _HeaderIconButton extends StatelessWidget {
           clipBehavior: Clip.none,
           children: [
             GlassContainer(
-              radius: 22,
-              enableBlur: false,
+              radius: AppRadius.iconButton,
+              blur: 12,
               padding: EdgeInsets.zero,
               child: SizedBox(
                 width: 44,
@@ -194,7 +203,7 @@ class _HeaderIconButton extends StatelessWidget {
                   width: 8,
                   height: 8,
                   decoration: const BoxDecoration(
-                    color: AppColors.primary,
+                    color: AppColors.brand,
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -220,7 +229,7 @@ class _MonthSelector extends StatelessWidget {
           width: double.infinity,
           child: GlassContainer(
             radius: AppRadius.lg,
-            enableBlur: false,
+            blur: 12,
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
             child: Row(
             children: [
@@ -233,8 +242,15 @@ class _MonthSelector extends StatelessWidget {
                   formatMonthYear(month),
                   textAlign: TextAlign.center,
                   style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                    shadows: [
+                      Shadow(
+                        color: AppColors.ui.withValues(alpha: 0.15),
+                        blurRadius: 12,
+                      ),
+                    ],
+                  ),
                 ),
               ),
               _NavCircle(
@@ -270,11 +286,7 @@ class _NavCircle extends StatelessWidget {
       child: Container(
         width: 36,
         height: 36,
-        decoration: BoxDecoration(
-          color: AppColors.glassFillStrong,
-          shape: BoxShape.circle,
-          border: Border.all(color: AppColors.glassBorder),
-        ),
+        decoration: AppDecorations.iconButton(),
         child: Icon(icon, color: AppColors.textPrimary, size: 22),
       ),
     );
@@ -295,9 +307,23 @@ class _PendingBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.lg),
         child: Ink(
           decoration: BoxDecoration(
-            color: AppColors.warning.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: AppColors.warning.withValues(alpha: 0.25)),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.warning.withValues(alpha: 0.16),
+                AppColors.warning.withValues(alpha: 0.06),
+              ],
+            ),
+            border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.warning.withValues(alpha: 0.15),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Row(
