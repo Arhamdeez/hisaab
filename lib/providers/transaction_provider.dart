@@ -1,0 +1,176 @@
+import 'package:flutter/foundation.dart';
+
+import '../core/repositories/transaction_repository.dart';
+import '../features/dedup/deduplicator.dart';
+import '../features/parser/transaction_parser.dart';
+import '../models/transaction.dart';
+
+class TransactionProvider extends ChangeNotifier {
+  TransactionProvider({
+    required TransactionRepository repository,
+    required Deduplicator deduplicator,
+  })  : _repository = repository,
+        _deduplicator = deduplicator;
+
+  final TransactionRepository _repository;
+  final Deduplicator _deduplicator;
+
+  List<Transaction> _transactions = [];
+  DateTime _selectedMonth = DateTime.now();
+  bool _loaded = false;
+
+  List<Transaction> get transactions => List.unmodifiable(_transactions);
+  DateTime get selectedMonth => _selectedMonth;
+  bool get isLoaded => _loaded;
+
+  List<Transaction> get confirmedTransactions => _transactions
+      .where((t) => t.status == TransactionStatus.confirmed)
+      .toList();
+
+  List<Transaction> get pendingTransactions => _transactions
+      .where((t) => t.status == TransactionStatus.pendingReview)
+      .toList();
+
+  Future<void> load() async {
+    _transactions = await _repository.getAll();
+    _loaded = true;
+    notifyListeners();
+  }
+
+  Future<void> reload() => load();
+
+  List<Transaction> transactionsForMonth(DateTime month) {
+    return confirmedTransactions.where((t) {
+      return t.occurredAt.year == month.year &&
+          t.occurredAt.month == month.month;
+    }).toList();
+  }
+
+  MonthlySummary summaryForMonth(DateTime month) {
+    final txs = transactionsForMonth(month);
+    final debits = txs.where((t) => t.isDebit);
+    final credits = txs.where((t) => !t.isDebit);
+
+    final totalDebit = debits.fold<double>(0, (s, t) => s + t.amount);
+    final totalCredit = credits.fold<double>(0, (s, t) => s + t.amount);
+
+    final categoryMap = <SpendingCategory, CategorySummary>{};
+    for (final t in debits) {
+      final existing = categoryMap[t.category];
+      categoryMap[t.category] = CategorySummary(
+        category: t.category,
+        total: (existing?.total ?? 0) + t.amount,
+        count: (existing?.count ?? 0) + 1,
+      );
+    }
+
+    final bySource = <TransactionSource, double>{};
+    for (final t in debits) {
+      bySource[t.source] = (bySource[t.source] ?? 0) + t.amount;
+    }
+
+    final merchantMap = <String, double>{};
+    for (final t in debits) {
+      merchantMap[t.merchant] = (merchantMap[t.merchant] ?? 0) + t.amount;
+    }
+    final topMerchants = merchantMap.entries
+        .map((e) => (merchant: e.key, total: e.value))
+        .toList()
+      ..sort((a, b) => b.total.compareTo(a.total));
+
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    final daily = List<double>.filled(daysInMonth, 0);
+    for (final t in debits) {
+      daily[t.occurredAt.day - 1] += t.amount;
+    }
+
+    final pending = _transactions.where((t) {
+      return t.isPending &&
+          t.occurredAt.year == month.year &&
+          t.occurredAt.month == month.month;
+    }).length;
+
+    return MonthlySummary(
+      year: month.year,
+      month: month.month,
+      totalDebit: totalDebit,
+      totalCredit: totalCredit,
+      byCategory: categoryMap.values.toList()
+        ..sort((a, b) => b.total.compareTo(a.total)),
+      dailySpending: daily,
+      transactionCount: txs.length,
+      pendingCount: pending,
+      bySource: bySource,
+      topMerchants: topMerchants.take(5).toList(),
+    );
+  }
+
+  void setSelectedMonth(DateTime month) {
+    _selectedMonth = DateTime(month.year, month.month);
+    notifyListeners();
+  }
+
+  Future<void> confirmTransaction(String id) async {
+    await _repository.updateStatus(id, TransactionStatus.confirmed);
+    await load();
+  }
+
+  Future<void> ignoreTransaction(String id) async {
+    await _repository.updateStatus(id, TransactionStatus.ignored);
+    await load();
+  }
+
+  Future<void> addManualTransaction({
+    required double amount,
+    required String merchant,
+    required SpendingCategory category,
+    required TransactionType type,
+  }) async {
+    final now = DateTime.now();
+    final fingerprint = TransactionParser.buildFingerprint(
+      amount: amount,
+      occurredAt: now,
+      merchant: merchant,
+    );
+
+    await _repository.save(
+      Transaction(
+        id: now.millisecondsSinceEpoch.toString(),
+        amount: amount,
+        type: type,
+        merchant: merchant,
+        category: category,
+        occurredAt: now,
+        source: TransactionSource.manual,
+        status: TransactionStatus.confirmed,
+        fingerprint: fingerprint,
+      ),
+    );
+    await load();
+  }
+
+  Future<void> ingestRawMessage({
+    required String text,
+    required TransactionSource source,
+    DateTime? timestamp,
+  }) async {
+    final parser = TransactionParser();
+    final rules = await _repository.getParserRules();
+    if (rules.isNotEmpty) parser.updateRules(rules);
+
+    final parsed = parser.parse(
+      text,
+      source: source,
+      fallbackTime: timestamp ?? DateTime.now(),
+    );
+    if (parsed == null) return;
+
+    await _deduplicator.processIncoming(
+      parsed: parsed,
+      source: source,
+      rawText: text,
+      messageTime: timestamp ?? DateTime.now(),
+    );
+    await load();
+  }
+}

@@ -1,0 +1,149 @@
+import 'package:flutter/widgets.dart';
+
+import '../../core/database/app_database.dart';
+import '../../core/repositories/transaction_repository.dart';
+import '../../models/transaction.dart';
+import '../dedup/deduplicator.dart';
+import '../parser/transaction_parser.dart';
+import 'gmail_service.dart';
+import 'ingest_bridge.dart';
+
+class IngestService extends ChangeNotifier with WidgetsBindingObserver {
+  IngestService({
+    required TransactionRepository repository,
+    required AppDatabase database,
+    required GmailService gmailService,
+  })  : _repository = repository,
+        _deduplicator = Deduplicator(repository),
+        _parser = TransactionParser(),
+        _gmail = gmailService,
+        _database = database;
+
+  final TransactionRepository _repository;
+  final Deduplicator _deduplicator;
+  final TransactionParser _parser;
+  final GmailService _gmail;
+  final AppDatabase _database;
+
+  bool _listening = false;
+  bool _notificationAccess = false;
+
+  bool get isListening => _listening;
+  bool get isGmailConnected => _gmail.isConnected;
+
+  /// Whether the OS has actually granted notification-listener access. This is
+  /// the real capture state (the bridge being initialized is not enough).
+  bool get hasNotificationAccessGranted => _notificationAccess;
+
+  Future<void> initialize() async {
+    final rules = await _repository.getParserRules();
+    if (rules.isNotEmpty) _parser.updateRules(rules);
+
+    await IngestBridge.instance.initialize();
+    await _gmail.initialize(_database);
+
+    IngestBridge.instance.stream.listen(_handleIngestEvent);
+    _listening = true;
+
+    WidgetsBinding.instance.addObserver(this);
+
+    // Pull in anything captured while the app was closed, then verify access.
+    await _drainPending();
+    await refreshNotificationAccess();
+    notifyListeners();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Returning from system settings or background: re-check access and
+      // pick up anything buffered while we were away.
+      refreshNotificationAccess();
+      _drainPending();
+    }
+  }
+
+  Future<void> _drainPending() async {
+    final pending = await IngestBridge.instance.drainPending();
+    for (final event in pending) {
+      await _handleIngestEvent(event);
+    }
+  }
+
+  /// Re-reads the OS notification-access state and notifies listeners on change.
+  Future<bool> refreshNotificationAccess() async {
+    final enabled = await IngestBridge.instance.isNotificationAccessEnabled();
+    if (enabled != _notificationAccess) {
+      _notificationAccess = enabled;
+      notifyListeners();
+    }
+    return enabled;
+  }
+
+  Future<void> _handleIngestEvent(IngestEvent event) async {
+    if (event.text.trim().isEmpty) return;
+
+    final parsed = _parser.parse(
+      event.text,
+      source: event.source,
+      fallbackTime: event.timestamp,
+    );
+    if (parsed == null) return;
+
+    await _deduplicator.processIncoming(
+      parsed: parsed,
+      source: event.source,
+      rawText: event.text,
+      messageTime: event.timestamp,
+    );
+    notifyListeners();
+  }
+
+  Future<int> syncGmail() async {
+    final messages = await _gmail.fetchTransactionEmails();
+    var count = 0;
+    for (final msg in messages) {
+      final parsed = _parser.parse(
+        msg.body,
+        source: TransactionSource.gmail,
+        fallbackTime: msg.receivedAt,
+      );
+      if (parsed == null) continue;
+
+      final result = await _deduplicator.processIncoming(
+        parsed: parsed,
+        source: TransactionSource.gmail,
+        rawText: msg.body,
+        messageTime: msg.receivedAt,
+      );
+      if (result == DedupResult.created || result == DedupResult.merged) {
+        count++;
+      }
+    }
+    notifyListeners();
+    return count;
+  }
+
+  Future<bool> connectGmail() async {
+    final ok = await _gmail.signIn();
+    if (ok) notifyListeners();
+    return ok;
+  }
+
+  Future<void> disconnectGmail() async {
+    await _gmail.signOut();
+    notifyListeners();
+  }
+
+  Future<void> openNotificationSettings() =>
+      IngestBridge.instance.openNotificationAccessSettings();
+
+  Future<bool> hasNotificationAccess() =>
+      IngestBridge.instance.isNotificationAccessEnabled();
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+}

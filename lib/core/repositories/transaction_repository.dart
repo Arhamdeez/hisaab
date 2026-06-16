@@ -1,0 +1,121 @@
+import 'package:drift/drift.dart';
+
+import '../database/app_database.dart' as db;
+import '../../features/parser/transaction_parser.dart';
+import '../../models/transaction.dart' as domain;
+
+class TransactionRepository {
+  TransactionRepository(this._db);
+
+  final db.AppDatabase _db;
+
+  Future<List<domain.Transaction>> getAll() async {
+    final rows = await _db.getAllTransactions();
+    return rows.map(_mapRow).toList();
+  }
+
+  Future<domain.Transaction?> getByFingerprint(String fingerprint) async {
+    final row = await _db.getByFingerprint(fingerprint);
+    return row == null ? null : _mapRow(row);
+  }
+
+  Future<List<domain.Transaction>> getInDedupWindow({
+    required String fingerprint,
+    required DateTime occurredAt,
+    Duration window = const Duration(minutes: 15),
+  }) async {
+    final rows = await _db.getTransactionsInWindow(
+      fingerprint: fingerprint,
+      from: occurredAt.subtract(window),
+      to: occurredAt.add(window),
+    );
+    return rows.map(_mapRow).toList();
+  }
+
+  Future<void> save(domain.Transaction transaction) async {
+    await _db.upsertTransaction(_toCompanion(transaction));
+  }
+
+  Future<void> updateStatus(String id, domain.TransactionStatus status) =>
+      _db.updateTransactionStatus(id, status.storageKey);
+
+  Future<void> updateLinkedSources(
+    String id,
+    List<domain.TransactionSource> sources,
+  ) =>
+      _db.updateLinkedSources(id, domain.linkedSourcesToJson(sources));
+
+  /// Removes legacy demo rows seeded during development.
+  Future<int> deleteLegacySeedData() =>
+      _db.deleteTransactionsWithIdPrefix('seed_');
+
+  Future<List<ParserRule>> getParserRules() async {
+    final rows = await _db.getEnabledParserRules();
+    return rows
+        .map(
+          (r) => ParserRule(
+            id: r.id,
+            name: r.name,
+            pattern: r.pattern,
+            sourceHint: r.sourceHint,
+            enabled: r.enabled,
+          ),
+        )
+        .toList();
+  }
+
+  Future<void> cacheMonthlySummary({
+    required String yearMonth,
+    required double totalDebit,
+    required double totalCredit,
+    required String byCategoryJson,
+    required int transactionCount,
+  }) {
+    return _db.upsertMonthlySummary(
+      db.MonthlySummariesCompanion(
+        yearMonth: Value(yearMonth),
+        totalDebit: Value(totalDebit),
+        totalCredit: Value(totalCredit),
+        byCategoryJson: Value(byCategoryJson),
+        transactionCount: Value(transactionCount),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  domain.Transaction _mapRow(db.Transaction row) {
+    return domain.Transaction(
+      id: row.id,
+      amount: row.amount,
+      currency: row.currency,
+      type: domain.TransactionTypeX.fromKey(row.type),
+      merchant: row.merchant,
+      category: domain.SpendingCategoryX.fromKey(row.category),
+      occurredAt: row.occurredAt,
+      source: domain.TransactionSourceX.fromKey(row.source),
+      status: domain.TransactionStatusX.fromKey(row.status),
+      rawText: row.rawText,
+      confidence: row.confidence,
+      fingerprint: row.fingerprint,
+      linkedSources: domain.linkedSourcesFromJson(row.linkedSources),
+    );
+  }
+
+  db.TransactionsCompanion _toCompanion(domain.Transaction t) {
+    return db.TransactionsCompanion(
+      id: Value(t.id),
+      amount: Value(t.amount),
+      currency: Value(t.currency),
+      type: Value(t.type.storageKey),
+      merchant: Value(t.merchant),
+      category: Value(t.category.storageKey),
+      occurredAt: Value(t.occurredAt),
+      source: Value(t.source.storageKey),
+      rawText: Value(t.rawText),
+      confidence: Value(t.confidence),
+      status: Value(t.status.storageKey),
+      fingerprint: Value(t.fingerprint),
+      linkedSources: Value(domain.linkedSourcesToJson(t.linkedSources)),
+    );
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "dart.flutterSdkPath": "/usr/local/share/flutter",
+  "dart.flutterHotReloadOnSave": "all",
+  "dart.flutterHotRestartOnSave": "never",
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 300
+}

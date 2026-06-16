@@ -1,0 +1,76 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../widgets/glass_container.dart';
+import '../providers/transaction_provider.dart';
+import 'main_shell.dart';
+import 'onboarding_screen.dart';
+import 'splash_screen.dart';
+
+class AppBootstrap extends StatefulWidget {
+  const AppBootstrap({super.key});
+
+  @override
+  State<AppBootstrap> createState() => _AppBootstrapState();
+}
+
+class _AppBootstrapState extends State<AppBootstrap> {
+  bool? _onboardingComplete;
+  bool _splashDone = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkOnboarding();
+  }
+
+  Future<void> _checkOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget child;
+
+    if (!_splashDone || _onboardingComplete == null) {
+      child = SplashScreen(
+        key: const ValueKey('splash'),
+        onComplete: () {
+          if (mounted) setState(() => _splashDone = true);
+        },
+      );
+    } else if (!_onboardingComplete!) {
+      child = OnboardingScreen(
+        key: const ValueKey('onboarding'),
+        onComplete: () async {
+          final provider = context.read<TransactionProvider>();
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('onboarding_complete', true);
+          if (!mounted) return;
+          setState(() => _onboardingComplete = true);
+          await provider.reload();
+        },
+      );
+    } else {
+      child = const MainShell(key: ValueKey('shell'));
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const AppBackground(),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 480),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: child,
+        ),
+      ],
+    );
+  }
+}
