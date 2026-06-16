@@ -11,21 +11,27 @@ class BalanceHeroCard extends StatelessWidget {
     required this.totalExpense,
     required this.totalIncome,
     this.showIncome = true,
+    this.trackInwardFlow = false,
+    this.totalReceived = 0,
   });
 
   final double totalExpense;
   final double totalIncome;
   final bool showIncome;
+  final bool trackInwardFlow;
+  final double totalReceived;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final usedPct = totalIncome > 0
+    final cashFlowOnly = trackInwardFlow && !showIncome;
+    final hasIncome = showIncome && totalIncome > 0;
+    final usedPct = hasIncome
         ? (totalExpense / totalIncome).clamp(0.0, 1.0)
         : 0.0;
     final usedPercent = usedPct * 100;
-
     final remaining = totalIncome - totalExpense;
+    final netCash = totalReceived - totalExpense;
 
     return GlassContainer(
       radius: AppRadius.xl,
@@ -36,7 +42,7 @@ class BalanceHeroCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
-            'Total spent',
+            cashFlowOnly ? 'Cash out' : 'Total spent',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppColors.textMuted,
@@ -50,7 +56,65 @@ class BalanceHeroCard extends StatelessWidget {
             textAlign: TextAlign.center,
             style: theme.textTheme.displayLarge,
           ),
-          if (showIncome) ...[
+          if (trackInwardFlow) ...[
+            const SizedBox(height: 20),
+            IntrinsicHeight(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          'Cash in',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.textMuted,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          formatCurrency(totalReceived),
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            color: AppColors.income,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: AppColors.border,
+                    indent: 4,
+                    endIndent: 4,
+                  ),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          netCash >= 0 ? 'Net cash' : 'Net out',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.textMuted,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          formatCurrency(netCash.abs()),
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            color: netCash >= 0
+                                ? AppColors.saved
+                                : AppColors.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (hasIncome) ...[
             const SizedBox(height: 8),
             Text(
               'of ${formatCurrency(totalIncome)} income',
@@ -81,7 +145,7 @@ class BalanceHeroCard extends StatelessWidget {
                 ),
               ],
             ),
-          ] else ...[
+          ] else if (!trackInwardFlow) ...[
             const SizedBox(height: 8),
             Text(
               'This month',

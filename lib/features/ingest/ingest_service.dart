@@ -4,6 +4,7 @@ import '../../core/database/app_database.dart';
 import '../../core/repositories/transaction_repository.dart';
 import '../../models/transaction.dart';
 import '../dedup/deduplicator.dart';
+import '../notifications/notification_service.dart';
 import '../parser/transaction_parser.dart';
 import 'gmail_service.dart';
 import 'ingest_bridge.dart';
@@ -39,6 +40,10 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     final rules = await _repository.getParserRules();
     if (rules.isNotEmpty) _parser.updateRules(rules);
 
+    await NotificationService.instance.initialize();
+    // Fast path: apply quick-reply actions directly (no disk queue) whenever the
+    // app is alive to handle them.
+    NotificationService.instance.onForegroundDecision = _applyDecision;
     await IngestBridge.instance.initialize();
     await _gmail.initialize(_database);
 
@@ -49,6 +54,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
     // Pull in anything captured while the app was closed, then verify access.
     await _drainPending();
+    await _drainNotificationActions();
     await refreshNotificationAccess();
     notifyListeners();
   }
@@ -56,11 +62,31 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Returning from system settings or background: re-check access and
-      // pick up anything buffered while we were away.
-      refreshNotificationAccess();
-      _drainPending();
+      _onResumed();
     }
+  }
+
+  Future<void> _onResumed() async {
+    await refreshNotificationAccess();
+    await _drainPending();
+    await _drainNotificationActions();
+    // Background quick-replies write straight to SQLite; reload so Home/Inbox
+    // reflect confirmed/ignored items immediately on return.
+    notifyListeners();
+  }
+
+  /// Applies a single quick-reply decision immediately (foreground fast path).
+  Future<void> _applyDecision(NotificationDecision decision) async {
+    final changed =
+        await NotificationService.instance.applyDecision(_repository, decision);
+    if (changed) notifyListeners();
+  }
+
+  /// Applies decisions queued while the app was terminated, then refreshes.
+  Future<void> _drainNotificationActions() async {
+    final changed =
+        await NotificationService.instance.drainPendingActions(_repository);
+    if (changed) notifyListeners();
   }
 
   Future<void> _drainPending() async {
@@ -90,12 +116,21 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     );
     if (parsed == null) return;
 
-    await _deduplicator.processIncoming(
+    final outcome = await _deduplicator.processIncoming(
       parsed: parsed,
       source: event.source,
       rawText: event.text,
       messageTime: event.timestamp,
     );
+
+    // A brand-new capture: ping the user with a real system notification so
+    // they know something landed in their review inbox even if the app is in
+    // the background.
+    final captured = outcome.transaction;
+    if (outcome.result == DedupResult.created && captured != null) {
+      await NotificationService.instance.showTransactionCaptured(captured);
+    }
+
     notifyListeners();
   }
 
@@ -110,14 +145,19 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       );
       if (parsed == null) continue;
 
-      final result = await _deduplicator.processIncoming(
+      final outcome = await _deduplicator.processIncoming(
         parsed: parsed,
         source: TransactionSource.gmail,
         rawText: msg.body,
         messageTime: msg.receivedAt,
       );
-      if (result == DedupResult.created || result == DedupResult.merged) {
+      if (outcome.result == DedupResult.created ||
+          outcome.result == DedupResult.merged) {
         count++;
+      }
+      final captured = outcome.transaction;
+      if (outcome.result == DedupResult.created && captured != null) {
+        await NotificationService.instance.showTransactionCaptured(captured);
       }
     }
     notifyListeners();

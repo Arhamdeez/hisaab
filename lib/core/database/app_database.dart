@@ -99,6 +99,10 @@ class AppDatabase extends _$AppDatabase {
       (select(transactions)..where((t) => t.fingerprint.equals(fingerprint)))
           .getSingleOrNull();
 
+  Future<Transaction?> getTransactionById(String id) =>
+      (select(transactions)..where((t) => t.id.equals(id)))
+          .getSingleOrNull();
+
   Future<List<Transaction>> getTransactionsInWindow({
     required String fingerprint,
     required DateTime from,
@@ -119,6 +123,30 @@ class AppDatabase extends _$AppDatabase {
   Future<void> updateTransactionStatus(String id, String status) async {
     await (update(transactions)..where((t) => t.id.equals(id))).write(
       TransactionsCompanion(status: Value(status)),
+    );
+  }
+
+  /// Applies a review decision in one write: status plus optional merchant and
+  /// category overrides (used by the quick-reply notification action).
+  /// Returns how many rows were updated (0 if already reviewed).
+  Future<int> updateTransactionReviewIfPending(
+    String id, {
+    required String status,
+    String? merchant,
+    String? category,
+  }) {
+    return (update(transactions)
+          ..where(
+            (t) =>
+                t.id.equals(id) &
+                t.status.equals('pendingReview'),
+          ))
+        .write(
+      TransactionsCompanion(
+        status: Value(status),
+        merchant: merchant == null ? const Value.absent() : Value(merchant),
+        category: category == null ? const Value.absent() : Value(category),
+      ),
     );
   }
 
@@ -158,6 +186,15 @@ LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dir = await getApplicationDocumentsDirectory();
     final file = File(p.join(dir.path, 'spend_tracker.sqlite'));
-    return NativeDatabase(file);
+    return NativeDatabase(
+      file,
+      setup: (db) {
+        // WAL allows a concurrent reader + writer, and a busy timeout makes the
+        // background-isolate (notification quick-reply) write wait for a lock
+        // instead of failing when the app is also open.
+        db.execute('PRAGMA journal_mode = WAL;');
+        db.execute('PRAGMA busy_timeout = 3000;');
+      },
+    );
   });
 }

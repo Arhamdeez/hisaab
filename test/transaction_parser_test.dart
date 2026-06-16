@@ -26,6 +26,40 @@ void main() {
     expect(result.type, TransactionType.credit);
   });
 
+  test('keeps a valid in-range date from the message', () {
+    final result = parser.parse(
+      'Rs 500 debited from A/c **4521 on 16-06-26 at SWIGGY',
+      source: TransactionSource.sms,
+      fallbackTime: DateTime(2026, 6, 20, 9, 30),
+    );
+    expect(result, isNotNull);
+    expect(result!.occurredAt, DateTime(2026, 6, 16));
+  });
+
+  test('ignores reference numbers that look like dates', () {
+    // "1234-56-7890" must not be misread as a date and file the transaction
+    // into a bogus month — it should fall back to the message time.
+    final fallback = DateTime(2026, 6, 16, 14, 0);
+    final result = parser.parse(
+      'Rs 200 spent at Cafe Ref 1234-56-7890',
+      source: TransactionSource.notification,
+      fallbackTime: fallback,
+    );
+    expect(result, isNotNull);
+    expect(result!.occurredAt, fallback);
+  });
+
+  test('ignores future dates and falls back to the message time', () {
+    final fallback = DateTime(2026, 6, 16, 14, 0);
+    final result = parser.parse(
+      'Rs 200 spent at Cafe on 16-06-40',
+      source: TransactionSource.notification,
+      fallbackTime: fallback,
+    );
+    expect(result, isNotNull);
+    expect(result!.occurredAt, fallback);
+  });
+
   test('builds stable fingerprint', () {
     final fp1 = TransactionParser.buildFingerprint(
       amount: 500,

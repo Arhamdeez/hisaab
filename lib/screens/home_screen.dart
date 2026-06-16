@@ -9,13 +9,12 @@ import '../core/utils/formatters.dart';
 import '../navigation/shell_scope.dart';
 import '../providers/app_preferences.dart';
 import '../providers/transaction_provider.dart';
-import '../models/transaction.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/centered_content.dart';
 import '../widgets/spend_focus_hero.dart';
-import '../widgets/balance_hero_card.dart' show StatMiniCard;
 import '../widgets/home_sections.dart' show HomeRecentActivity;
 import '../widgets/glass_bottom_nav_bar.dart';
+import '../widgets/refresh_skeleton.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -26,25 +25,21 @@ class HomeScreen extends StatelessWidget {
       builder: (context, provider, prefs, _) {
         final month = provider.selectedMonth;
         final summary = provider.summaryForMonth(month);
-        // Manual monthly income (Settings) takes precedence; otherwise fall
-        // back to income derived from credit transactions.
-        final income = prefs.hasMonthlyIncome
-            ? prefs.monthlyIncome
-            : summary.totalCredit;
+        // Pending items are reviewed globally (the Inbox shows every month), so
+        // the bell badge and banner track the total, not just this month's.
+        final pendingTotal = provider.pendingCount;
+        // Income budget uses [showIncome] only — independent of cash-in tracking.
+        final income = prefs.resolveIncome(summary);
 
-        final recent = provider.transactionsForMonth(month).take(5).toList();
-        final activeDays = summary.dailySpending.where((d) => d > 0).length;
-        final dailyAvg = summary.totalDebit / (activeDays == 0 ? 1 : activeDays);
-        CategorySummary? topCategory;
-        for (final c in summary.byCategory) {
-          if (topCategory == null || c.total > topCategory.total) {
-            topCategory = c;
-          }
-        }
-        final hasActivity = summary.transactionCount > 0;
+        // Show the most recently-dated activity first.
+        final recent = (provider.transactionsForMonth(month).toList()
+              ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt)))
+            .take(5)
+            .toList();
 
         return SafeArea(
           child: AppRefreshScroll(
+            skeleton: const HomeRefreshSkeleton(),
             child: CustomScrollView(
               physics: refreshScrollPhysics,
               slivers: [
@@ -54,7 +49,7 @@ class HomeScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _BrandHeader(pendingCount: summary.pendingCount),
+                        _BrandHeader(pendingCount: pendingTotal),
                         const SizedBox(height: 20),
                         _MonthSelector(month: month),
                         const SizedBox(height: 20),
@@ -62,59 +57,19 @@ class HomeScreen extends StatelessWidget {
                           totalSpent: summary.totalDebit,
                           income: income,
                           showIncome: prefs.showIncome,
+                          trackInwardFlow: prefs.trackInwardFlow,
+                          totalReceived: summary.totalCredit,
                           monthLabel: formatMonthYear(month),
                           transactionCount: summary.transactionCount,
                         ),
-                        if (summary.pendingCount > 0) ...[
+                        if (pendingTotal > 0) ...[
                           const SizedBox(height: 16),
-                          _PendingBanner(count: summary.pendingCount),
+                          _PendingBanner(count: pendingTotal),
                         ],
                       ],
                     ),
                   ),
                 ),
-                if (hasActivity)
-                  SliverToBoxAdapter(
-                    child: CenteredContent(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: IntrinsicHeight(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: StatMiniCard(
-                                label: 'Daily avg',
-                                value: formatCompactCurrency(dailyAvg),
-                                icon: Icons.trending_up_rounded,
-                                iconColor: AppColors.primary,
-                                subtitle:
-                                    '$activeDays active ${activeDays == 1 ? 'day' : 'days'}',
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: topCategory != null
-                                  ? StatMiniCard(
-                                      label: 'Top category',
-                                      value: formatCompactCurrency(
-                                        topCategory.total,
-                                      ),
-                                      icon: topCategory.category.icon,
-                                      iconColor: topCategory.category.color,
-                                      subtitle: topCategory.category.label,
-                                    )
-                                  : const StatMiniCard(
-                                      label: 'Top category',
-                                      value: '—',
-                                      icon: Icons.category_outlined,
-                                      iconColor: AppColors.textMuted,
-                                    ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
                 SliverToBoxAdapter(
                   child: CenteredContent(
                     padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
@@ -228,7 +183,7 @@ class _HeaderIconButton extends StatelessWidget {
               child: SizedBox(
                 width: 44,
                 height: 44,
-                child: Icon(icon, color: AppColors.textSecondary, size: 22),
+                child: Icon(icon, color: AppColors.textPrimary, size: 22),
               ),
             ),
             if (showBadge)
@@ -320,7 +275,7 @@ class _NavCircle extends StatelessWidget {
           shape: BoxShape.circle,
           border: Border.all(color: AppColors.glassBorder),
         ),
-        child: Icon(icon, color: AppColors.textSecondary, size: 22),
+        child: Icon(icon, color: AppColors.textPrimary, size: 22),
       ),
     );
   }

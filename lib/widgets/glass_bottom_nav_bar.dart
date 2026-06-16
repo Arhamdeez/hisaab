@@ -45,25 +45,37 @@ class GlassBottomNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20, 0, 20, bottomInset > 0 ? bottomInset + 6 : 16),
-      child: GlassContainer(
-        radius: 26,
-        blur: 12,
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: SizedBox(
-          height: _barHeight,
-          child: Row(
-            children: [
-              for (var i = 0; i < destinations.length; i++)
-                Expanded(
-                  child: _NavItem(
-                    destination: destinations[i],
-                    selected: selectedIndex == i,
-                    onTap: () => onSelected(i),
+    return Material(
+      type: MaterialType.transparency,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          0,
+          20,
+          bottomInset > 0 ? bottomInset + 6 : 16,
+        ),
+        child: GlassContainer(
+          radius: 28,
+          blur: 22,
+          // Extra see-through so the gradient shows through the bar.
+          tint: AppColors.glassFill,
+          borderWidth: 0.5,
+          showShadow: false,
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          child: SizedBox(
+            height: _barHeight,
+            child: Row(
+              children: [
+                for (var i = 0; i < destinations.length; i++)
+                  Expanded(
+                    child: _NavItem(
+                      destination: destinations[i],
+                      selected: selectedIndex == i,
+                      onTap: () => onSelected(i),
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -85,7 +97,7 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = selected ? AppColors.primary : AppColors.textMuted;
+    final color = selected ? AppColors.primary : AppColors.textSecondary;
 
     return Material(
       color: Colors.transparent,
@@ -176,7 +188,7 @@ class _NavIcon extends StatelessWidget {
                   badgeCount! > 9 ? '9+' : '$badgeCount',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textOnPrimary,
                     fontSize: 8,
                     fontWeight: FontWeight.w700,
                     height: 1.2,

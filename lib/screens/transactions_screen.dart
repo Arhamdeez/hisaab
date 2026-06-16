@@ -7,8 +7,11 @@ import '../core/utils/app_refresh.dart';
 import '../widgets/glass_container.dart';
 import '../core/utils/formatters.dart';
 import '../models/transaction.dart';
+import '../providers/app_preferences.dart';
 import '../providers/transaction_provider.dart';
+import '../screens/transaction_detail_screen.dart';
 import '../widgets/transaction_tile.dart';
+import '../widgets/refresh_skeleton.dart';
 
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
@@ -17,14 +20,41 @@ class TransactionsScreen extends StatefulWidget {
   State<TransactionsScreen> createState() => _TransactionsScreenState();
 }
 
+enum _TxSort {
+  timeDesc,
+  timeAsc,
+  amountDesc,
+  amountAsc;
+
+  String get label => switch (this) {
+        _TxSort.timeDesc => 'Newest first',
+        _TxSort.timeAsc => 'Oldest first',
+        _TxSort.amountDesc => 'Amount: High to low',
+        _TxSort.amountAsc => 'Amount: Low to high',
+      };
+
+  String get shortLabel => switch (this) {
+        _TxSort.timeDesc => 'Newest',
+        _TxSort.timeAsc => 'Oldest',
+        _TxSort.amountDesc => 'High',
+        _TxSort.amountAsc => 'Low',
+      };
+
+  IconData get icon => switch (this) {
+        _TxSort.timeDesc || _TxSort.timeAsc => Icons.schedule_rounded,
+        _TxSort.amountDesc || _TxSort.amountAsc => Icons.payments_outlined,
+      };
+}
+
 class _TransactionsScreenState extends State<TransactionsScreen> {
   String _query = '';
   SpendingCategory? _filterCategory;
+  _TxSort _sort = _TxSort.timeDesc;
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<TransactionProvider>(
-      builder: (context, provider, _) {
+    return Consumer2<TransactionProvider, AppPreferences>(
+      builder: (context, provider, prefs, _) {
         final selected = provider.selectedMonth;
         final summary = provider.summaryForMonth(selected);
 
@@ -67,6 +97,18 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           txs = txs.where((t) => t.category == _filterCategory).toList();
         }
 
+        txs = [...txs];
+        switch (_sort) {
+          case _TxSort.timeDesc:
+            txs.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+          case _TxSort.timeAsc:
+            txs.sort((a, b) => a.occurredAt.compareTo(b.occurredAt));
+          case _TxSort.amountDesc:
+            txs.sort((a, b) => b.amount.compareTo(a.amount));
+          case _TxSort.amountAsc:
+            txs.sort((a, b) => a.amount.compareTo(b.amount));
+        }
+
         return SafeArea(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -78,9 +120,19 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   AppSpacing.pageH,
                   0,
                 ),
-                child: Text(
-                  'Transactions',
-                  style: Theme.of(context).textTheme.headlineLarge,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Transactions',
+                        style: Theme.of(context).textTheme.headlineLarge,
+                      ),
+                    ),
+                    _SortButton(
+                      sort: _sort,
+                      onChanged: (s) => setState(() => _sort = s),
+                    ),
+                  ],
                 ),
               ),
               Padding(
@@ -123,6 +175,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               ),
               Expanded(
                 child: AppRefreshScroll(
+                  skeleton: const TransactionsRefreshSkeleton(),
                   child: txs.isEmpty
                       ? ListView(
                           physics: refreshScrollPhysics,
@@ -149,7 +202,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                             AppSpacing.navBottom,
                           ),
                           children: [
-                            if (summary.totalDebit > 0) ...[
+                            if (prefs.trackInwardFlow) ...[
+                              _CashFlowSummary(
+                                spent: summary.totalDebit,
+                                received: summary.totalCredit,
+                              ),
+                              const SizedBox(height: 12),
+                            ] else if (summary.totalDebit > 0) ...[
                               _AveragesCard(
                                 dailyAvg: dailyAvg,
                                 monthlyAvg: monthlyAvg,
@@ -164,6 +223,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                                       transaction: txs[i],
                                       showSource: true,
                                       compact: true,
+                                      onTap: () => TransactionDetailScreen.open(
+                                        context,
+                                        txs[i],
+                                      ),
                                     ),
                                     if (i < txs.length - 1)
                                       const Divider(
@@ -184,6 +247,204 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _SortButton extends StatelessWidget {
+  const _SortButton({required this.sort, required this.onChanged});
+
+  final _TxSort sort;
+  final ValueChanged<_TxSort> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return PopupMenuButton<_TxSort>(
+      initialValue: sort,
+      onSelected: onChanged,
+      tooltip: 'Sort',
+      color: AppColors.backgroundElevated,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        side: const BorderSide(color: AppColors.glassBorder),
+      ),
+      itemBuilder: (context) => _TxSort.values.map((s) {
+        final selected = s == sort;
+        return PopupMenuItem<_TxSort>(
+          value: s,
+          child: Row(
+            children: [
+              Icon(
+                s.icon,
+                size: 18,
+                color: selected ? AppColors.primary : AppColors.textMuted,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  s.label,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: selected
+                        ? AppColors.primary
+                        : AppColors.textPrimary,
+                    fontWeight:
+                        selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ),
+              if (selected)
+                const Icon(
+                  Icons.check_rounded,
+                  size: 16,
+                  color: AppColors.primary,
+                ),
+            ],
+          ),
+        );
+      }).toList(),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: AppColors.glassFill,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: AppColors.glassBorder),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Flip the arrow for ascending orders so the toggle feels physical.
+            AnimatedRotation(
+              turns: _isAscending ? 0.5 : 0.0,
+              duration: const Duration(milliseconds: 280),
+              curve: Curves.easeOutBack,
+              child: const Icon(
+                Icons.swap_vert_rounded,
+                size: 16,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 6),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 240),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: SizeTransition(
+                    axis: Axis.horizontal,
+                    sizeFactor: animation,
+                    axisAlignment: -1,
+                    child: child,
+                  ),
+                );
+              },
+              child: Text(
+                sort.shortLabel,
+                key: ValueKey(sort),
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool get _isAscending =>
+      sort == _TxSort.timeAsc || sort == _TxSort.amountAsc;
+}
+
+class _CashFlowSummary extends StatelessWidget {
+  const _CashFlowSummary({
+    required this.spent,
+    required this.received,
+  });
+
+  final double spent;
+  final double received;
+
+  @override
+  Widget build(BuildContext context) {
+    final net = received - spent;
+    final theme = Theme.of(context);
+
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            Expanded(
+              child: _AvgStat(
+                icon: Icons.south_west_rounded,
+                label: 'Cash out',
+                value: formatCompactCurrency(spent),
+              ),
+            ),
+            const VerticalDivider(
+              width: 1,
+              thickness: 1,
+              indent: 4,
+              endIndent: 4,
+              color: AppColors.border,
+            ),
+            Expanded(
+              child: _AvgStat(
+                icon: Icons.north_east_rounded,
+                label: 'Cash in',
+                value: formatCompactCurrency(received),
+              ),
+            ),
+            const VerticalDivider(
+              width: 1,
+              thickness: 1,
+              indent: 4,
+              endIndent: 4,
+              color: AppColors.border,
+            ),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.compare_arrows_rounded,
+                        size: 14,
+                        color: net >= 0 ? AppColors.saved : AppColors.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        net >= 0 ? 'Net' : 'Net out',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.textMuted,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    formatCompactCurrency(net.abs()),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: net >= 0 ? AppColors.saved : AppColors.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -4,8 +4,7 @@ import 'app_colors.dart';
 import 'app_spacing.dart';
 
 abstract final class AppDecorations {
-  /// Standard surface — quiet fill, hairline border, one soft shadow.
-  /// Deliberately restrained so stacked cards don't feel noisy.
+  /// Standard surface — quiet fill, hairline border, soft wine-tinted shadow.
   static BoxDecoration card({
     Color? color,
     double radius = AppRadius.lg,
@@ -13,27 +12,27 @@ abstract final class AppDecorations {
   }) {
     return BoxDecoration(
       borderRadius: BorderRadius.circular(radius),
-      color: color ?? AppColors.glassFill,
+      color: color ?? AppColors.glassFillStrong,
       border: Border.all(color: AppColors.glassBorder, width: 0.75),
       boxShadow: glow
           ? [
               BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.12),
+                color: AppColors.primary.withValues(alpha: 0.14),
                 blurRadius: 24,
                 offset: const Offset(0, 8),
               ),
             ]
           : [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
+                color: AppColors.shadow,
                 blurRadius: 18,
-                offset: const Offset(0, 8),
+                offset: const Offset(0, 6),
               ),
             ],
     );
   }
 
-  /// Feature surface (hero / report header) — a faint warm wash + accent edge.
+  /// Feature surface (hero / report header) — warm wine wash on linen.
   static BoxDecoration heroCard() {
     return BoxDecoration(
       borderRadius: BorderRadius.circular(AppRadius.xl),
@@ -41,12 +40,13 @@ abstract final class AppDecorations {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
-          AppColors.primary.withValues(alpha: 0.10),
+          AppColors.primary.withValues(alpha: 0.18),
           AppColors.glassFillStrong,
+          AppColors.primaryDim.withValues(alpha: 0.10),
         ],
       ),
       border: Border.all(
-        color: AppColors.primary.withValues(alpha: 0.18),
+        color: AppColors.primary.withValues(alpha: 0.24),
       ),
     );
   }
@@ -54,7 +54,7 @@ abstract final class AppDecorations {
   static BoxDecoration iconButton() {
     return BoxDecoration(
       shape: BoxShape.circle,
-      color: AppColors.surface,
+      color: AppColors.surfaceHigh,
       border: Border.all(color: AppColors.glassBorder),
     );
   }
@@ -62,7 +62,7 @@ abstract final class AppDecorations {
   static BoxDecoration monthSelector() {
     return BoxDecoration(
       borderRadius: BorderRadius.circular(AppRadius.lg),
-      color: AppColors.surface,
+      color: AppColors.surfaceHigh,
       border: Border.all(color: AppColors.glassBorder),
     );
   }

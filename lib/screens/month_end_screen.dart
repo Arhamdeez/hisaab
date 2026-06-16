@@ -13,6 +13,7 @@ import '../core/theme/app_spacing.dart' show AppSpacing, AppRadius;
 import '../widgets/balance_hero_card.dart';
 import '../widgets/cash_flow_chart.dart';
 import '../widgets/category_breakdown.dart';
+import '../widgets/refresh_skeleton.dart';
 
 class MonthEndScreen extends StatelessWidget {
   const MonthEndScreen({super.key});
@@ -23,9 +24,7 @@ class MonthEndScreen extends StatelessWidget {
       builder: (context, provider, prefs, _) {
         final summary = provider.summaryForMonth(provider.selectedMonth);
         final trend = _buildTrend(provider, provider.selectedMonth);
-        final income = prefs.hasMonthlyIncome
-            ? prefs.monthlyIncome
-            : summary.totalCredit;
+        final income = prefs.resolveIncome(summary);
         final donutData = summary.byCategory
             .map(
               (s) => (
@@ -38,6 +37,7 @@ class MonthEndScreen extends StatelessWidget {
 
         return SafeArea(
           child: AppRefreshScroll(
+            skeleton: const ReportRefreshSkeleton(),
             child: CustomScrollView(
               physics: refreshScrollPhysics,
               slivers: [
@@ -68,6 +68,8 @@ class MonthEndScreen extends StatelessWidget {
                         totalExpense: summary.totalDebit,
                         totalIncome: income,
                         showIncome: prefs.showIncome,
+                        trackInwardFlow: prefs.trackInwardFlow,
+                        totalReceived: summary.totalCredit,
                       ),
                     ],
                   ),
@@ -81,7 +83,10 @@ class MonthEndScreen extends StatelessWidget {
                     AppSpacing.pageH,
                     0,
                   ),
-                  child: _StatGrid(summary: summary),
+                  child: _StatGrid(
+                    summary: summary,
+                    trackInwardFlow: prefs.trackInwardFlow,
+                  ),
                 ),
               ),
               SliverToBoxAdapter(
@@ -138,17 +143,6 @@ class MonthEndScreen extends StatelessWidget {
                     AppSpacing.pageH,
                     0,
                   ),
-                  child: _SourceBreakdown(summary: summary),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.pageH,
-                    24,
-                    AppSpacing.pageH,
-                    0,
-                  ),
                   child: _TopMerchants(summary: summary),
                 ),
               ),
@@ -163,6 +157,7 @@ class MonthEndScreen extends StatelessWidget {
                   child: CashFlowChart(
                     dailySpending: summary.dailySpending,
                     totalExpense: summary.totalDebit,
+                    month: provider.selectedMonth,
                   ),
                 ),
               ),
@@ -220,58 +215,6 @@ class MonthEndScreen extends StatelessWidget {
   }
 }
 
-class _SourceBreakdown extends StatelessWidget {
-  const _SourceBreakdown({required this.summary});
-
-  final MonthlySummary summary;
-
-  @override
-  Widget build(BuildContext context) {
-    if (summary.bySource.isEmpty) return const SizedBox.shrink();
-
-    return GlassCard(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'By source',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 12),
-          ...summary.bySource.entries.map((e) {
-            final label = switch (e.key) {
-              TransactionSource.notification => 'App Notifications',
-              TransactionSource.sms => 'SMS',
-              TransactionSource.gmail => 'Gmail',
-              TransactionSource.manual => 'Manual',
-            };
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ),
-                  Text(
-                    formatCurrency(e.value),
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                ],
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-}
-
 class _TopMerchants extends StatelessWidget {
   const _TopMerchants({required this.summary});
 
@@ -321,12 +264,41 @@ class _TopMerchants extends StatelessWidget {
 }
 
 class _StatGrid extends StatelessWidget {
-  const _StatGrid({required this.summary});
+  const _StatGrid({
+    required this.summary,
+    required this.trackInwardFlow,
+  });
 
   final MonthlySummary summary;
+  final bool trackInwardFlow;
 
   @override
   Widget build(BuildContext context) {
+    if (trackInwardFlow) {
+      final net = summary.totalCredit - summary.totalDebit;
+      return Row(
+        children: [
+          Expanded(
+            child: _StatCard(
+              label: 'Cash in',
+              value: formatCurrency(summary.totalCredit),
+              icon: Icons.north_east_rounded,
+              color: AppColors.income,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _StatCard(
+              label: net >= 0 ? 'Net cash' : 'Net out',
+              value: formatCurrency(net.abs()),
+              icon: Icons.compare_arrows_rounded,
+              color: net >= 0 ? AppColors.saved : AppColors.primary,
+            ),
+          ),
+        ],
+      );
+    }
+
     return Row(
       children: [
         Expanded(

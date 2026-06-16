@@ -201,14 +201,23 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.section),
                 _SettingsGroup(
-                  title: 'Preferences',
+                  title: 'Cash flow',
                   children: [
                     _SettingsSwitchTile(
+                      icon: Icons.south_west_rounded,
+                      title: 'Track cash received',
+                      subtitle: prefs.trackInwardFlow
+                          ? 'Logging money in — SMS, alerts & manual'
+                          : 'Spending only — turn on to track cash in',
+                      value: prefs.trackInwardFlow,
+                      onChanged: prefs.setTrackInwardFlow,
+                    ),
+                    _SettingsSwitchTile(
                       icon: Icons.account_balance_wallet_outlined,
-                      title: 'Show income',
+                      title: 'Show income budget',
                       subtitle: prefs.showIncome
-                          ? 'Income & savings visible on Home'
-                          : 'Spending only — income hidden',
+                          ? 'Monthly income & savings on Home & Report'
+                          : 'Hidden — spending (and cash in, if enabled) only',
                       value: prefs.showIncome,
                       onChanged: prefs.setShowIncome,
                     ),

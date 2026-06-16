@@ -13,8 +13,9 @@ abstract final class AppTheme {
       colorScheme: const ColorScheme.dark(
         primary: AppColors.primary,
         onPrimary: AppColors.textOnPrimary,
-        secondary: AppColors.saved,
-        surface: AppColors.surface,
+        secondary: AppColors.primaryGlow,
+        onSecondary: AppColors.textPrimary,
+        surface: AppColors.backgroundElevated,
         onSurface: AppColors.textPrimary,
         error: AppColors.expense,
       ),
@@ -27,7 +28,7 @@ abstract final class AppTheme {
       appBarTheme: AppBarTheme(
         elevation: 0,
         scrolledUnderElevation: 0,
-        backgroundColor: AppColors.background,
+        backgroundColor: Colors.transparent,
         foregroundColor: AppColors.textPrimary,
         systemOverlayStyle: SystemUiOverlayStyle.light,
         titleTextStyle: GoogleFonts.plusJakartaSans(
@@ -37,7 +38,7 @@ abstract final class AppTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: AppColors.glassFill,
+        color: AppColors.glassFillStrong,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -55,7 +56,7 @@ abstract final class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: AppColors.navBar,
-        indicatorColor: AppColors.primary.withValues(alpha: 0.18),
+        indicatorColor: AppColors.primary.withValues(alpha: 0.12),
         surfaceTintColor: Colors.transparent,
         height: 72,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
@@ -101,7 +102,7 @@ abstract final class AppTheme {
         style: ButtonStyle(
           backgroundColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.selected)) {
-              return AppColors.primary.withValues(alpha: 0.2);
+              return AppColors.primary.withValues(alpha: 0.22);
             }
             return AppColors.surfaceHigh;
           }),
@@ -114,13 +115,40 @@ abstract final class AppTheme {
         ),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: AppColors.backgroundElevated.withValues(alpha: 0.92),
+        backgroundColor: AppColors.backgroundElevated.withValues(alpha: 0.96),
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
       ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: AppColors.textOnPrimary,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
+        ),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return AppColors.textOnPrimary;
+          }
+          return AppColors.textMuted;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return AppColors.primary;
+          }
+          return AppColors.surfaceHigh;
+        }),
+      ),
     );
   }
+
+  /// Legacy alias — app uses the dark Vintage Hearth theme.
+  static ThemeData get light => dark;
 
   static TextTheme get _textTheme {
     return TextTheme(

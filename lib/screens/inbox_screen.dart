@@ -9,6 +9,7 @@ import '../core/utils/formatters.dart';
 import '../models/transaction.dart';
 import '../providers/transaction_provider.dart';
 import '../widgets/category_breakdown.dart';
+import '../widgets/refresh_skeleton.dart';
 
 class InboxScreen extends StatelessWidget {
   const InboxScreen({super.key});
@@ -21,6 +22,7 @@ class InboxScreen extends StatelessWidget {
 
         return SafeArea(
           child: AppRefreshScroll(
+            skeleton: const InboxRefreshSkeleton(),
             child: ListView(
               physics: refreshScrollPhysics,
               padding: AppSpacing.page,

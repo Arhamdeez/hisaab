@@ -304,15 +304,30 @@ class TransactionParser {
 
   DateTime? _extractDate(String text) {
     final slash = RegExp(r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})').firstMatch(text);
-    if (slash != null) {
-      try {
-        final d = int.parse(slash.group(1)!);
-        final m = int.parse(slash.group(2)!);
-        var y = int.parse(slash.group(3)!);
-        if (y < 100) y += 2000;
-        return DateTime(y, m, d);
-      } catch (_) {}
-    }
-    return null;
+    if (slash == null) return null;
+
+    final d = int.tryParse(slash.group(1)!);
+    final m = int.tryParse(slash.group(2)!);
+    var y = int.tryParse(slash.group(3)!);
+    if (d == null || m == null || y == null) return null;
+    if (y < 100) y += 2000;
+
+    // Reject anything that isn't a real calendar date. We intentionally do not
+    // let DateTime silently normalise out-of-range values (e.g. month 56 or
+    // day 34), because reference/card numbers like "1234-56-78" would otherwise
+    // be misread as a date and file the transaction into a bogus month — making
+    // it vanish from the current month's totals even after the user confirms.
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    final date = DateTime(y, m, d);
+    if (date.year != y || date.month != m || date.day != d) return null;
+
+    // A captured transaction can't have happened in the future, and a date more
+    // than a few years old is almost certainly a misparse rather than a real
+    // back-dated entry. In either case, fall back to the message time.
+    final now = DateTime.now();
+    if (date.isAfter(now.add(const Duration(days: 1)))) return null;
+    if (date.isBefore(DateTime(now.year - 3))) return null;
+
+    return date;
   }
 }

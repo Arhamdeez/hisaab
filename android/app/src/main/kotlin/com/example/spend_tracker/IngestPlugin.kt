@@ -63,6 +63,29 @@ class IngestPlugin(
             "cred", "finance",
         )
 
+        // Suppress duplicate onNotificationPosted bursts (same pkg + body within
+        // a few seconds — common when Gmail mirrors a payment alert twice).
+        private val recentKeys = LinkedHashMap<String, Long>()
+        private const val DEDUP_MS = 4000L
+
+        fun shouldDeliverNow(pkg: String, text: String): Boolean {
+            val key = "$pkg:${text.hashCode()}"
+            val now = System.currentTimeMillis()
+            synchronized(recentKeys) {
+                val last = recentKeys[key]
+                if (last != null && now - last < DEDUP_MS) {
+                    Log.d(INGEST_TAG, "  deduped (same alert ${now - last}ms ago)")
+                    return false
+                }
+                recentKeys[key] = now
+                while (recentKeys.size > 200) {
+                    val oldest = recentKeys.keys.first()
+                    recentKeys.remove(oldest)
+                }
+            }
+            return true
+        }
+
         fun emit(event: Map<String, Any?>) {
             eventSink?.success(event)
         }
@@ -248,6 +271,8 @@ class NotificationCaptureService : NotificationListenerService() {
         }
 
         Log.d(INGEST_TAG, "  CAPTURED (monitored=$monitored looksLike=$looksLike)")
+        if (!IngestPlugin.shouldDeliverNow(pkg, text)) return
+
         IngestPlugin.deliver(
             applicationContext,
             mapOf(

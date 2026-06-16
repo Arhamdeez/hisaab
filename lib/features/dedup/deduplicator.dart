@@ -4,12 +4,22 @@ import '../parser/transaction_parser.dart';
 
 enum DedupResult { created, merged, skipped }
 
+/// The outcome of ingesting a single message. When [result] is
+/// [DedupResult.created], [transaction] holds the newly stored row so callers
+/// can react to it (e.g. post a system notification).
+class IngestOutcome {
+  const IngestOutcome(this.result, [this.transaction]);
+
+  final DedupResult result;
+  final Transaction? transaction;
+}
+
 class Deduplicator {
   Deduplicator(this._repository);
 
   final TransactionRepository _repository;
 
-  Future<DedupResult> processIncoming({
+  Future<IngestOutcome> processIncoming({
     required ParsedTransaction parsed,
     required TransactionSource source,
     required String rawText,
@@ -32,14 +42,14 @@ class Deduplicator {
       final existing = existingInWindow.first;
       final linked = {...existing.linkedSources, existing.source, source}.toList();
       await _repository.updateLinkedSources(existing.id, linked);
-      return DedupResult.merged;
+      return const IngestOutcome(DedupResult.merged);
     }
 
     final exact = await _repository.getByFingerprint(fingerprint);
     if (exact != null) {
       final linked = {...exact.linkedSources, exact.source, source}.toList();
       await _repository.updateLinkedSources(exact.id, linked);
-      return DedupResult.merged;
+      return const IngestOutcome(DedupResult.merged);
     }
 
     // Auto-captured money movements are never added silently — every one is
@@ -60,6 +70,6 @@ class Deduplicator {
     );
 
     await _repository.save(transaction);
-    return DedupResult.created;
+    return IngestOutcome(DedupResult.created, transaction);
   }
 }

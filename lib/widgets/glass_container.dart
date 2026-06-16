@@ -5,8 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
 
-/// iOS-style liquid glass — light blur, high translucency, luminous edges.
-/// Less "frosted milk", more see-through vibrancy.
+/// Frosted linen glass — light blur, warm translucency, soft edges.
 class GlassContainer extends StatelessWidget {
   const GlassContainer({
     super.key,
@@ -18,6 +17,7 @@ class GlassContainer extends StatelessWidget {
     this.tint,
     this.enableBlur = true,
     this.borderWidth = 0.75,
+    this.showShadow = true,
   });
 
   final Widget child;
@@ -28,6 +28,7 @@ class GlassContainer extends StatelessWidget {
   final Color? tint;
   final bool enableBlur;
   final double borderWidth;
+  final bool showShadow;
 
   @override
   Widget build(BuildContext context) {
@@ -41,9 +42,9 @@ class GlassContainer extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            AppColors.glassHighlight.withValues(alpha: 0.10),
+            AppColors.glassHighlight.withValues(alpha: 0.14),
             fill,
-            Colors.white.withValues(alpha: 0.02),
+            AppColors.primary.withValues(alpha: 0.04),
           ],
           stops: const [0.0, 0.45, 1.0],
         ),
@@ -54,7 +55,6 @@ class GlassContainer extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          // Thin luminous rim — iOS glass catches light along the top edge.
           Positioned(
             top: 0,
             left: 0,
@@ -70,7 +70,7 @@ class GlassContainer extends StatelessWidget {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.white.withValues(alpha: 0.14),
+                      Colors.white.withValues(alpha: 0.16),
                       Colors.white.withValues(alpha: 0.0),
                     ],
                   ),
@@ -96,19 +96,21 @@ class GlassContainer extends StatelessWidget {
           : body,
     );
 
-    Widget surface = DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: br,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.22),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: body,
-    );
+    Widget surface = showShadow
+        ? DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: br,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.shadow,
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: body,
+          )
+        : body;
 
     if (margin != null) {
       return Padding(padding: margin!, child: surface);
@@ -134,9 +136,6 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // No live backdrop blur: these surfaces are used inside scrolling lists
-    // (and repeated many times), where stacked BackdropFilters cause jank.
-    // The glass look is carried by translucency + luminous edges instead.
     return GlassContainer(
       radius: radius,
       enableBlur: false,
@@ -147,65 +146,72 @@ class GlassCard extends StatelessWidget {
   }
 }
 
-/// Quiet, warm ambient backdrop so glass layers have colour to refract.
+/// Dark Vintage Hearth ambience — deep red-black base with wine glow washes
+/// so glass layers have warm colour to refract.
 class AppBackground extends StatelessWidget {
   const AppBackground({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // RepaintBoundary isolates this static, blur-heavy backdrop into its own
-    // cached layer so it is painted once — not re-rendered every scroll frame.
     return RepaintBoundary(
       child: DecoratedBox(
-        decoration: const BoxDecoration(color: AppColors.background),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AppColors.gradientStart,
+              AppColors.gradientMid,
+              AppColors.gradientEnd,
+            ],
+          ),
+        ),
         child: Stack(
           clipBehavior: Clip.none,
           fit: StackFit.expand,
           children: [
-            // Saturated colour blobs so glass surfaces have colour to refract.
             Align(
-              alignment: const Alignment(0.7, -1.05),
+              alignment: const Alignment(0.75, -1.05),
               child: _GlowOrb(
-                size: 420,
-                color: AppColors.primary.withValues(alpha: 0.45),
-                blur: 90,
+                size: 440,
+                color: AppColors.primary.withValues(alpha: 0.42),
+                blur: 95,
               ),
             ),
             Align(
-              alignment: const Alignment(-0.85, -0.45),
+              alignment: const Alignment(-0.85, -0.4),
               child: _GlowOrb(
-                size: 320,
-                color: AppColors.glowWine.withValues(alpha: 0.7),
-                blur: 85,
+                size: 360,
+                color: AppColors.glowWine.withValues(alpha: 0.6),
+                blur: 90,
               ),
             ),
             Align(
               alignment: const Alignment(0.9, 0.5),
               child: _GlowOrb(
-                size: 300,
-                color: AppColors.saved.withValues(alpha: 0.22),
-                blur: 95,
+                size: 320,
+                color: AppColors.glowMaroon.withValues(alpha: 0.45),
+                blur: 100,
               ),
             ),
             Align(
-              alignment: const Alignment(-0.6, 1.05),
+              alignment: const Alignment(-0.55, 1.05),
               child: _GlowOrb(
-                size: 340,
+                size: 380,
                 color: AppColors.primaryDim.withValues(alpha: 0.4),
                 blur: 95,
               ),
             ),
-            // Hold the centre slightly darker so foreground text stays legible.
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
                   center: const Alignment(0, -0.1),
-                  radius: 1.1,
+                  radius: 1.15,
                   colors: [
                     AppColors.background.withValues(alpha: 0.0),
-                    AppColors.background.withValues(alpha: 0.35),
+                    AppColors.background.withValues(alpha: 0.4),
                   ],
-                  stops: const [0.55, 1.0],
+                  stops: const [0.5, 1.0],
                 ),
               ),
             ),

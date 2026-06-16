@@ -97,19 +97,21 @@ class _SplashScreenState extends State<SplashScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   SizedBox(
-                    width: 140,
-                    height: 140,
+                    width: 168,
+                    height: 168,
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
                         Opacity(
                           opacity: (_glow.value * 0.9).clamp(0.0, 1.0),
                           child: Container(
+                            width: 168,
+                            height: 168,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               gradient: RadialGradient(
                                 colors: [
-                                  AppColors.primary.withValues(alpha: 0.42),
+                                  AppColors.primary.withValues(alpha: 0.38),
                                   AppColors.primary.withValues(alpha: 0.0),
                                 ],
                               ),
@@ -121,24 +123,13 @@ class _SplashScreenState extends State<SplashScreen>
                           child: Transform.scale(
                             scale: _logoScale.value,
                             child: SizedBox(
-                              width: 90,
-                              height: 90,
+                              width: 118,
+                              height: 118,
                               child: Stack(
                                 children: [
-                                  ShaderMask(
-                                    blendMode: BlendMode.srcIn,
-                                    shaderCallback: (rect) => const LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Color(0xFFFFF4F2),
-                                        AppColors.primary,
-                                      ],
-                                    ).createShader(rect),
-                                    child: const AppLogoMark(
-                                      size: 90,
-                                      color: Colors.white,
-                                    ),
+                                  const AppLogoMark(
+                                    size: 118,
+                                    color: AppColors.textPrimary,
                                   ),
                                   Opacity(
                                     opacity: (1 - (_shine.value - 0.5).abs() * 2)
@@ -152,7 +143,7 @@ class _SplashScreenState extends State<SplashScreen>
                                           end: Alignment.bottomRight,
                                           colors: const [
                                             Colors.transparent,
-                                            Colors.white,
+                                            AppColors.linen,
                                             Colors.transparent,
                                           ],
                                           stops: [
@@ -163,7 +154,7 @@ class _SplashScreenState extends State<SplashScreen>
                                         ).createShader(rect);
                                       },
                                       child: const AppLogoMark(
-                                        size: 90,
+                                        size: 118,
                                         color: Colors.white,
                                       ),
                                     ),

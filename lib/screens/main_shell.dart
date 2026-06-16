@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart' show AppRadius;
 import '../features/ingest/ingest_service.dart';
+import '../features/notifications/notification_service.dart';
 import '../models/transaction.dart';
+import '../providers/app_preferences.dart';
 import '../providers/transaction_provider.dart';
 import '../widgets/glass_bottom_nav_bar.dart';
 import '../widgets/glass_container.dart';
@@ -22,12 +24,18 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell>
+    with SingleTickerProviderStateMixin {
   int _index = 0;
   // Tabs visited before the current one, so the system back button returns to
   // the previous screen (e.g. Inbox -> Home) instead of exiting the app.
   final List<int> _history = [];
   IngestService? _ingestService;
+
+  // Drives the fade-slide transition played each time the active tab changes.
+  late final AnimationController _pageAnim;
+  // +1 slides the new page in from the right (moving forward), -1 from the left.
+  double _direction = 1;
 
   // Bottom bar shows indices 0–2 (Home, Transactions, Report). Settings and
   // Inbox are not bottom-bar tabs — they're reached from the Home header
@@ -43,12 +51,24 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    _pageAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+      value: 1,
+    );
     _ingestService = context.read<IngestService>();
     _ingestService!.addListener(_onIngestUpdate);
+
+    // Ask for system-notification permission once the UI is on screen, so the
+    // OS dialog reliably appears (it won't while the activity isn't resumed).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.instance.requestPermission();
+    });
   }
 
   @override
   void dispose() {
+    _pageAnim.dispose();
     _ingestService?.removeListener(_onIngestUpdate);
     super.dispose();
   }
@@ -57,9 +77,16 @@ class _MainShellState extends State<MainShell> {
     context.read<TransactionProvider>().reload();
   }
 
+  /// Replays the fade-slide transition for a switch from [from] to [to].
+  void _animateTo(int from, int to) {
+    _direction = to >= from ? 1 : -1;
+    _pageAnim.forward(from: 0);
+  }
+
   void _selectTab(int index) {
     if (index == _index) return;
     setState(() {
+      _animateTo(_index, index);
       _history.add(_index);
       _index = index;
     });
@@ -68,8 +95,11 @@ class _MainShellState extends State<MainShell> {
   void _handleBack() {
     setState(() {
       if (_history.isNotEmpty) {
-        _index = _history.removeLast();
+        final target = _history.removeLast();
+        _animateTo(_index, target);
+        _index = target;
       } else if (_index != 0) {
+        _animateTo(_index, 0);
         _index = 0;
       }
     });
@@ -96,7 +126,50 @@ class _MainShellState extends State<MainShell> {
             fit: StackFit.expand,
             children: [
               const AppBackground(),
-              IndexedStack(index: _index, children: _screens),
+              AnimatedBuilder(
+                animation: _pageAnim,
+                builder: (context, _) {
+                  final t = Curves.easeOutCubic.transform(_pageAnim.value);
+                  return Opacity(
+                    opacity: (0.4 + 0.6 * t).clamp(0.0, 1.0),
+                    child: Transform.translate(
+                      offset: Offset((1 - t) * 22 * _direction, 0),
+                      child: Transform.scale(
+                        scale: 0.985 + 0.015 * t,
+                        child: IndexedStack(index: _index, children: _screens),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              // Overlay the bar on top of the gradient so BackdropFilter blurs
+              // the real background instead of the scaffold's opaque bottom slot.
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: GlassBottomNavBar(
+                  selectedIndex: _index,
+                  onSelected: _selectTab,
+                  destinations: const [
+                    GlassNavDestination(
+                      icon: Icons.home_outlined,
+                      selectedIcon: Icons.home_rounded,
+                      label: 'Home',
+                    ),
+                    GlassNavDestination(
+                      icon: Icons.receipt_long_outlined,
+                      selectedIcon: Icons.receipt_long_rounded,
+                      label: 'Transactions',
+                    ),
+                    GlassNavDestination(
+                      icon: Icons.pie_chart_outline_rounded,
+                      selectedIcon: Icons.pie_chart_rounded,
+                      label: 'Report',
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
           floatingActionButton: _index == 1
@@ -115,33 +188,13 @@ class _MainShellState extends State<MainShell> {
                   ),
                 )
               : null,
-          bottomNavigationBar: GlassBottomNavBar(
-            selectedIndex: _index,
-            onSelected: _selectTab,
-            destinations: [
-              const GlassNavDestination(
-                icon: Icons.home_outlined,
-                selectedIcon: Icons.home_rounded,
-                label: 'Home',
-              ),
-              const GlassNavDestination(
-                icon: Icons.receipt_long_outlined,
-                selectedIcon: Icons.receipt_long_rounded,
-                label: 'Transactions',
-              ),
-              const GlassNavDestination(
-                icon: Icons.pie_chart_outline_rounded,
-                selectedIcon: Icons.pie_chart_rounded,
-                label: 'Report',
-              ),
-            ],
-          ),
         ),
       ),
     );
   }
 
   void _showAddSheet(BuildContext context) {
+    final trackInward = context.read<AppPreferences>().trackInwardFlow;
     final merchantCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
     var category = SpendingCategory.other;
@@ -222,24 +275,27 @@ class _MainShellState extends State<MainShell> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    SegmentedButton<TransactionType>(
-                      segments: const [
-                        ButtonSegment(
-                          value: TransactionType.debit,
-                          label: Text('Expense'),
-                          icon: Icon(Icons.arrow_upward_rounded),
-                        ),
-                        ButtonSegment(
-                          value: TransactionType.credit,
-                          label: Text('Income'),
-                          icon: Icon(Icons.arrow_downward_rounded),
-                        ),
-                      ],
-                      selected: {type},
-                      onSelectionChanged: (s) {
-                        setSheetState(() => type = s.first);
-                      },
-                    ),
+                    if (trackInward)
+                      SegmentedButton<TransactionType>(
+                        segments: const [
+                          ButtonSegment(
+                            value: TransactionType.debit,
+                            label: Text('Cash out'),
+                            icon: Icon(Icons.south_west_rounded),
+                          ),
+                          ButtonSegment(
+                            value: TransactionType.credit,
+                            label: Text('Cash in'),
+                            icon: Icon(Icons.north_east_rounded),
+                          ),
+                        ],
+                        selected: {type},
+                        onSelectionChanged: (s) {
+                          setSheetState(() => type = s.first);
+                        },
+                      )
+                    else
+                      const SizedBox.shrink(),
                     const SizedBox(height: 24),
                     FilledButton(
                       onPressed: () {

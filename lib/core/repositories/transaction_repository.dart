@@ -39,6 +39,29 @@ class TransactionRepository {
   Future<void> updateStatus(String id, domain.TransactionStatus status) =>
       _db.updateTransactionStatus(id, status.storageKey);
 
+  Future<domain.Transaction?> getById(String id) async {
+    final row = await _db.getTransactionById(id);
+    return row == null ? null : _mapRow(row);
+  }
+
+  /// Applies a review decision in a single DB write when still pending.
+  /// Returns true if a row was updated.
+  Future<bool> applyReview(
+    String id, {
+    required domain.TransactionStatus status,
+    String? merchant,
+    domain.SpendingCategory? category,
+  }) async {
+    final trimmed = merchant?.trim();
+    final rows = await _db.updateTransactionReviewIfPending(
+      id,
+      status: status.storageKey,
+      merchant: (trimmed != null && trimmed.isNotEmpty) ? trimmed : null,
+      category: category?.storageKey,
+    );
+    return rows > 0;
+  }
+
   Future<void> updateLinkedSources(
     String id,
     List<domain.TransactionSource> sources,

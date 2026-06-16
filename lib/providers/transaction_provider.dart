@@ -31,6 +31,11 @@ class TransactionProvider extends ChangeNotifier {
       .where((t) => t.status == TransactionStatus.pendingReview)
       .toList();
 
+  /// Total items awaiting review across every month. The header bell and the
+  /// "needs review" banner use this so a freshly captured transaction always
+  /// surfaces, even if its date lands outside the currently selected month.
+  int get pendingCount => pendingTransactions.length;
+
   Future<void> load() async {
     _transactions = await _repository.getAll();
     _loaded = true;

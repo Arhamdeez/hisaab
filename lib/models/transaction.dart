@@ -47,16 +47,15 @@ extension SpendingCategoryX on SpendingCategory {
         SpendingCategory.other => Icons.more_horiz_rounded,
       };
 
-  /// Muted, harmonious tones — refined for a warm dark theme, so categories
-  /// stay distinguishable without competing with the brand red.
+  /// Warm vintage tones that stay legible on the dark wine base.
   Color get color => switch (this) {
         SpendingCategory.food => const Color(0xFFD98E52),
-        SpendingCategory.transport => const Color(0xFF6E9BD0),
-        SpendingCategory.shopping => const Color(0xFFA888C7),
-        SpendingCategory.bills => const Color(0xFFC97A66),
-        SpendingCategory.entertainment => const Color(0xFFC783A4),
-        SpendingCategory.health => const Color(0xFF5FAEA2),
-        SpendingCategory.other => const Color(0xFF8C9099),
+        SpendingCategory.transport => const Color(0xFF9DB0A6),
+        SpendingCategory.shopping => const Color(0xFFC79AB2),
+        SpendingCategory.bills => const Color(0xFFD97A6E),
+        SpendingCategory.entertainment => const Color(0xFFCE8AA4),
+        SpendingCategory.health => const Color(0xFF7FC0A8),
+        SpendingCategory.other => const Color(0xFFAEA6A0),
       };
 }
 

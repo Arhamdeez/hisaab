@@ -2,12 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
 
-/// HISAAB brand mark — a geometric "H" monogram: two angled pillars joined by
-/// a bold diagonal, with two triangular negative-space notches.
-///
-/// Drawn as a vector so it stays razor-sharp at any size and can be tinted to
-/// any colour (solid via [color], or with a gradient via a [ShaderMask] wrapper
-/// as used on the splash screen).
+/// HISAAB brand mark — transparent PNG, tinted white by default and
+/// recolourable via [color] / [emphasized].
 class AppLogoMark extends StatelessWidget {
   const AppLogoMark({
     super.key,
@@ -22,18 +18,50 @@ class AppLogoMark extends StatelessWidget {
   final double opacity;
   final bool emphasized;
 
+  static const _assetPath = 'assets/images/logo.png';
+
   @override
   Widget build(BuildContext context) {
-    final resolved =
-        (color ?? (emphasized ? AppColors.primary : AppColors.textPrimary))
-            .withValues(alpha: opacity);
+    final tint = color ??
+        (emphasized ? AppColors.primary : AppColors.textPrimary);
 
-    return SizedBox(
+    Widget child = Image.asset(
+      _assetPath,
       width: size,
       height: size,
-      child: CustomPaint(
-        painter: _HLogoPainter(color: resolved),
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      gaplessPlayback: true,
+      errorBuilder: (context, error, stackTrace) => _FallbackMark(
+        size: size,
+        color: tint.withValues(alpha: opacity),
       ),
+    );
+
+    child = ColorFiltered(
+      colorFilter: ColorFilter.mode(
+        tint.withValues(alpha: opacity),
+        BlendMode.srcIn,
+      ),
+      child: child,
+    );
+
+    return SizedBox(width: size, height: size, child: child);
+  }
+}
+
+/// Vector fallback if the asset fails to load.
+class _FallbackMark extends StatelessWidget {
+  const _FallbackMark({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size(size, size),
+      painter: _HLogoPainter(color: color),
     );
   }
 }
@@ -49,17 +77,15 @@ class _HLogoPainter extends CustomPainter {
       ..color = color
       ..isAntiAlias = true
       ..style = PaintingStyle.fill;
-    canvas.drawPath(buildPath(size.width, size.height), paint);
+    canvas.drawPath(_buildPath(size.width, size.height), paint);
   }
 
-  /// Builds the monogram on a 100×100 design grid scaled to [w]×[h].
-  static Path buildPath(double w, double h) {
+  static Path _buildPath(double w, double h) {
     double x(double v) => v / 100 * w;
     double y(double v) => v / 100 * h;
 
     final path = Path();
 
-    // Left pillar — chamfered top-left corner.
     path.moveTo(x(16), y(20));
     path.lineTo(x(24), y(12));
     path.lineTo(x(32), y(12));
@@ -67,7 +93,6 @@ class _HLogoPainter extends CustomPainter {
     path.lineTo(x(16), y(88));
     path.close();
 
-    // Right pillar — chamfered bottom-right corner (point-symmetric).
     path.moveTo(x(68), y(12));
     path.lineTo(x(84), y(12));
     path.lineTo(x(84), y(80));
@@ -75,8 +100,6 @@ class _HLogoPainter extends CustomPainter {
     path.lineTo(x(68), y(88));
     path.close();
 
-    // Crossbar joining the pillars — centred and near-horizontal (with a
-    // slight downward slope to the right) so it reads clearly as an "H".
     path.moveTo(x(32), y(40));
     path.lineTo(x(68), y(48));
     path.lineTo(x(68), y(60));
