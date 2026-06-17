@@ -10,12 +10,12 @@ import '../features/notifications/notification_service.dart';
 import '../models/transaction.dart';
 import '../providers/app_preferences.dart';
 import '../providers/transaction_provider.dart';
+import '../widgets/category_selector.dart';
 import '../widgets/glass_bottom_nav_bar.dart';
 import '../widgets/glass_container.dart';
 import '../navigation/shell_scope.dart';
 import 'home_screen.dart';
 import 'inbox_screen.dart';
-import 'month_end_screen.dart';
 import 'settings_screen.dart';
 import 'transactions_screen.dart';
 
@@ -27,8 +27,9 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _index = 0;
+  int _primaryTab = 0;
   // Tabs visited before the current one, so the system back button returns to
   // the previous screen (e.g. Inbox -> Home) instead of exiting the app.
   final List<int> _history = [];
@@ -48,7 +49,6 @@ class _MainShellState extends State<MainShell>
     _screens = [
       const RepaintBoundary(child: HomeScreen()),
       const RepaintBoundary(child: TransactionsScreen()),
-      const RepaintBoundary(child: MonthEndScreen()),
       const RepaintBoundary(child: SettingsScreen()),
       const RepaintBoundary(child: InboxScreen()),
     ];
@@ -59,6 +59,7 @@ class _MainShellState extends State<MainShell>
     );
     _ingestService = context.read<IngestService>();
     _ingestService!.addListener(_onIngestUpdate);
+    WidgetsBinding.instance.addObserver(this);
 
     // Ask for system-notification permission once the UI is on screen, so the
     // OS dialog reliably appears (it won't while the activity isn't resumed).
@@ -69,6 +70,7 @@ class _MainShellState extends State<MainShell>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _reloadDebounce?.cancel();
     _pageAnim.dispose();
     _ingestService?.removeListener(_onIngestUpdate);
@@ -83,6 +85,14 @@ class _MainShellState extends State<MainShell>
     });
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      // Share sheets and system pickers can leave a ghost snackbar shell.
+      ScaffoldMessenger.of(context).clearSnackBars();
+    }
+  }
+
   /// Replays the fade-slide transition for a switch from [from] to [to].
   void _animateTo(int from, int to) {
     _direction = to >= from ? 1 : -1;
@@ -95,7 +105,12 @@ class _MainShellState extends State<MainShell>
       _animateTo(_index, index);
       _history.add(_index);
       _index = index;
+      if (index <= 1) _primaryTab = index;
     });
+  }
+
+  void _selectPrimaryTab(int index) {
+    _selectTab(index);
   }
 
   void _handleBack() {
@@ -155,8 +170,8 @@ class _MainShellState extends State<MainShell>
                 right: 0,
                 bottom: 0,
                 child: GlassBottomNavBar(
-                  selectedIndex: _index,
-                  onSelected: _selectTab,
+                  selectedIndex: _index <= 1 ? _index : _primaryTab,
+                  onSelected: _selectPrimaryTab,
                   destinations: const [
                     GlassNavDestination(
                       icon: Icons.home_outlined,
@@ -167,11 +182,6 @@ class _MainShellState extends State<MainShell>
                       icon: Icons.receipt_long_outlined,
                       selectedIcon: Icons.receipt_long_rounded,
                       label: 'Transactions',
-                    ),
-                    GlassNavDestination(
-                      icon: Icons.pie_chart_outline_rounded,
-                      selectedIcon: Icons.pie_chart_rounded,
-                      label: 'Report',
                     ),
                   ],
                 ),
@@ -209,6 +219,7 @@ class _MainShellState extends State<MainShell>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
@@ -217,13 +228,7 @@ class _MainShellState extends State<MainShell>
         return StatefulBuilder(
           builder: (ctx, setSheetState) {
             return Container(
-              decoration: const BoxDecoration(
-                color: AppColors.backgroundElevated,
-                borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(AppRadius.xl),
-                ),
-                border: Border(top: BorderSide(color: AppColors.borderLight)),
-              ),
+              decoration: sheetDecoration(),
               padding: EdgeInsets.fromLTRB(
                 24,
                 12,
@@ -233,20 +238,11 @@ class _MainShellState extends State<MainShell>
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 18),
-                      decoration: BoxDecoration(
-                        color: AppColors.border,
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                      ),
-                    ),
+                    const SheetHandle(),
                     Text(
                       'Add transaction',
-                      textAlign: TextAlign.center,
                       style: Theme.of(ctx).textTheme.headlineMedium,
                     ),
                     const SizedBox(height: 20),
@@ -264,44 +260,26 @@ class _MainShellState extends State<MainShell>
                         labelText: 'Amount (Rs)',
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<SpendingCategory>(
-                      initialValue: category,
-                      decoration: const InputDecoration(labelText: 'Category'),
-                      items: SpendingCategory.values
-                          .map(
-                            (c) => DropdownMenuItem(
-                              value: c,
-                              child: Text(c.label),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) {
-                        if (v != null) setSheetState(() => category = v);
-                      },
+                    const SizedBox(height: 14),
+                    CategorySelector(
+                      compact: true,
+                      selected: category,
+                      onSelected: (v) => setSheetState(() => category = v),
                     ),
-                    const SizedBox(height: 12),
-                    if (trackInward)
-                      SegmentedButton<TransactionType>(
-                        segments: const [
-                          ButtonSegment(
-                            value: TransactionType.debit,
-                            label: Text('Cash out'),
-                            icon: Icon(Icons.south_west_rounded),
-                          ),
-                          ButtonSegment(
-                            value: TransactionType.credit,
-                            label: Text('Cash in'),
-                            icon: Icon(Icons.north_east_rounded),
-                          ),
-                        ],
-                        selected: {type},
-                        onSelectionChanged: (s) {
-                          setSheetState(() => type = s.first);
-                        },
-                      )
-                    else
-                      const SizedBox.shrink(),
+                    if (trackInward) ...[
+                      const SizedBox(height: 18),
+                      Text(
+                        'Type',
+                        style: Theme.of(ctx).textTheme.labelLarge?.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      CashFlowTypeSelector(
+                        selected: type,
+                        onChanged: (v) => setSheetState(() => type = v),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     FilledButton(
                       onPressed: () {

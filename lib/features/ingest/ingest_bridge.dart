@@ -68,8 +68,8 @@ class IngestBridge {
   }
 
   /// Pulls any events the native side buffered while Flutter wasn't listening
-  /// (app closed / backgrounded) so background-captured transactions are not
-  /// lost. Safe to call repeatedly; the native buffer is cleared on read.
+  /// (app closed / backgrounded) from durable SQLite + legacy prefs. Safe to
+  /// call repeatedly; native buffers are cleared on read.
   Future<List<IngestEvent>> drainPending() async {
     if (!Platform.isAndroid) return const [];
     try {

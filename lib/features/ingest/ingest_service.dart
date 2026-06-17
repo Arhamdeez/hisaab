@@ -91,7 +91,12 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _drainPending() async {
     final pending = await IngestBridge.instance.drainPending();
+    final seen = <String>{};
     for (final event in pending) {
+      if (event.text.trim().isEmpty) continue;
+      final key =
+          '${event.source.storageKey}|${event.timestamp.millisecondsSinceEpoch}|${event.text.hashCode}';
+      if (!seen.add(key)) continue;
       await _handleIngestEvent(event);
     }
   }
@@ -123,12 +128,15 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       messageTime: event.timestamp,
     );
 
-    // A brand-new capture: ping the user with a real system notification so
+    // A brand-new capture: ping the user with a system notification so
     // they know something landed in their review inbox even if the app is in
-    // the background.
+    // the background. Skip stale backlog items when draining after a long gap.
     final captured = outcome.transaction;
     if (outcome.result == DedupResult.created && captured != null) {
-      await NotificationService.instance.showTransactionCaptured(captured);
+      final alertAge = DateTime.now().difference(event.timestamp);
+      if (alertAge <= const Duration(hours: 48)) {
+        await NotificationService.instance.showTransactionCaptured(captured);
+      }
     }
 
     notifyListeners();

@@ -14,89 +14,93 @@ import '../core/theme/app_spacing.dart' show AppSpacing, AppRadius;
 import '../widgets/balance_hero_card.dart';
 import '../widgets/cash_flow_chart.dart';
 import '../widgets/category_breakdown.dart';
-import '../widgets/refresh_skeleton.dart';
 
 class MonthEndScreen extends StatelessWidget {
   const MonthEndScreen({super.key});
 
+  static Future<void> open(BuildContext context) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const MonthEndScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Consumer2<TransactionProvider, AppPreferences>(
-      builder: (context, provider, prefs, _) {
-        final summary = provider.summaryForMonth(provider.selectedMonth);
-        final trend = _buildTrend(provider, provider.selectedMonth);
-        final income = prefs.resolveIncome(summary);
-        final donutData = summary.byCategory
-            .map(
-              (s) => (
-                label: s.category.label,
-                value: s.total,
-                color: s.category.color,
-              ),
-            )
-            .toList();
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppBackground(),
+          Consumer2<TransactionProvider, AppPreferences>(
+            builder: (context, provider, prefs, _) {
+              final summary = provider.summaryForMonth(provider.selectedMonth);
+              final trend = _buildTrend(provider, provider.selectedMonth);
+              final income = prefs.resolveIncome(summary);
 
-        return SafeArea(
-          child: AppRefreshScroll(
-            skeleton: const ReportRefreshSkeleton(),
-            child: CustomScrollView(
-              physics: refreshScrollPhysics,
-              slivers: [
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.pageH,
-                    16,
-                    AppSpacing.pageH,
-                    0,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const AppAccentBar(height: 28),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Month-end report',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineLarge
-                                      ?.copyWith(letterSpacing: -0.4),
+              return SafeArea(
+                child: AppRefreshScroll(
+                  child: CustomScrollView(
+                    physics: refreshScrollPhysics,
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 4, 0, 0),
+                          child: Row(
+                            children: [
+                              IconButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                icon: const Icon(Icons.arrow_back_rounded),
+                                color: AppColors.textSecondary,
+                              ),
+                              const AppAccentBar(height: 22),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Month-end report',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleLarge
+                                          ?.copyWith(letterSpacing: -0.3),
+                                    ),
+                                    Text(
+                                      formatMonthYear(provider.selectedMonth),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: AppColors.textMuted,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  formatMonthYear(provider.selectedMonth),
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                        color: AppColors.textMuted,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: AppSpacing.pageH),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                      const SizedBox(height: 20),
-                      BalanceHeroCard(
-                        totalExpense: summary.totalDebit,
-                        totalIncome: income,
-                        showIncome: prefs.showIncome,
-                        trackInwardFlow: prefs.trackInwardFlow,
-                        totalReceived: summary.totalCredit,
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.pageH,
+                            12,
+                            AppSpacing.pageH,
+                            0,
+                          ),
+                          child: BalanceHeroCard(
+                            totalExpense: summary.totalDebit,
+                            totalIncome: income,
+                            showIncome: prefs.showIncome,
+                            trackInwardFlow: prefs.trackInwardFlow,
+                            totalReceived: summary.totalCredit,
+                          ),
+                        ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(
@@ -133,27 +137,9 @@ class MonthEndScreen extends StatelessWidget {
                     AppSpacing.pageH,
                     0,
                   ),
-                  child: GlassCard(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'By category',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 16),
-                        CategoryDonutChart(
-                          summaries: donutData,
-                          total: summary.totalDebit,
-                        ),
-                        const SizedBox(height: 20),
-                        CategoryBreakdownList(
-                          summaries: summary.byCategory,
-                          totalExpense: summary.totalDebit,
-                        ),
-                      ],
-                    ),
+                  child: CategoryReportSection(
+                    summaries: summary.byCategory,
+                    totalExpense: summary.totalDebit,
                   ),
                 ),
               ),
@@ -189,7 +175,7 @@ class MonthEndScreen extends StatelessWidget {
                     AppSpacing.pageH,
                     24,
                     AppSpacing.pageH,
-                    AppSpacing.navBottom,
+                    32,
                   ),
                   child: OutlinedButton.icon(
                     onPressed: () => CsvExporter.exportMonth(
@@ -212,10 +198,13 @@ class MonthEndScreen extends StatelessWidget {
                 ),
               ),
             ],
-            ),
+                  ),
+                ),
+              );
+            },
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 

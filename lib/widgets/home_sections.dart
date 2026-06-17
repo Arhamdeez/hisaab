@@ -5,6 +5,7 @@ import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
 import '../models/transaction.dart';
+import 'empty_state_view.dart';
 import 'glass_container.dart';
 
 /// Editorial section label used on Home.
@@ -217,19 +218,19 @@ class HomeRecentActivity extends StatelessWidget {
   Widget build(BuildContext context) {
     if (transactions.isEmpty) {
       return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const HomeSectionLabel(title: 'Latest activity'),
           GlassContainer(
             radius: AppRadius.lg,
             blur: 10,
             tint: AppColors.glassFillStrong,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
-            child: Text(
-              'No transactions this month yet',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.textMuted,
-                  ),
+            padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+            child: const EmptyStateView(
+              compact: true,
+              icon: Icons.receipt_long_outlined,
+              title: 'No transactions this month yet',
+              subtitle: 'Confirm a payment or add one manually',
             ),
           ),
         ],

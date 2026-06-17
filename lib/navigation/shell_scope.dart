@@ -20,13 +20,9 @@ class ShellScope extends InheritedWidget {
 
   static void goToTransactions(BuildContext context) => goToTab(context, 1);
 
-  static void goToReport(BuildContext context) => goToTab(context, 2);
+  static void goToSettings(BuildContext context) => goToTab(context, 2);
 
-  // Settings and Inbox are not bottom-bar tabs; they live at the end of the
-  // screen stack and are opened from the Home header (gear + notification bell).
-  static void goToSettings(BuildContext context) => goToTab(context, 3);
-
-  static void goToInbox(BuildContext context) => goToTab(context, 4);
+  static void goToInbox(BuildContext context) => goToTab(context, 3);
 
   @override
   bool updateShouldNotify(ShellScope oldWidget) =>

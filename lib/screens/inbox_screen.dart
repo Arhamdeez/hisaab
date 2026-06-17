@@ -6,10 +6,11 @@ import '../widgets/glass_container.dart';
 import '../core/theme/app_spacing.dart' show AppSpacing, AppRadius;
 import '../core/utils/app_refresh.dart';
 import '../core/utils/formatters.dart';
+import '../features/parser/category_guesser.dart';
 import '../models/transaction.dart';
 import '../providers/transaction_provider.dart';
 import '../widgets/category_breakdown.dart';
-import '../widgets/refresh_skeleton.dart';
+import '../widgets/category_confirm_sheet.dart';
 
 class InboxScreen extends StatelessWidget {
   const InboxScreen({super.key});
@@ -22,7 +23,6 @@ class InboxScreen extends StatelessWidget {
 
         return SafeArea(
           child: AppRefreshScroll(
-            skeleton: const InboxRefreshSkeleton(),
             child: ListView(
               physics: refreshScrollPhysics,
               padding: AppSpacing.page,
@@ -48,7 +48,8 @@ class InboxScreen extends StatelessWidget {
                   for (final tx in pending)
                     _ReviewCard(
                       transaction: tx,
-                      onConfirm: () => provider.confirmTransaction(tx.id),
+                      suggestion: provider.suggestCategory(tx),
+                      onConfirm: () => _confirmTransaction(context, provider, tx),
                       onIgnore: () => provider.ignoreTransaction(tx.id),
                     ),
                 ],
@@ -58,6 +59,28 @@ class InboxScreen extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _confirmTransaction(
+    BuildContext context,
+    TransactionProvider provider,
+    Transaction tx,
+  ) async {
+    final suggestion = provider.suggestCategory(tx);
+
+    if (await provider.tryAutoConfirmTransaction(tx.id)) {
+      return;
+    }
+
+    if (!context.mounted) return;
+
+    final category = await showCategoryConfirmSheet(
+      context,
+      transaction: tx,
+      suggestion: suggestion,
+    );
+    if (category == null || !context.mounted) return;
+    await provider.confirmTransaction(tx.id, category: category);
   }
 }
 
@@ -108,11 +131,13 @@ class _EmptyInbox extends StatelessWidget {
 class _ReviewCard extends StatelessWidget {
   const _ReviewCard({
     required this.transaction,
+    required this.suggestion,
     required this.onConfirm,
     required this.onIgnore,
   });
 
   final Transaction transaction;
+  final CategorySuggestion suggestion;
   final VoidCallback onConfirm;
   final VoidCallback onIgnore;
 
@@ -120,6 +145,9 @@ class _ReviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final confidence = transaction.confidence * 100;
+    final displayCategory = suggestion.isConfident
+        ? suggestion.category
+        : transaction.category;
 
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 12),
@@ -182,6 +210,27 @@ class _ReviewCard extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
+          if (transaction.isDebit) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  displayCategory.icon,
+                  size: 16,
+                  color: displayCategory.color,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  suggestion.isConfident
+                      ? suggestion.reasonLabel
+                      : 'Suggested · ${displayCategory.label}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (transaction.rawText != null) ...[
             const SizedBox(height: 10),
             Text(

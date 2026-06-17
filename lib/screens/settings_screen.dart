@@ -1,10 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/brand.dart';
 import '../core/theme/app_decorations.dart';
 import '../widgets/glass_container.dart';
 import '../core/theme/app_spacing.dart';
@@ -12,100 +14,103 @@ import '../core/utils/formatters.dart';
 import '../features/backup/backup_service.dart';
 import '../features/ingest/ingest_service.dart';
 import '../providers/app_preferences.dart';
+import 'about_screen.dart';
+import 'month_end_screen.dart';
+
+Future<void> _editMonthlyIncome(
+  BuildContext context,
+  AppPreferences prefs,
+) async {
+  final controller = TextEditingController(
+    text: prefs.hasMonthlyIncome
+        ? prefs.monthlyIncome.toStringAsFixed(0)
+        : '',
+  );
+
+  final value = await showDialog<double>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: AppColors.backgroundElevated,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        title: const Text('Monthly income'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Used as your income baseline for budget and savings.',
+              style: Theme.of(
+                dialogContext,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                prefixText: 'Rs ',
+                hintText: '0',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          if (prefs.hasMonthlyIncome)
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, 0.0),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.textMuted,
+              ),
+              child: const Text('Clear'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final parsed = double.tryParse(
+                controller.text.replaceAll(',', '').trim(),
+              );
+              Navigator.pop(dialogContext, parsed ?? prefs.monthlyIncome);
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.ui,
+              foregroundColor: AppColors.textOnPrimary,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (value != null) {
+    await prefs.setMonthlyIncome(value);
+  }
+}
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   Future<void> _exportBackup(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
     final result = await context.read<BackupService>().exportToFile();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          result.isSuccess
-              ? 'Exported ${result.count} transactions'
-              : result.message ?? 'Export failed',
+    if (!context.mounted) return;
+    messenger.clearSnackBars();
+    if (!result.isSuccess) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(result.message ?? 'Export failed'),
         ),
-      ),
-    );
-  }
-
-  Future<void> _editMonthlyIncome(
-    BuildContext context,
-    AppPreferences prefs,
-  ) async {
-    final controller = TextEditingController(
-      text: prefs.hasMonthlyIncome
-          ? prefs.monthlyIncome.toStringAsFixed(0)
-          : '',
-    );
-
-    final value = await showDialog<double>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: AppColors.backgroundElevated,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-          ),
-          title: const Text('Monthly income'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Used as your income baseline for budget and savings.',
-                style: Theme.of(
-                  dialogContext,
-                ).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  prefixText: 'Rs ',
-                  hintText: '0',
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            if (prefs.hasMonthlyIncome)
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, 0.0),
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.textMuted,
-                ),
-                child: const Text('Clear'),
-              ),
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final parsed = double.tryParse(
-                  controller.text.replaceAll(',', '').trim(),
-                );
-                Navigator.pop(dialogContext, parsed ?? prefs.monthlyIncome);
-              },
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.ui,
-                foregroundColor: AppColors.textOnPrimary,
-              ),
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (value != null) {
-      await prefs.setMonthlyIncome(value);
+      );
     }
   }
 
@@ -179,9 +184,12 @@ class SettingsScreen extends StatelessWidget {
                       ),
                       onTap: () async {
                         if (ingest.isGmailConnected) {
+                          final messenger = ScaffoldMessenger.of(context);
+                          messenger.clearSnackBars();
                           final count = await ingest.syncGmail();
                           if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          messenger.clearSnackBars();
+                          messenger.showSnackBar(
                             SnackBar(
                               content: Text('Synced $count email alerts'),
                             ),
@@ -214,57 +222,29 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.section),
                 _SettingsGroup(
-                  title: 'Cash flow',
+                  title: 'Reports',
                   children: [
-                    _SettingsSwitchTile(
-                      icon: Icons.south_west_rounded,
-                      title: 'Track cash received',
-                      subtitle: prefs.trackInwardFlow
-                          ? 'Logging money in — SMS, alerts & manual'
-                          : 'Spending only — turn on to track cash in',
-                      value: prefs.trackInwardFlow,
-                      onChanged: prefs.setTrackInwardFlow,
-                    ),
-                    _SettingsSwitchTile(
-                      icon: Icons.account_balance_wallet_outlined,
-                      title: 'Show income budget',
-                      subtitle: prefs.showIncome
-                          ? 'Monthly income & savings on Home & Report'
-                          : 'Hidden — spending (and cash in, if enabled) only',
-                      value: prefs.showIncome,
-                      onChanged: prefs.setShowIncome,
-                    ),
-                    if (prefs.showIncome)
-                      _SettingsTile(
-                        icon: Icons.payments_outlined,
-                        title: 'Monthly income',
-                        subtitle: prefs.hasMonthlyIncome
-                            ? formatCurrency(prefs.monthlyIncome)
-                            : 'Tap to set your monthly income',
-                        trailing: prefs.hasMonthlyIncome
-                            ? Text(
-                                formatCompactCurrency(prefs.monthlyIncome),
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(
-                                      color: AppColors.income,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                              )
-                            : null,
-                        onTap: () => _editMonthlyIncome(context, prefs),
-                      ),
-                    const _SettingsTile(
-                      icon: Icons.category_outlined,
-                      title: 'Categories',
-                      subtitle: 'Food, Transport, Bills, and more',
+                    _SettingsTile(
+                      icon: Icons.pie_chart_outline_rounded,
+                      title: 'Month-end report',
+                      subtitle: 'Spending breakdown, trends & CSV export',
+                      onTap: () => MonthEndScreen.open(context),
                     ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.section),
+                const _CashFlowSettingsGroup(),
+                const SizedBox(height: AppSpacing.section),
                 _SettingsGroup(
                   title: 'About',
-                  children: const [
+                  children: [
                     _SettingsTile(
+                      icon: Icons.info_outline_rounded,
+                      title: 'About ${AppBrand.name}',
+                      subtitle: 'Made by Arham · Vawcom AI agency',
+                      onTap: () => AboutScreen.open(context),
+                    ),
+                    const _SettingsTile(
                       icon: Icons.privacy_tip_outlined,
                       title: 'Privacy',
                       subtitle: 'All data stays on your device',
@@ -274,6 +254,89 @@ class SettingsScreen extends StatelessWidget {
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+}
+
+class _CashFlowSettingsGroup extends StatelessWidget {
+  const _CashFlowSettingsGroup();
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<AppPreferences, bool>(
+      selector: (_, prefs) => prefs.showIncome,
+      builder: (context, showIncome, _) {
+        return _SettingsGroup(
+          title: 'Cash flow',
+          children: [
+            Selector<AppPreferences, bool>(
+              selector: (_, prefs) => prefs.trackInwardFlow,
+              builder: (context, trackInwardFlow, _) {
+                return _SettingsSwitchTile(
+                  icon: Icons.south_west_rounded,
+                  title: 'Track cash received',
+                  subtitle: trackInwardFlow
+                      ? 'Logging money in — SMS, alerts & manual'
+                      : 'Spending only — turn on to track cash in',
+                  value: trackInwardFlow,
+                  onChanged:
+                      context.read<AppPreferences>().setTrackInwardFlow,
+                );
+              },
+            ),
+            Selector<AppPreferences, bool>(
+              selector: (_, prefs) => prefs.showIncome,
+              builder: (context, showIncome, _) {
+                return _SettingsSwitchTile(
+                  icon: Icons.account_balance_wallet_outlined,
+                  title: 'Show income budget',
+                  subtitle: showIncome
+                      ? 'Monthly income & savings on Home & Report'
+                      : 'Hidden — spending (and cash in, if enabled) only',
+                  value: showIncome,
+                  onChanged: context.read<AppPreferences>().setShowIncome,
+                );
+              },
+            ),
+            if (showIncome)
+              Selector<AppPreferences, (bool, double)>(
+                selector: (_, prefs) =>
+                    (prefs.hasMonthlyIncome, prefs.monthlyIncome),
+                builder: (context, data, _) {
+                  final (hasIncome, income) = data;
+                  return _SettingsTile(
+                    icon: Icons.payments_outlined,
+                    title: 'Monthly income',
+                    subtitle: hasIncome
+                        ? formatCurrency(income)
+                        : 'Tap to set your monthly income',
+                    trailing: hasIncome
+                        ? Text(
+                            formatCompactCurrency(income),
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
+                                  color: AppColors.income,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          )
+                        : null,
+                    onTap: () => _editMonthlyIncome(
+                      context,
+                      context.read<AppPreferences>(),
+                    ),
+                  );
+                },
+              ),
+            const _SettingsTile(
+              icon: Icons.category_outlined,
+              title: 'Categories',
+              subtitle: 'Food, Transport, Bills, and more',
+            ),
+          ],
         );
       },
     );
@@ -410,39 +473,157 @@ class _SettingsSwitchTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: AppDecorations.iconBadge(AppColors.ui),
-            child: Icon(icon, color: AppColors.ui, size: 18),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
-                ),
-              ],
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: AppDecorations.iconBadge(AppColors.ui),
+              child: Icon(icon, color: AppColors.ui, size: 18),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 3),
+                  SizedBox(
+                    height: 34,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        transitionBuilder: (child, animation) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: child,
+                          );
+                        },
+                        layoutBuilder: (current, previous) {
+                          return Stack(
+                            alignment: Alignment.centerLeft,
+                            children: [
+                              ...previous,
+                              if (current != null) current,
+                            ],
+                          );
+                        },
+                        child: Text(
+                          subtitle,
+                          key: ValueKey(subtitle),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: AppColors.textMuted),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _SmoothToggle(value: value, onChanged: onChanged),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SmoothToggle extends StatefulWidget {
+  const _SmoothToggle({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  State<_SmoothToggle> createState() => _SmoothToggleState();
+}
+
+class _SmoothToggleState extends State<_SmoothToggle> {
+  late bool _on;
+
+  @override
+  void initState() {
+    super.initState();
+    _on = widget.value;
+  }
+
+  @override
+  void didUpdateWidget(_SmoothToggle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) {
+      _on = widget.value;
+    }
+  }
+
+  void _handleTap() {
+    final next = !_on;
+    setState(() => _on = next);
+    HapticFeedback.selectionClick();
+    widget.onChanged(next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      toggled: _on,
+      button: true,
+      label: _on ? 'On' : 'Off',
+      child: GestureDetector(
+        onTap: _handleTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeInOutCubic,
+          width: 48,
+          height: 28,
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            color: _on
+                ? AppColors.ui.withValues(alpha: 0.28)
+                : AppColors.glassFill,
+            border: Border.all(
+              color: _on
+                  ? AppColors.ui.withValues(alpha: 0.45)
+                  : AppColors.glassBorder,
+              width: 1,
             ),
           ),
-          Switch.adaptive(
-            value: value,
-            onChanged: onChanged,
-            activeTrackColor: AppColors.ui.withValues(alpha: 0.5),
-            activeThumbColor: AppColors.ui,
+          child: AnimatedAlign(
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeInOutCubic,
+            alignment: _on ? Alignment.centerRight : Alignment.centerLeft,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeInOutCubic,
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _on ? AppColors.ui : AppColors.textMuted,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.28),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ],
+        ),
       ),
     );
   }

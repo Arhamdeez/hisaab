@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/app_refresh.dart';
+import '../widgets/empty_state_view.dart';
 import '../widgets/glass_container.dart';
 import '../core/utils/formatters.dart';
 import '../models/transaction.dart';
@@ -12,7 +14,6 @@ import '../providers/app_preferences.dart';
 import '../providers/transaction_provider.dart';
 import '../screens/transaction_detail_screen.dart';
 import '../widgets/transaction_tile.dart';
-import '../widgets/refresh_skeleton.dart';
 
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
@@ -110,203 +111,174 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             txs.sort((a, b) => a.amount.compareTo(b.amount));
         }
 
+        final hasFilters = _query.isNotEmpty || _filterCategory != null;
+
         return SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.pageH,
-                  16,
-                  AppSpacing.pageH,
-                  0,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const AppAccentBar(height: 28),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Transactions',
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineLarge
-                                ?.copyWith(
-                                  letterSpacing: -0.4,
-                                ),
+          child: AppRefreshScroll(
+            child: CustomScrollView(
+              physics: refreshScrollPhysics,
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.pageH,
+                      16,
+                      AppSpacing.pageH,
+                      0,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const AppAccentBar(height: 28),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Transactions',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineLarge
+                                    ?.copyWith(
+                                      letterSpacing: -0.4,
+                                    ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                formatMonthYear(selected),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color: AppColors.textMuted,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            formatMonthYear(selected),
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(
-                                  color: AppColors.textMuted,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                        ),
+                        _SortButton(
+                          sort: _sort,
+                          onChanged: (s) => setState(() => _sort = s),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.pageH,
+                      16,
+                      AppSpacing.pageH,
+                      0,
+                    ),
+                    child: TextField(
+                      onChanged: (v) => setState(() => _query = v),
+                      decoration: const InputDecoration(
+                        hintText: 'Search merchant or category',
+                        prefixIcon: Icon(Icons.search_rounded),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: SizedBox(
+                      height: 40,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.pageH,
+                        ),
+                        children: [
+                          _FilterChip(
+                            label: 'All',
+                            selected: _filterCategory == null,
+                            onTap: () => setState(() => _filterCategory = null),
+                          ),
+                          ...SpendingCategory.values.map(
+                            (c) => _FilterChip(
+                              label: c.label,
+                              selected: _filterCategory == c,
+                              color: c.color,
+                              onTap: () => setState(() => _filterCategory = c),
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    _SortButton(
-                      sort: _sort,
-                      onChanged: (s) => setState(() => _sort = s),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.pageH,
-                  16,
-                  AppSpacing.pageH,
-                  0,
-                ),
-                child: TextField(
-                  onChanged: (v) => setState(() => _query = v),
-                  decoration: const InputDecoration(
-                    hintText: 'Search merchant or category',
-                    prefixIcon: Icon(Icons.search_rounded),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 40,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageH),
-                  children: [
-                    _FilterChip(
-                      label: 'All',
-                      selected: _filterCategory == null,
-                      onTap: () => setState(() => _filterCategory = null),
-                    ),
-                    ...SpendingCategory.values.map(
-                      (c) => _FilterChip(
-                        label: c.label,
-                        selected: _filterCategory == c,
-                        color: c.color,
-                        onTap: () => setState(() => _filterCategory = c),
+                if (txs.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: CenteredScrollEmpty(
+                      child: EmptyStateView(
+                        icon: Icons.receipt_long_rounded,
+                        title: hasFilters
+                            ? 'No transactions found'
+                            : 'No transactions yet',
+                        subtitle: hasFilters
+                            ? 'Try a different search or category filter'
+                            : 'Confirmed payments for this month will appear here',
                       ),
                     ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: AppRefreshScroll(
-                  skeleton: const TransactionsRefreshSkeleton(),
-                  child: txs.isEmpty
-                      ? ListView(
-                          physics: refreshScrollPhysics,
-                          padding: AppSpacing.page,
-                          children: [
-                            SizedBox(
-                              height: MediaQuery.sizeOf(context).height * 0.2,
-                            ),
-                            GlassContainer(
-                              radius: AppRadius.xl,
-                              blur: 12,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 28,
-                                vertical: 32,
-                              ),
-                              child: Column(
-                                children: [
-                                  Container(
-                                    width: 56,
-                                    height: 56,
-                                    decoration: AppDecorations.iconBadge(
-                                      AppColors.textMuted,
-                                    ),
-                                    child: const Icon(
-                                      Icons.receipt_long_rounded,
-                                      color: AppColors.textMuted,
-                                      size: 26,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'No transactions found',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Try a different filter or search term',
-                                    textAlign: TextAlign.center,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall
-                                        ?.copyWith(
-                                          color: AppColors.textMuted,
-                                        ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        )
-                      : ListView(
-                          physics: refreshScrollPhysics,
-                          padding: const EdgeInsets.fromLTRB(
-                            AppSpacing.pageH,
-                            12,
-                            AppSpacing.pageH,
-                            AppSpacing.navBottom,
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.pageH,
+                      12,
+                      AppSpacing.pageH,
+                      AppSpacing.navBottom,
+                    ),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        if (prefs.trackInwardFlow) ...[
+                          _CashFlowSummary(
+                            spent: summary.totalDebit,
+                            received: summary.totalCredit,
                           ),
-                          children: [
-                            if (prefs.trackInwardFlow) ...[
-                              _CashFlowSummary(
-                                spent: summary.totalDebit,
-                                received: summary.totalCredit,
-                              ),
-                              const SizedBox(height: 12),
-                            ] else if (summary.totalDebit > 0) ...[
-                              _AveragesCard(
-                                dailyAvg: dailyAvg,
-                                monthlyAvg: monthlyAvg,
-                              ),
-                              const SizedBox(height: 12),
+                          const SizedBox(height: 12),
+                        ] else if (summary.totalDebit > 0) ...[
+                          _AveragesCard(
+                            dailyAvg: dailyAvg,
+                            monthlyAvg: monthlyAvg,
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        GlassCard(
+                          child: Column(
+                            children: [
+                              for (var i = 0; i < txs.length; i++) ...[
+                                TransactionTile(
+                                  transaction: txs[i],
+                                  showSource: true,
+                                  compact: true,
+                                  onTap: () => TransactionDetailScreen.open(
+                                    context,
+                                    txs[i],
+                                  ),
+                                ),
+                                if (i < txs.length - 1)
+                                  const Divider(
+                                    height: 1,
+                                    indent: 72,
+                                    endIndent: 16,
+                                    color: AppColors.border,
+                                  ),
+                              ],
                             ],
-                            GlassCard(
-                              child: Column(
-                                children: [
-                                  for (var i = 0; i < txs.length; i++) ...[
-                                    TransactionTile(
-                                      transaction: txs[i],
-                                      showSource: true,
-                                      compact: true,
-                                      onTap: () => TransactionDetailScreen.open(
-                                        context,
-                                        txs[i],
-                                      ),
-                                    ),
-                                    if (i < txs.length - 1)
-                                      const Divider(
-                                        height: 1,
-                                        indent: 72,
-                                        endIndent: 16,
-                                        color: AppColors.border,
-                                      ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                ),
-              ),
-            ],
+                      ]),
+                    ),
+                  ),
+              ],
+            ),
           ),
         );
       },
@@ -616,45 +588,72 @@ class _FilterChip extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-          decoration: BoxDecoration(
-            gradient: selected
-                ? LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      activeColor.withValues(alpha: 0.22),
-                      activeColor.withValues(alpha: 0.08),
-                    ],
-                  )
-                : null,
-            color: selected ? null : AppColors.glassFill,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            border: Border.all(
-              color: selected
-                  ? activeColor.withValues(alpha: 0.55)
-                  : AppColors.glassBorder,
-            ),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                      color: activeColor.withValues(alpha: 0.22),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: selected ? activeColor : AppColors.textSecondary,
-                  fontWeight: FontWeight.w600,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          child: AnimatedScale(
+            scale: selected ? 1.0 : 0.96,
+            duration: const Duration(milliseconds: 180),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                gradient: selected
+                    ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          activeColor.withValues(alpha: 0.32),
+                          activeColor.withValues(alpha: 0.1),
+                        ],
+                      )
+                    : null,
+                color: selected ? null : AppColors.glassFill,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                border: Border.all(
+                  color: selected ? AppColors.ui : AppColors.glassBorder,
+                  width: selected ? 2 : 0.85,
                 ),
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          color: activeColor.withValues(alpha: 0.28),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (selected) ...[
+                    Icon(
+                      Icons.check_rounded,
+                      size: 14,
+                      color: activeColor == AppColors.ui
+                          ? AppColors.ui
+                          : activeColor,
+                    ),
+                    const SizedBox(width: 5),
+                  ],
+                  Text(
+                    label,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: selected
+                              ? AppColors.textPrimary
+                              : AppColors.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

@@ -140,9 +140,17 @@ abstract final class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.backgroundElevated,
+        contentTextStyle: GoogleFonts.plusJakartaSans(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: AppColors.textPrimary,
+        ),
         behavior: SnackBarBehavior.floating,
+        showCloseIcon: false,
+        elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: AppRadius.borderMd,
+          side: const BorderSide(color: AppColors.glassBorder),
         ),
       ),
       bottomSheetTheme: BottomSheetThemeData(

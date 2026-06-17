@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/repositories/transaction_repository.dart';
 import '../features/dedup/deduplicator.dart';
+import '../features/parser/category_guesser.dart';
 import '../features/parser/transaction_parser.dart';
 import '../models/transaction.dart';
 
@@ -149,9 +150,54 @@ class TransactionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> confirmTransaction(String id) async {
-    await _repository.updateStatus(id, TransactionStatus.confirmed);
+  Future<void> confirmTransaction(
+    String id, {
+    SpendingCategory? category,
+  }) async {
+    if (category != null) {
+      await _repository.applyReview(
+        id,
+        status: TransactionStatus.confirmed,
+        category: category,
+      );
+    } else {
+      await _repository.updateStatus(id, TransactionStatus.confirmed);
+    }
     await load();
+  }
+
+  /// Best category for a pending transaction using history + merchant text.
+  CategorySuggestion suggestCategory(Transaction transaction) {
+    return CategoryGuesser.suggest(
+      merchant: transaction.merchant,
+      rawText: transaction.rawText,
+      parsedCategory: transaction.category,
+      confirmedHistory: confirmedTransactions,
+    );
+  }
+
+  /// Confirms with auto-detected category when confident; otherwise null so the
+  /// UI can show the picker sheet.
+  Future<bool> tryAutoConfirmTransaction(String id) async {
+    Transaction? tx;
+    for (final t in _transactions) {
+      if (t.id == id) {
+        tx = t;
+        break;
+      }
+    }
+    if (tx == null || !tx.isPending) return false;
+
+    if (!tx.isDebit) {
+      await confirmTransaction(id, category: SpendingCategory.other);
+      return true;
+    }
+
+    final suggestion = suggestCategory(tx);
+    if (!suggestion.isConfident) return false;
+
+    await confirmTransaction(id, category: suggestion.category);
+    return true;
   }
 
   Future<void> ignoreTransaction(String id) async {

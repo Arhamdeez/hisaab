@@ -364,39 +364,77 @@ class CategoryDonutChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     if (summaries.isEmpty) {
-      return const SizedBox(
-        height: 180,
+      return SizedBox(
+        height: 200,
         child: Center(
           child: Text(
             'No spending data',
-            style: TextStyle(color: AppColors.textMuted),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: AppColors.textMuted,
+            ),
           ),
         ),
       );
     }
 
     return SizedBox(
-      height: 180,
-      child: PieChart(
-        PieChartData(
-          sectionsSpace: 2,
-          centerSpaceRadius: 52,
-          sections: summaries.map((s) {
-            final pct = total > 0 ? (s.value / total) * 100 : 0.0;
-            return PieChartSectionData(
-              value: s.value,
-              color: s.color,
-              radius: AppRadius.hero,
-              title: pct >= 8 ? '${pct.toStringAsFixed(0)}%' : '',
-              titleStyle: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: AppColors.linen,
+      height: 200,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          PieChart(
+            PieChartData(
+              sectionsSpace: 3,
+              centerSpaceRadius: 58,
+              startDegreeOffset: -90,
+              sections: summaries.map((s) {
+                final pct = total > 0 ? (s.value / total) * 100 : 0.0;
+                return PieChartSectionData(
+                  value: s.value,
+                  color: s.color,
+                  radius: 38,
+                  title: pct >= 10 ? '${pct.toStringAsFixed(0)}%' : '',
+                  titleStyle: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      s.color.withValues(alpha: 0.95),
+                      s.color.withValues(alpha: 0.65),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Total spent',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.textMuted,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            );
-          }).toList(),
-        ),
+              const SizedBox(height: 4),
+              Text(
+                formatCompactCurrency(total),
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

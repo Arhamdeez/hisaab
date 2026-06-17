@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -26,16 +29,11 @@ Future<void> main() async {
     ),
   );
 
-  // Warm the font files before the first frame to avoid startup jank.
-  GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w400);
-  GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600);
-  GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700);
-  await GoogleFonts.pendingFonts();
+  final logoBytes = await rootBundle.load('assets/images/logo.png');
+  await ui.instantiateImageCodec(logoBytes.buffer.asUint8List());
 
   final database = AppDatabase();
   final repository = TransactionRepository(database);
-  await repository.deleteLegacySeedData();
-
   final deduplicator = Deduplicator(repository);
   final gmailService = GmailService();
   final ingestService = IngestService(
@@ -45,9 +43,9 @@ Future<void> main() async {
   );
   final backupService = BackupService(repository);
 
+  // Drain background captures into SQLite before the first frame so the inbox
+  // is complete even if OS notifications already expired.
   await ingestService.initialize();
-
-  await AppPreferences.load();
 
   runApp(
     SpendTrackerApp(
@@ -57,6 +55,17 @@ Future<void> main() async {
       backupService: backupService,
     ),
   );
+
+  unawaited(_warmFontsAndPrefs(repository));
+}
+
+Future<void> _warmFontsAndPrefs(TransactionRepository repository) async {
+  GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w400);
+  GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600);
+  GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700);
+  await GoogleFonts.pendingFonts();
+  await repository.deleteLegacySeedData();
+  await AppPreferences.load();
 }
 
 class SpendTrackerApp extends StatelessWidget {
@@ -87,12 +96,52 @@ class SpendTrackerApp extends StatelessWidget {
         Provider.value(value: backupService),
         ChangeNotifierProvider.value(value: AppPreferences.instance),
       ],
-      child: MaterialApp(
-        title: AppBrand.name,
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.dark,
-        home: const AppBootstrap(),
+      child: _IngestSync(
+        child: MaterialApp(
+          title: AppBrand.name,
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.dark,
+          home: const AppBootstrap(),
+        ),
       ),
     );
   }
+}
+
+/// Keeps transaction lists in sync when new captures arrive or are reviewed.
+class _IngestSync extends StatefulWidget {
+  const _IngestSync({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_IngestSync> createState() => _IngestSyncState();
+}
+
+class _IngestSyncState extends State<_IngestSync> {
+  IngestService? _ingest;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ingest = context.read<IngestService>();
+    if (_ingest == ingest) return;
+    _ingest?.removeListener(_onIngest);
+    _ingest = ingest;
+    _ingest!.addListener(_onIngest);
+  }
+
+  @override
+  void dispose() {
+    _ingest?.removeListener(_onIngest);
+    super.dispose();
+  }
+
+  void _onIngest() {
+    if (!mounted) return;
+    context.read<TransactionProvider>().reload();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

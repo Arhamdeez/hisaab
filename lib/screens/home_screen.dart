@@ -16,7 +16,6 @@ import '../widgets/centered_content.dart';
 import '../widgets/spend_focus_hero.dart';
 import '../widgets/home_sections.dart' show HomeRecentActivity;
 import '../widgets/glass_bottom_nav_bar.dart';
-import '../widgets/refresh_skeleton.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -38,7 +37,6 @@ class HomeScreen extends StatelessWidget {
 
         return SafeArea(
           child: AppRefreshScroll(
-            skeleton: const HomeRefreshSkeleton(),
             child: CustomScrollView(
               physics: refreshScrollPhysics,
               slivers: [

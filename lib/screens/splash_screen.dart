@@ -2,10 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../core/splash_timing.dart';
 import '../core/theme/app_colors.dart';
 import '../widgets/app_logo_mark.dart';
 
-/// Launch: logo appears → drops off-screen → bubble opens to reveal [child].
+/// Black native splash → logo fades in → brief hold → drop → bubble reveals [child].
 class SplashGate extends StatefulWidget {
   const SplashGate({
     super.key,
@@ -22,23 +23,31 @@ class SplashGate extends StatefulWidget {
   State<SplashGate> createState() => _SplashGateState();
 }
 
-class _SplashGateState extends State<SplashGate> with SingleTickerProviderStateMixin {
-  static const _appearEndT = 0.22;
-  static const _introHold = Duration(milliseconds: 800);
-  static const _logoSize = 88.0;
+enum _SplashPhase { enter, hold, drop, pause, bubble, done }
 
-  late final AnimationController _c;
-  late final Animation<double> _logoOpacity;
-  late final Animation<double> _logoScale;
-  late final Animation<double> _logoExit;
+class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
+  static const _logoSize = SplashTiming.logoSize;
+  static const _dropDuration = Duration(milliseconds: 580);
+  static const _bubbleDuration = Duration(milliseconds: 1200);
+  static const _pauseAfterDrop = Duration(milliseconds: 60);
+
+  late final AnimationController _enter;
+  late final AnimationController _drop;
+  late final AnimationController _bubble;
+
+  late final Animation<double> _enterOpacity;
+  late final Animation<double> _enterScale;
+  late final Animation<double> _enterLift;
+  late final Animation<double> _dropTravel;
+  late final Animation<double> _dropOpacity;
   late final Animation<double> _bubbleExpand;
 
-  bool _exitStarted = false;
+  _SplashPhase _phase = _SplashPhase.enter;
   bool _introDone = false;
   bool _pendingExit = false;
   bool _finished = false;
+  bool _sequenceStarted = false;
 
-  // Cached layout — avoids recomputing trig every frame.
   Size? _cachedSize;
   late Offset _bubbleOrigin;
   late double _maxBubbleRadius;
@@ -47,44 +56,113 @@ class _SplashGateState extends State<SplashGate> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 4000),
-    );
 
-    _logoOpacity = CurvedAnimation(
-      parent: _c,
-      curve: const Interval(0.0, 0.22, curve: Curves.easeOut),
+    _enter = AnimationController(
+      vsync: this,
+      duration: SplashTiming.enterFade,
     );
-    _logoScale = Tween<double>(begin: 0.48, end: 1.0).animate(
+    _enterOpacity = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(
-        parent: _c,
-        curve: const Interval(0.0, 0.26, curve: Curves.easeOutBack),
+        parent: _enter,
+        curve: Curves.easeInOutCubic,
+      ),
+    );
+    _enterScale = Tween<double>(begin: 0.94, end: 1).animate(
+      CurvedAnimation(
+        parent: _enter,
+        curve: const Interval(0.12, 1, curve: Curves.easeOutCubic),
+      ),
+    );
+    _enterLift = Tween<double>(begin: 10, end: 0).animate(
+      CurvedAnimation(
+        parent: _enter,
+        curve: const Interval(0.08, 1, curve: Curves.easeOutCubic),
       ),
     );
 
-    _logoExit = CurvedAnimation(
-      parent: _c,
-      curve: const Interval(0.22, 0.38, curve: Curves.easeInQuart),
+    _drop = AnimationController(vsync: this, duration: _dropDuration);
+    _dropTravel = CurvedAnimation(
+      parent: _drop,
+      curve: Curves.easeInCubic,
+    );
+    _dropOpacity = Tween<double>(begin: 1, end: 0).animate(
+      CurvedAnimation(
+        parent: _drop,
+        curve: const Interval(0.8, 1.0, curve: Curves.easeOut),
+      ),
     );
 
+    _bubble = AnimationController(vsync: this, duration: _bubbleDuration);
     _bubbleExpand = CurvedAnimation(
-      parent: _c,
-      curve: const Interval(0.44, 1.0, curve: _SmoothBubbleCurve()),
+      parent: _bubble,
+      curve: const _SmoothBubbleCurve(),
     );
 
-    _c.addStatusListener(_onTick);
-    _c.addListener(_checkBubbleComplete);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _playIntro());
+    _drop.addStatusListener(_onDropStatus);
+    _bubble.addStatusListener(_onBubbleStatus);
+    _bubble.addListener(_checkBubbleComplete);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => _runSequence());
+  }
+
+  Future<void> _runSequence() async {
+    if (!mounted || _sequenceStarted) return;
+    _sequenceStarted = true;
+
+    setState(() => _phase = _SplashPhase.enter);
+    await Future<void>.delayed(SplashTiming.enterDelay);
+    if (!mounted) return;
+
+    await _enter.forward(from: 0).orCancel.catchError((_) {});
+    if (!mounted) return;
+
+    setState(() => _phase = _SplashPhase.hold);
+    await Future<void>.delayed(SplashTiming.introHold);
+    if (!mounted || _phase != _SplashPhase.hold) return;
+
+    _introDone = true;
+    if (widget.ready || _pendingExit) {
+      _startDrop();
+    }
   }
 
   void _checkBubbleComplete() {
-    if (_exitStarted &&
-        !_finished &&
-        _bubbleExpand.value >= 0.995) {
-      _finished = true;
-      widget.onFinished();
+    if (_phase != _SplashPhase.bubble || _finished) return;
+    if (_bubbleExpand.value >= 0.995) {
+      _finish();
     }
+  }
+
+  void _onDropStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed || _phase != _SplashPhase.drop) {
+      return;
+    }
+    setState(() => _phase = _SplashPhase.pause);
+    Future<void>.delayed(_pauseAfterDrop, () {
+      if (!mounted || _phase != _SplashPhase.pause) return;
+      setState(() => _phase = _SplashPhase.bubble);
+      _bubble.forward(from: 0);
+    });
+  }
+
+  void _onBubbleStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed &&
+        _phase == _SplashPhase.bubble &&
+        !_finished) {
+      _finish();
+    }
+  }
+
+  void _finish() {
+    if (_finished) return;
+    _finished = true;
+    widget.onFinished();
+  }
+
+  void _startDrop() {
+    if (_phase != _SplashPhase.hold) return;
+    setState(() => _phase = _SplashPhase.drop);
+    _drop.forward(from: 0);
   }
 
   @override
@@ -99,36 +177,7 @@ class _SplashGateState extends State<SplashGate> with SingleTickerProviderStateM
     _bubbleOrigin = Offset(size.width / 2, size.height + 6);
     final cx = size.width / 2;
     _maxBubbleRadius = math.sqrt(cx * cx + size.height * size.height) + 48;
-    _exitDistance = size.height / 2 + _logoSize / 2 + 64;
-  }
-
-  Future<void> _playIntro() async {
-    if (!mounted || _exitStarted) return;
-    await _c.animateTo(
-      _appearEndT,
-      duration: const Duration(milliseconds: 700),
-      curve: Curves.easeOutCubic,
-    );
-    if (!mounted || _exitStarted) return;
-    await Future<void>.delayed(_introHold);
-    if (!mounted || _exitStarted) return;
-    _introDone = true;
-    if (widget.ready || _pendingExit) _startExit();
-  }
-
-  void _startExit() {
-    if (_exitStarted) return;
-    _exitStarted = true;
-    _c.forward();
-  }
-
-  void _onTick(AnimationStatus status) {
-    if (status == AnimationStatus.completed &&
-        _exitStarted &&
-        !_finished) {
-      _finished = true;
-      widget.onFinished();
-    }
+    _exitDistance = size.height / 2 + _logoSize / 2 + 72;
   }
 
   @override
@@ -136,7 +185,7 @@ class _SplashGateState extends State<SplashGate> with SingleTickerProviderStateM
     super.didUpdateWidget(oldWidget);
     if (widget.ready && !oldWidget.ready) {
       if (_introDone) {
-        _startExit();
+        _startDrop();
       } else {
         _pendingExit = true;
       }
@@ -145,9 +194,12 @@ class _SplashGateState extends State<SplashGate> with SingleTickerProviderStateM
 
   @override
   void dispose() {
-    _c.removeListener(_checkBubbleComplete);
-    _c.removeStatusListener(_onTick);
-    _c.dispose();
+    _drop.removeStatusListener(_onDropStatus);
+    _bubble.removeStatusListener(_onBubbleStatus);
+    _bubble.removeListener(_checkBubbleComplete);
+    _enter.dispose();
+    _drop.dispose();
+    _bubble.dispose();
     super.dispose();
   }
 
@@ -156,68 +208,104 @@ class _SplashGateState extends State<SplashGate> with SingleTickerProviderStateM
     return (radius * dpr).round() / dpr;
   }
 
+  bool get _showLogo =>
+      _phase == _SplashPhase.enter ||
+      _phase == _SplashPhase.hold ||
+      _phase == _SplashPhase.drop;
+
+  bool get _showOverlay => _phase != _SplashPhase.done;
+
   @override
   Widget build(BuildContext context) {
     _cacheLayoutMetrics(MediaQuery.sizeOf(context));
+    final size = _cachedSize ?? MediaQuery.sizeOf(context);
 
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (context, _) {
-        final bubbleT = _bubbleExpand.value;
-        final exitT = _logoExit.value;
-        final bubbleRadius = bubbleT > 0
-            ? _snapRadius(_maxBubbleRadius * bubbleT)
-            : 0.0;
-
-        final logoVisible =
-            _logoOpacity.value > 0.01 && exitT < 1.0 && bubbleT <= 0;
-        final exitFade = exitT < 0.82
-            ? 1.0
-            : (1 - (exitT - 0.82) / 0.18).clamp(0.0, 1.0);
-        final logoScale = _logoScale.value * (1 - exitT * 0.06);
-
-        final showOverlay =
-            !_exitStarted || bubbleT < 0.999;
-
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            if (widget.ready)
-              RepaintBoundary(child: widget.child)
-            else
-              const ColoredBox(color: AppColors.background),
-            if (showOverlay)
-              RepaintBoundary(
-                child: CustomPaint(
-                  painter: _SplashMaskPainter(
-                    center: _bubbleOrigin,
-                    radius: bubbleRadius,
-                    bubbleT: bubbleT,
-                    fullCover: !_exitStarted || bubbleT <= 0,
-                  ),
-                  size: _cachedSize ?? MediaQuery.sizeOf(context),
-                ),
-              ),
-            if (logoVisible)
-              RepaintBoundary(
-                child: Center(
-                  child: Transform.translate(
-                    offset: Offset(0, _exitDistance * exitT),
-                    child: Opacity(
-                      opacity:
-                          (_logoOpacity.value * exitFade).clamp(0.0, 1.0),
-                      child: Transform.scale(
-                        scale: logoScale,
-                        child: _SplashLogo(showHalo: exitT < 0.06),
-                      ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (widget.ready)
+          RepaintBoundary(child: widget.child)
+        else
+          const ColoredBox(color: AppColors.background),
+        if (_showOverlay)
+          RepaintBoundary(
+            child: _phase == _SplashPhase.bubble
+                ? AnimatedBuilder(
+                    animation: _bubble,
+                    builder: (context, _) {
+                      final bubbleT = _bubbleExpand.value;
+                      final radius = bubbleT > 0
+                          ? _snapRadius(_maxBubbleRadius * bubbleT)
+                          : 0.0;
+                      return CustomPaint(
+                        painter: _SplashMaskPainter(
+                          center: _bubbleOrigin,
+                          radius: radius,
+                          bubbleT: bubbleT,
+                          fullCover: bubbleT <= 0,
+                        ),
+                        size: size,
+                      );
+                    },
+                  )
+                : CustomPaint(
+                    painter: _SplashMaskPainter(
+                      center: _bubbleOrigin,
+                      radius: 0,
+                      bubbleT: 0,
+                      fullCover: true,
                     ),
+                    size: size,
                   ),
+          ),
+        if (_showLogo) RepaintBoundary(child: _buildLogo()),
+      ],
+    );
+  }
+
+  Widget _buildLogo() {
+    const logo = _SplashLogo();
+
+    if (_phase == _SplashPhase.drop) {
+      return AnimatedBuilder(
+        animation: _drop,
+        builder: (context, child) {
+          return Center(
+            child: Transform.translate(
+              offset: Offset(0, _exitDistance * _dropTravel.value),
+              child: Opacity(
+                opacity: _dropOpacity.value.clamp(0.0, 1.0),
+                child: child,
+              ),
+            ),
+          );
+        },
+        child: logo,
+      );
+    }
+
+    if (_phase == _SplashPhase.enter) {
+      return AnimatedBuilder(
+        animation: _enter,
+        builder: (context, child) {
+          return Center(
+            child: Transform.translate(
+              offset: Offset(0, _enterLift.value),
+              child: Opacity(
+                opacity: _enterOpacity.value.clamp(0.0, 1.0),
+                child: Transform.scale(
+                  scale: _enterScale.value,
+                  child: child,
                 ),
               ),
-          ],
-        );
-      },
-    );
+            ),
+          );
+        },
+        child: logo,
+      );
+    }
+
+    return const Center(child: logo);
   }
 }
 
@@ -294,38 +382,15 @@ class _SmoothBubbleCurve extends Curve {
 }
 
 class _SplashLogo extends StatelessWidget {
-  const _SplashLogo({required this.showHalo});
-
-  final bool showHalo;
+  const _SplashLogo();
 
   @override
   Widget build(BuildContext context) {
     const size = _SplashGateState._logoSize;
-    return RepaintBoundary(
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            if (showHalo)
-              Container(
-                width: size * 1.4,
-                height: size * 1.4,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      AppColors.brand.withValues(alpha: 0.14),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            const AppLogoMark(size: size, emphasized: true),
-          ],
-        ),
-      ),
+    return SizedBox(
+      width: size,
+      height: size,
+      child: const AppLogoMark(size: size, emphasized: true),
     );
   }
 }

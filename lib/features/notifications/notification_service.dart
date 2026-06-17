@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/database/app_database.dart' show AppDatabase;
 import '../../core/repositories/transaction_repository.dart';
 import '../../core/utils/formatters.dart';
+import '../../features/parser/category_guesser.dart';
 import '../../models/transaction.dart';
 
 /// Action ids shared between the posted notification and the response handler.
@@ -255,14 +256,33 @@ class NotificationService {
 
       final note = decision.note?.trim();
       final hasNote = note != null && note.isNotEmpty;
+
+      final existing = await repository.getById(decision.id);
+      final confirmed = (await repository.getAll())
+          .where((t) => t.status == TransactionStatus.confirmed)
+          .toList();
+
       SpendingCategory? category;
-      if (hasNote && decision.isDebit) {
-        category = _inferCategory(note);
+      String? merchant;
+      if (decision.isDebit) {
+        final suggestion = CategoryGuesser.suggest(
+          merchant: hasNote ? note : (existing?.merchant ?? ''),
+          rawText: existing?.rawText,
+          userNote: hasNote ? note : null,
+          parsedCategory: existing?.category,
+          confirmedHistory: confirmed,
+        );
+        category = suggestion.category;
+        if (hasNote &&
+            suggestion.source == CategorySuggestionSource.defaultOther) {
+          merchant = note;
+        }
       }
+
       return repository.applyReview(
         decision.id,
         status: TransactionStatus.confirmed,
-        merchant: hasNote ? note : null,
+        merchant: merchant,
         category: category,
       );
     } catch (e) {
@@ -396,42 +416,5 @@ class NotificationService {
     } catch (e) {
       debugPrint('NotificationService dismiss error: $e');
     }
-  }
-
-  /// Best-effort mapping from a free-text reply to a spending category.
-  static SpendingCategory? _inferCategory(String note) {
-    final text = note.toLowerCase();
-    const keywords = <SpendingCategory, List<String>>{
-      SpendingCategory.food: [
-        'food', 'lunch', 'dinner', 'breakfast', 'grocery', 'groceries',
-        'restaurant', 'cafe', 'coffee', 'snack', 'eat', 'meal',
-      ],
-      SpendingCategory.transport: [
-        'transport', 'fuel', 'petrol', 'gas', 'uber', 'careem', 'taxi',
-        'bus', 'train', 'ride', 'parking', 'travel',
-      ],
-      SpendingCategory.shopping: [
-        'shopping', 'clothes', 'shoes', 'amazon', 'store', 'mall', 'shop',
-      ],
-      SpendingCategory.bills: [
-        'bill', 'bills', 'rent', 'electric', 'electricity', 'water', 'gas bill',
-        'internet', 'wifi', 'phone', 'utility', 'housing',
-      ],
-      SpendingCategory.entertainment: [
-        'movie', 'cinema', 'game', 'netflix', 'spotify', 'fun', 'entertainment',
-        'concert', 'party',
-      ],
-      SpendingCategory.health: [
-        'health', 'doctor', 'medicine', 'pharmacy', 'hospital', 'gym',
-        'clinic', 'medical',
-      ],
-    };
-
-    for (final entry in keywords.entries) {
-      for (final word in entry.value) {
-        if (text.contains(word)) return entry.key;
-      }
-    }
-    return null;
   }
 }

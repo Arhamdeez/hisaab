@@ -91,29 +91,29 @@ class AppPreferences extends ChangeNotifier {
   Future<void> setShowIncome(bool value) async {
     if (showIncome == value) return;
     _showIncome = value;
+    notifyListeners();
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     _prefs = prefs;
     await prefs.setBool(_showIncomeKey, value);
-    notifyListeners();
   }
 
   Future<void> setMonthlyIncome(double value) async {
     final clamped = value < 0 ? 0.0 : value;
     if (monthlyIncome == clamped) return;
     _monthlyIncome = clamped;
+    notifyListeners();
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     _prefs = prefs;
     await prefs.setDouble(_monthlyIncomeKey, clamped);
-    notifyListeners();
   }
 
   Future<void> setTrackInwardFlow(bool value) async {
     if (trackInwardFlow == value) return;
     _trackInwardFlow = value;
+    notifyListeners();
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     _prefs = prefs;
     await prefs.setBool(_trackInwardFlowKey, value);
-    notifyListeners();
   }
 
   /// Income baseline for the budget slider — only when [showIncome] is on.

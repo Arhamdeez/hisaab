@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../splash_timing.dart';
 import '../theme/app_colors.dart';
 import '../../widgets/app_logo_mark.dart';
 import '../../features/ingest/ingest_service.dart';
@@ -27,8 +28,8 @@ Future<void> refreshAppData(BuildContext context) async {
   }
   await provider.reload();
 
-  // Keep the skeleton visible long enough to read as a deliberate refresh.
-  const minVisible = Duration(milliseconds: 900);
+  // Keep the logo on screen long enough to read as a deliberate refresh.
+  const minVisible = Duration(milliseconds: 700);
   final elapsed = DateTime.now().difference(started);
   if (elapsed < minVisible) {
     await Future.delayed(minVisible - elapsed);
@@ -37,21 +38,17 @@ Future<void> refreshAppData(BuildContext context) async {
 
 /// Premium pull-to-refresh.
 ///
-/// The visual is driven by the live overscroll distance (computed by the
-/// physics engine), so the orb tracks the finger 1:1 and rides the elastic
-/// bounce-back — no custom scroll math fighting the view, no discrete snapping.
-/// Only the small orb repaints during a pull (it lives in a [RepaintBoundary]).
+/// Pull reveals a small orb; on release the screen blacks out, the logo
+/// animates in, data reloads, then the app fades back in.
 class AppRefreshIndicator extends StatefulWidget {
   const AppRefreshIndicator({
     super.key,
     required this.onRefresh,
     required this.child,
-    this.skeleton,
   });
 
   final Future<void> Function() onRefresh;
   final Widget child;
-  final Widget? skeleton;
 
   @override
   State<AppRefreshIndicator> createState() => _AppRefreshIndicatorState();
@@ -59,20 +56,15 @@ class AppRefreshIndicator extends StatefulWidget {
 
 class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     with TickerProviderStateMixin {
-  /// Overscroll distance (px) needed to arm a refresh.
   static const _trigger = 86.0;
 
-  /// Where the orb rests while the refresh callback runs.
-  static const _holdExtent = 60.0;
-
-  /// Live pull distance in logical pixels (0 = at rest).
   final _pull = ValueNotifier<double>(0);
   final _refreshing = ValueNotifier<bool>(false);
 
-  /// Drives the smooth crossfade between content and skeleton (0..1).
-  late final AnimationController _fade;
+  late final AnimationController _cover;
+  late final Animation<double> _logoOpacity;
+  late final Animation<double> _logoScale;
 
-  late final AnimationController _spin;
   AnimationController? _settle;
   double _settleFrom = 0;
   double _settleTo = 0;
@@ -83,25 +75,28 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
   @override
   void initState() {
     super.initState();
-    _spin = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 850),
-    );
-    _fade = AnimationController(
+    _cover = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 420),
+    );
+    _logoOpacity = CurvedAnimation(
+      parent: _cover,
+      curve: const Interval(0.06, 0.58, curve: Curves.easeOut),
+    );
+    _logoScale = Tween<double>(begin: 0.52, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _cover,
+        curve: const Interval(0.0, 0.65, curve: Curves.easeOutBack),
+      ),
     );
   }
 
   @override
   void reassemble() {
     super.reassemble();
-    // Recover cleanly across hot reloads.
     _settle?.dispose();
     _settle = null;
-    _spin.stop();
-    _spin.reset();
-    _fade.value = 0;
+    _cover.value = 0;
     _pull.value = 0;
     _refreshing.value = false;
     _armed = false;
@@ -112,8 +107,7 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
   void dispose() {
     _pull.dispose();
     _refreshing.dispose();
-    _spin.dispose();
-    _fade.dispose();
+    _cover.dispose();
     _settle?.dispose();
     super.dispose();
   }
@@ -141,7 +135,6 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     if (n.metrics.axis != Axis.vertical) return false;
     if (_inFlight) return false;
 
-    // With bouncing physics, pixels go negative when overscrolled at the top.
     final overscroll = n.metrics.pixels < 0 ? -n.metrics.pixels : 0.0;
     _pull.value = overscroll;
 
@@ -153,8 +146,6 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
       _armed = false;
     }
 
-    // Finger lifted: try multiple notification types — Android doesn't always
-    // emit UserScrollNotification.idle during a pull-to-refresh overscroll.
     final shouldStart = _armed &&
         (n is UserScrollNotification && n.direction == ScrollDirection.idle ||
             n is ScrollEndNotification);
@@ -172,10 +163,14 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     _refreshing.value = true;
 
     HapticFeedback.mediumImpact();
-    _spin.repeat();
-    // Smoothly crossfade content -> skeleton as the orb settles into its hold.
-    _fade.forward();
-    await _animatePullTo(_holdExtent, ms: 240);
+    await _animatePullTo(0, ms: 200);
+
+    if (!mounted) {
+      _inFlight = false;
+      return;
+    }
+
+    await _cover.forward().orCancel.catchError((_) {});
 
     try {
       await widget.onRefresh();
@@ -186,13 +181,7 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
       return;
     }
 
-    _spin.stop();
-    _spin.reset();
-    await _animatePullTo(0, ms: 320);
-
-    // Gently fade the skeleton back out, then drop the refreshing flag once
-    // the content is fully visible again so nothing pops.
-    await _fade.reverse();
+    await _cover.reverse().orCancel.catchError((_) {});
     _refreshing.value = false;
     _inFlight = false;
   }
@@ -205,39 +194,46 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
         clipBehavior: Clip.none,
         fit: StackFit.expand,
         children: [
-          AnimatedBuilder(
-            animation: _fade,
-            builder: (context, child) {
-              final t = Curves.easeInOut.transform(_fade.value);
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  Opacity(
-                    opacity: 1 - t * 0.86,
-                    child: child,
-                  ),
-                  if (t > 0 && widget.skeleton != null)
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: Opacity(
-                          opacity: t,
-                          child: ColoredBox(
-                            color: AppColors.background
-                                .withValues(alpha: 0.55 * t),
-                            child: widget.skeleton,
+          widget.child,
+          if (_cover.isAnimating || _cover.value > 0)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _cover,
+                  builder: (context, _) {
+                    final t = _cover.value;
+                    if (t <= 0) return const SizedBox.shrink();
+
+                    // Snap to solid black quickly so content never bleeds through.
+                    final shell = Curves.easeOut
+                        .transform((t / 0.28).clamp(0.0, 1.0));
+
+                    return Opacity(
+                      opacity: shell.clamp(0.0, 1.0),
+                      child: ColoredBox(
+                        color: AppColors.background,
+                        child: Center(
+                          child: Opacity(
+                            opacity: _logoOpacity.value.clamp(0.0, 1.0),
+                            child: Transform.scale(
+                              scale: _logoScale.value,
+                              child: AppLogoMark(
+                                size: SplashTiming.logoSize,
+                                emphasized: true,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                ],
-              );
-            },
-            child: widget.child,
-          ),
+                    );
+                  },
+                ),
+              ),
+            ),
           _RefreshOverlay(
             pull: _pull,
             refreshing: _refreshing,
-            spin: _spin,
+            cover: _cover,
             trigger: _trigger,
           ),
         ],
@@ -250,35 +246,34 @@ class _RefreshOverlay extends StatelessWidget {
   const _RefreshOverlay({
     required this.pull,
     required this.refreshing,
-    required this.spin,
+    required this.cover,
     required this.trigger,
   });
 
   final ValueNotifier<double> pull;
   final ValueNotifier<bool> refreshing;
-  final AnimationController spin;
+  final AnimationController cover;
   final double trigger;
 
   @override
   Widget build(BuildContext context) {
-    final topInset = MediaQuery.paddingOf(context).top;
-
     return ValueListenableBuilder<bool>(
       valueListenable: refreshing,
       builder: (context, isRefreshing, _) {
         return ValueListenableBuilder<double>(
           valueListenable: pull,
           builder: (context, pullpx, _) {
+            if (cover.value > 0.02) return const SizedBox.shrink();
             if (pullpx <= 0.5 && !isRefreshing) {
               return const SizedBox.shrink();
             }
 
             final progress = (pullpx / trigger).clamp(0.0, 1.0);
             final armed = pullpx >= trigger;
-
-            // Orb follows the pull, easing toward a fixed resting offset.
-            final travel = math.min(pullpx, trigger);
-            final top = topInset + 8 + travel * 0.55;
+            const orbSize = 38.0;
+            final gap = math.min(pullpx, trigger);
+            // Pin the orb just above the rubber-banded content edge.
+            final top = math.max(6.0, gap - orbSize - 8);
 
             return Positioned(
               top: top,
@@ -288,8 +283,6 @@ class _RefreshOverlay extends StatelessWidget {
                 child: RepaintBoundary(
                   child: _RefreshOrb(
                     progress: progress,
-                    spin: spin,
-                    refreshing: isRefreshing,
                     armed: armed,
                   ),
                 ),
@@ -305,21 +298,17 @@ class _RefreshOverlay extends StatelessWidget {
 class _RefreshOrb extends StatelessWidget {
   const _RefreshOrb({
     required this.progress,
-    required this.spin,
-    required this.refreshing,
     required this.armed,
   });
 
   final double progress;
-  final AnimationController spin;
-  final bool refreshing;
   final bool armed;
 
   @override
   Widget build(BuildContext context) {
     final eased = Curves.easeOutCubic.transform(progress.clamp(0.0, 1.0));
-    final scale = refreshing ? 1.0 : 0.7 + eased * 0.3;
-    final opacity = refreshing ? 1.0 : Curves.easeOut.transform(progress);
+    final scale = 0.7 + eased * 0.3;
+    final opacity = Curves.easeOut.transform(progress);
 
     return Center(
       child: Opacity(
@@ -332,27 +321,18 @@ class _RefreshOrb extends StatelessWidget {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                _OrbBackdrop(active: armed || refreshing),
-                if (refreshing)
-                  RotationTransition(
-                    turns: spin,
-                    child: CustomPaint(
-                      size: const Size(38, 38),
-                      painter: _SpinRingPainter(),
-                    ),
-                  )
-                else
-                  CustomPaint(
-                    size: const Size(38, 38),
-                    painter: _PullRingPainter(
-                      progress: progress,
-                      armed: armed,
-                    ),
+                _OrbBackdrop(active: armed),
+                CustomPaint(
+                  size: const Size(38, 38),
+                  painter: _PullRingPainter(
+                    progress: progress,
+                    armed: armed,
                   ),
+                ),
                 AppLogoMark(
                   size: 18,
-                  emphasized: armed || refreshing,
-                  opacity: refreshing ? 1 : 0.6 + progress * 0.4,
+                  emphasized: armed,
+                  opacity: 0.6 + progress * 0.4,
                 ),
               ],
             ),
@@ -421,12 +401,6 @@ class _PullRingPainter extends CustomPainter {
     ..strokeWidth = 2.4
     ..strokeCap = StrokeCap.round;
 
-  static final _arcArmed = Paint()
-    ..color = AppColors.ui
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 2.4
-    ..strokeCap = StrokeCap.round;
-
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
@@ -439,7 +413,7 @@ class _PullRingPainter extends CustomPainter {
       -math.pi / 2,
       progress * math.pi * 2,
       false,
-      armed ? _arcArmed : _arc,
+      _arc,
     );
   }
 
@@ -448,47 +422,18 @@ class _PullRingPainter extends CustomPainter {
       old.progress != progress || old.armed != armed;
 }
 
-class _SpinRingPainter extends CustomPainter {
-  static final _arc = Paint()
-    ..shader = const SweepGradient(
-      colors: [
-        Color(0x00FFFFFF),
-        AppColors.ui,
-        AppColors.uiMuted,
-      ],
-      stops: [0.0, 0.7, 1.0],
-    ).createShader(const Rect.fromLTWH(0, 0, 38, 38))
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 2.4
-    ..strokeCap = StrokeCap.round;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 4;
-    final rect = Rect.fromCircle(center: center, radius: radius);
-    canvas.drawArc(rect, 0, math.pi * 1.45, false, _arc);
-  }
-
-  @override
-  bool shouldRepaint(_SpinRingPainter old) => false;
-}
-
-/// Pull-to-refresh with an optional shimmer [skeleton] overlay while loading.
+/// Pull-to-refresh with a full-screen logo curtain while loading.
 class AppRefreshScroll extends StatelessWidget {
   const AppRefreshScroll({
     super.key,
     required this.child,
-    required this.skeleton,
   });
 
   final Widget child;
-  final Widget skeleton;
 
   @override
   Widget build(BuildContext context) {
     return AppRefreshIndicator(
-      skeleton: skeleton,
       onRefresh: () => refreshAppData(context),
       child: child,
     );

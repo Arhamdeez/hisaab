@@ -105,7 +105,9 @@ class IngestPlugin(
                 Log.d(INGEST_TAG, "deliver -> live sink: $event")
                 sink.success(event)
             } else {
-                Log.d(INGEST_TAG, "deliver -> buffered (no sink): $event")
+                Log.d(INGEST_TAG, "deliver -> durable queue (app not running)")
+                CapturedEventStore.enqueue(context, event)
+                // Legacy prefs buffer — kept for upgrades from older builds.
                 persist(context, event)
             }
         }
@@ -238,7 +240,9 @@ class IngestPlugin(
                         result.success(null)
                     }
                     "drainPending" -> {
-                        result.success(drainPending(context))
+                        val legacy = drainPending(context)
+                        val queued = CapturedEventStore.drain(context)
+                        result.success(legacy + queued)
                     }
                     else -> result.notImplemented()
                 }
