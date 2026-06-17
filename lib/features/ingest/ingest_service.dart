@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 
 import '../../core/database/app_database.dart';
@@ -28,6 +30,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _listening = false;
   bool _notificationAccess = false;
+  Timer? _notificationDrainTimer;
 
   bool get isListening => _listening;
   bool get isGmailConnected => _gmail.isConnected;
@@ -41,8 +44,6 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     if (rules.isNotEmpty) _parser.updateRules(rules);
 
     await NotificationService.instance.initialize();
-    // Fast path: apply quick-reply actions directly (no disk queue) whenever the
-    // app is alive to handle them.
     NotificationService.instance.onForegroundDecision = _applyDecision;
     await IngestBridge.instance.initialize();
     await _gmail.initialize(_database);
@@ -51,6 +52,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     _listening = true;
 
     WidgetsBinding.instance.addObserver(this);
+    _startNotificationActionDrain();
 
     // Pull in anything captured while the app was closed, then verify access.
     await _drainPending();
@@ -71,18 +73,37 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     await _drainPending();
     await _drainNotificationActions();
     // Background quick-replies write straight to SQLite; reload so Home/Inbox
-    // reflect confirmed/ignored items immediately on return.
+    // reflect confirmed/ignored items when returning from the shade.
     notifyListeners();
   }
 
-  /// Applies a single quick-reply decision immediately (foreground fast path).
+  /// Applies a single quick-reply decision on the main isolate (fast path).
   Future<void> _applyDecision(NotificationDecision decision) async {
-    final changed =
-        await NotificationService.instance.applyDecision(_repository, decision);
+    final changed = await NotificationService.instance.applyDecision(
+      _repository,
+      decision,
+      fast: true,
+    );
     if (changed) notifyListeners();
   }
 
-  /// Applies decisions queued while the app was terminated, then refreshes.
+  void _startNotificationActionDrain() {
+    _notificationDrainTimer?.cancel();
+    _notificationDrainTimer = Timer.periodic(
+      const Duration(milliseconds: 800),
+      (_) => unawaited(_drainNotificationActionsIfQueued()),
+    );
+  }
+
+  Future<void> _drainNotificationActionsIfQueued() async {
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+    if (!await NotificationService.hasPendingActions()) return;
+    await _drainNotificationActions();
+  }
+
+  /// Applies decisions queued from background notification actions.
   Future<void> _drainNotificationActions() async {
     final changed =
         await NotificationService.instance.drainPendingActions(_repository);
@@ -191,6 +212,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _notificationDrainTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

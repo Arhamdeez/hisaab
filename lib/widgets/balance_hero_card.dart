@@ -35,7 +35,7 @@ class BalanceHeroCard extends StatelessWidget {
 
     return GlassContainer(
       radius: AppRadius.xl,
-      blur: 14,
+      enableBlur: false,
       accentGlow: true,
       tint: AppColors.glassFillStrong,
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),

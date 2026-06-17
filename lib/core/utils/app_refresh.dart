@@ -45,10 +45,18 @@ class AppRefreshIndicator extends StatefulWidget {
     super.key,
     required this.onRefresh,
     required this.child,
+    this.orbTopOffset = 0,
+    this.orbMinPull = 0.5,
   });
 
   final Future<void> Function() onRefresh;
   final Widget child;
+
+  /// Nudge orb vertically after layout (negative = slightly higher).
+  final double orbTopOffset;
+
+  /// Minimum pull distance before the orb appears.
+  final double orbMinPull;
 
   @override
   State<AppRefreshIndicator> createState() => _AppRefreshIndicatorState();
@@ -187,7 +195,32 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
   }
 
   @override
+  void deactivate() {
+    _resetRefreshVisuals();
+    super.deactivate();
+  }
+
+  void _resetRefreshVisuals() {
+    _settle?.dispose();
+    _settle = null;
+    _cover.stop();
+    _cover.value = 0;
+    _pull.value = 0;
+    _refreshing.value = false;
+    _armed = false;
+    _inFlight = false;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final tickerEnabled = TickerMode.valuesOf(context).enabled;
+    if (!tickerEnabled && (_cover.value > 0 || _inFlight)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || TickerMode.valuesOf(context).enabled) return;
+        _resetRefreshVisuals();
+      });
+    }
+
     return NotificationListener<ScrollNotification>(
       onNotification: _handleScroll,
       child: Stack(
@@ -230,11 +263,18 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
                 ),
               ),
             ),
-          _RefreshOverlay(
-            pull: _pull,
-            refreshing: _refreshing,
-            cover: _cover,
-            trigger: _trigger,
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _RefreshOverlay(
+              pull: _pull,
+              refreshing: _refreshing,
+              cover: _cover,
+              trigger: _trigger,
+              topOffset: widget.orbTopOffset,
+              minPull: widget.orbMinPull,
+            ),
           ),
         ],
       ),
@@ -248,12 +288,16 @@ class _RefreshOverlay extends StatelessWidget {
     required this.refreshing,
     required this.cover,
     required this.trigger,
+    required this.topOffset,
+    required this.minPull,
   });
 
   final ValueNotifier<double> pull;
   final ValueNotifier<bool> refreshing;
   final AnimationController cover;
   final double trigger;
+  final double topOffset;
+  final double minPull;
 
   @override
   Widget build(BuildContext context) {
@@ -264,7 +308,7 @@ class _RefreshOverlay extends StatelessWidget {
           valueListenable: pull,
           builder: (context, pullpx, _) {
             if (cover.value > 0.02) return const SizedBox.shrink();
-            if (pullpx <= 0.5 && !isRefreshing) {
+            if (pullpx < minPull && !isRefreshing) {
               return const SizedBox.shrink();
             }
 
@@ -272,18 +316,22 @@ class _RefreshOverlay extends StatelessWidget {
             final armed = pullpx >= trigger;
             const orbSize = 38.0;
             final gap = math.min(pullpx, trigger);
-            // Pin the orb just above the rubber-banded content edge.
-            final top = math.max(6.0, gap - orbSize - 8);
+            // Sit just above the rubber-banded content edge; padding stays >= 0.
+            final top = math.max(0.0, gap - orbSize - 8);
 
-            return Positioned(
-              top: top,
-              left: 0,
-              right: 0,
-              child: IgnorePointer(
-                child: RepaintBoundary(
-                  child: _RefreshOrb(
-                    progress: progress,
-                    armed: armed,
+            return Padding(
+              padding: EdgeInsets.only(top: top),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Transform.translate(
+                  offset: Offset(0, topOffset),
+                  child: IgnorePointer(
+                    child: RepaintBoundary(
+                      child: _RefreshOrb(
+                        progress: progress,
+                        armed: armed,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -427,14 +475,24 @@ class AppRefreshScroll extends StatelessWidget {
   const AppRefreshScroll({
     super.key,
     required this.child,
+    this.orbTopOffset = 0,
+    this.orbMinPull = 0.5,
   });
 
   final Widget child;
+
+  /// Nudge orb vertically after layout (negative = slightly higher).
+  final double orbTopOffset;
+
+  /// Minimum pull distance before the orb appears.
+  final double orbMinPull;
 
   @override
   Widget build(BuildContext context) {
     return AppRefreshIndicator(
       onRefresh: () => refreshAppData(context),
+      orbTopOffset: orbTopOffset,
+      orbMinPull: orbMinPull,
       child: child,
     );
   }

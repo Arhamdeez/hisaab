@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/theme/app_decorations.dart';
 import '../widgets/glass_container.dart';
 import '../core/theme/app_spacing.dart' show AppSpacing, AppRadius;
 import '../core/utils/app_refresh.dart';
@@ -15,49 +16,91 @@ import '../widgets/category_confirm_sheet.dart';
 class InboxScreen extends StatelessWidget {
   const InboxScreen({super.key});
 
+  static Future<void> open(BuildContext context) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const InboxScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Consumer<TransactionProvider>(
-      builder: (context, provider, _) {
-        final pending = provider.pendingTransactions;
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppBackground(),
+          Consumer<TransactionProvider>(
+            builder: (context, provider, _) {
+              final pending = provider.pendingTransactions;
 
-        return SafeArea(
-          child: AppRefreshScroll(
-            child: ListView(
-              physics: refreshScrollPhysics,
-              padding: AppSpacing.page,
-              children: [
-                if (pending.isEmpty)
-                  SizedBox(
-                    height: MediaQuery.sizeOf(context).height * 0.55,
-                    child: const _EmptyInbox(),
-                  )
-                else ...[
-                  Text(
-                    'Review Inbox',
-                    style: Theme.of(context).textTheme.headlineLarge,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${pending.length} items captured from SMS, email & notifications',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppColors.textMuted,
-                        ),
-                  ),
-                  const SizedBox(height: 20),
-                  for (final tx in pending)
-                    _ReviewCard(
-                      transaction: tx,
-                      suggestion: provider.suggestCategory(tx),
-                      onConfirm: () => _confirmTransaction(context, provider, tx),
-                      onIgnore: () => provider.ignoreTransaction(tx.id),
+              return SafeArea(
+                child: AppRefreshScroll(
+                  child: ListView(
+                    physics: refreshScrollPhysics,
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.pageH,
+                      4,
+                      AppSpacing.pageH,
+                      32,
                     ),
-                ],
-              ],
-            ),
+                    children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                            color: AppColors.textSecondary,
+                          ),
+                          const AppAccentBar(height: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Inbox',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(letterSpacing: -0.3),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.section),
+                      if (pending.isEmpty)
+                        SizedBox(
+                          height: MediaQuery.sizeOf(context).height * 0.45,
+                          child: const _EmptyInbox(),
+                        )
+                      else ...[
+                        Text(
+                          'Review captured payments',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${pending.length} items from SMS, email & notifications',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: AppColors.textMuted,
+                              ),
+                        ),
+                        const SizedBox(height: 20),
+                        for (final tx in pending)
+                          _ReviewCard(
+                            transaction: tx,
+                            suggestion: provider.suggestCategory(tx),
+                            onConfirm: () =>
+                                _confirmTransaction(context, provider, tx),
+                            onIgnore: () => provider.ignoreTransaction(tx.id),
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 

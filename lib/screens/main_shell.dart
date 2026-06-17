@@ -1,11 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/motion.dart';
 import '../core/theme/app_spacing.dart' show AppRadius;
-import '../features/ingest/ingest_service.dart';
 import '../features/notifications/notification_service.dart';
 import '../models/transaction.dart';
 import '../providers/app_preferences.dart';
@@ -15,8 +13,6 @@ import '../widgets/glass_bottom_nav_bar.dart';
 import '../widgets/glass_container.dart';
 import '../navigation/shell_scope.dart';
 import 'home_screen.dart';
-import 'inbox_screen.dart';
-import 'settings_screen.dart';
 import 'transactions_screen.dart';
 
 class MainShell extends StatefulWidget {
@@ -26,43 +22,17 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _index = 0;
-  int _primaryTab = 0;
   // Tabs visited before the current one, so the system back button returns to
   // the previous screen (e.g. Inbox -> Home) instead of exiting the app.
   final List<int> _history = [];
-  IngestService? _ingestService;
-  Timer? _reloadDebounce;
-
-  // Drives the fade-slide transition played each time the active tab changes.
-  late final AnimationController _pageAnim;
-  // +1 slides the new page in from the right (moving forward), -1 from the left.
-  double _direction = 1;
-
-  late final List<Widget> _screens;
 
   @override
   void initState() {
     super.initState();
-    _screens = [
-      const RepaintBoundary(child: HomeScreen()),
-      const RepaintBoundary(child: TransactionsScreen()),
-      const RepaintBoundary(child: SettingsScreen()),
-      const RepaintBoundary(child: InboxScreen()),
-    ];
-    _pageAnim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 240),
-      value: 1,
-    );
-    _ingestService = context.read<IngestService>();
-    _ingestService!.addListener(_onIngestUpdate);
     WidgetsBinding.instance.addObserver(this);
 
-    // Ask for system-notification permission once the UI is on screen, so the
-    // OS dialog reliably appears (it won't while the activity isn't resumed).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       NotificationService.instance.requestPermission();
     });
@@ -71,18 +41,7 @@ class _MainShellState extends State<MainShell>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _reloadDebounce?.cancel();
-    _pageAnim.dispose();
-    _ingestService?.removeListener(_onIngestUpdate);
     super.dispose();
-  }
-
-  void _onIngestUpdate() {
-    _reloadDebounce?.cancel();
-    _reloadDebounce = Timer(const Duration(milliseconds: 250), () {
-      if (!mounted) return;
-      context.read<TransactionProvider>().reload();
-    });
   }
 
   @override
@@ -93,19 +52,11 @@ class _MainShellState extends State<MainShell>
     }
   }
 
-  /// Replays the fade-slide transition for a switch from [from] to [to].
-  void _animateTo(int from, int to) {
-    _direction = to >= from ? 1 : -1;
-    _pageAnim.forward(from: 0);
-  }
-
   void _selectTab(int index) {
     if (index == _index) return;
     setState(() {
-      _animateTo(_index, index);
       _history.add(_index);
       _index = index;
-      if (index <= 1) _primaryTab = index;
     });
   }
 
@@ -116,11 +67,8 @@ class _MainShellState extends State<MainShell>
   void _handleBack() {
     setState(() {
       if (_history.isNotEmpty) {
-        final target = _history.removeLast();
-        _animateTo(_index, target);
-        _index = target;
+        _index = _history.removeLast();
       } else if (_index != 0) {
-        _animateTo(_index, 0);
         _index = 0;
       }
     });
@@ -148,62 +96,72 @@ class _MainShellState extends State<MainShell>
             children: [
               const AppBackground(),
               RepaintBoundary(
-                child: AnimatedBuilder(
-                  animation: _pageAnim,
-                  builder: (context, child) {
-                    final t = Curves.easeOutCubic.transform(_pageAnim.value);
-                    return Opacity(
-                      opacity: (0.55 + 0.45 * t).clamp(0.0, 1.0),
-                      child: Transform.translate(
-                        offset: Offset((1 - t) * 14 * _direction, 0),
-                        child: child,
+                child: IndexedStack(
+                  index: _index,
+                  sizing: StackFit.expand,
+                  children: [
+                    RepaintBoundary(
+                      child: TickerMode(
+                        enabled: _index == 0,
+                        child: const HomeScreen(),
                       ),
-                    );
-                  },
-                  child: IndexedStack(index: _index, children: _screens),
-                ),
-              ),
-              // Overlay the bar on top of the gradient so BackdropFilter blurs
-              // the real background instead of the scaffold's opaque bottom slot.
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: GlassBottomNavBar(
-                  selectedIndex: _index <= 1 ? _index : _primaryTab,
-                  onSelected: _selectPrimaryTab,
-                  destinations: const [
-                    GlassNavDestination(
-                      icon: Icons.home_outlined,
-                      selectedIcon: Icons.home_rounded,
-                      label: 'Home',
                     ),
-                    GlassNavDestination(
-                      icon: Icons.receipt_long_outlined,
-                      selectedIcon: Icons.receipt_long_rounded,
-                      label: 'Transactions',
+                    RepaintBoundary(
+                      child: TickerMode(
+                        enabled: _index == 1,
+                        child: const TransactionsScreen(),
+                      ),
                     ),
                   ],
                 ),
               ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: RepaintBoundary(
+                  child: GlassBottomNavBar(
+                    selectedIndex: _index,
+                    onSelected: _selectPrimaryTab,
+                    destinations: const [
+                      GlassNavDestination(
+                        icon: Icons.home_outlined,
+                        selectedIcon: Icons.home_rounded,
+                        label: 'Home',
+                      ),
+                      GlassNavDestination(
+                        icon: Icons.receipt_long_outlined,
+                        selectedIcon: Icons.receipt_long_rounded,
+                        label: 'Transactions',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
-          floatingActionButton: _index == 1
-              ? Padding(
-                  padding: EdgeInsets.only(
-                    bottom: GlassBottomNavBar.reservedHeight(context) - 10,
-                  ),
-                  child: FloatingActionButton.extended(
-                    onPressed: () => _showAddSheet(context),
-                    elevation: 0,
-                    highlightElevation: 0,
-                    backgroundColor: AppColors.ui,
-                    foregroundColor: AppColors.textOnPrimary,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('Add'),
-                  ),
-                )
-              : null,
+          floatingActionButton: AnimatedSwitcher(
+            duration: AppMotion.fast,
+            switchInCurve: AppMotion.easeOut,
+            switchOutCurve: AppMotion.easeOut,
+            child: _index == 1
+                ? Padding(
+                    key: const ValueKey('add_fab'),
+                    padding: EdgeInsets.only(
+                      bottom: GlassBottomNavBar.reservedHeight(context) - 10,
+                    ),
+                    child: FloatingActionButton.extended(
+                      onPressed: () => _showAddSheet(context),
+                      elevation: 0,
+                      highlightElevation: 0,
+                      backgroundColor: AppColors.ui,
+                      foregroundColor: AppColors.textOnPrimary,
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add'),
+                    ),
+                  )
+                : const SizedBox.shrink(key: ValueKey('no_fab')),
+          ),
         ),
       ),
     );

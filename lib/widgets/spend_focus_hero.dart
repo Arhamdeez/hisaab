@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/motion.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
@@ -91,18 +92,14 @@ class _FadeSwapText extends StatelessWidget {
   const _FadeSwapText({
     required this.text,
     this.style,
-    this.textAlign,
     this.duration = _kHeroAnimDuration,
     this.alignment = Alignment.centerLeft,
-    this.maxLines = 2,
   });
 
   final String text;
   final TextStyle? style;
-  final TextAlign? textAlign;
   final Duration duration;
   final Alignment alignment;
-  final int maxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -113,8 +110,6 @@ class _FadeSwapText extends StatelessWidget {
       alignment: alignment,
       child: Text(
         text,
-        textAlign: textAlign,
-        maxLines: maxLines,
         softWrap: true,
         style: resolved,
       ),
@@ -203,6 +198,7 @@ class _SpendFocusHeroState extends State<SpendFocusHero> {
     return GlassContainer(
       radius: AppRadius.xl,
       blur: 16,
+      enableBlur: false,
       accentGlow: true,
       tint: AppColors.glassFillStrong,
       padding: const EdgeInsets.fromLTRB(24, 30, 24, 28),
@@ -589,10 +585,10 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
       onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
       behavior: HitTestBehavior.opaque,
-      child: AnimatedScale(
-        scale: _pressed ? 0.985 : 1,
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
+      child: AnimatedOpacity(
+        opacity: _pressed ? 0.92 : 1,
+        duration: AppMotion.fast,
+        curve: AppMotion.easeOut,
         child: AnimatedContainer(
           duration: _animDuration,
           curve: Curves.easeOutCubic,

@@ -16,7 +16,7 @@ class GlassContainer extends StatelessWidget {
     this.margin,
     this.blur = 14,
     this.tint,
-    this.enableBlur = true,
+    this.enableBlur = false,
     this.borderWidth = 0.85,
     this.showShadow = true,
     this.accentGlow = false,
@@ -158,6 +158,7 @@ class GlassCard extends StatelessWidget {
     return GlassContainer(
       radius: radius,
       blur: 10,
+      enableBlur: false,
       tint: AppColors.glassFillStrong,
       accentGlow: accentGlow,
       padding: padding,

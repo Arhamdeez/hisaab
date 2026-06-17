@@ -1,7 +1,6 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
+import '../core/motion.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
@@ -79,28 +78,44 @@ class GlassBottomNavBar extends StatelessWidget {
           ),
           child: ClipRRect(
             borderRadius: AppRadius.borderXxl,
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: AppRadius.borderXxl,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      AppColors.glassHighlight,
-                      AppColors.glassFillDeep,
-                      AppColors.glassFillStrong,
-                    ],
-                    stops: const [0.0, 0.45, 1.0],
-                  ),
-                  border: Border.all(
-                    color: AppColors.glassBorder,
-                    width: 0.9,
-                  ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: AppRadius.borderXxl,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    AppColors.navBarFill,
+                    AppColors.navBarFillDeep,
+                    AppColors.navBarFillDeep,
+                  ],
+                  stops: const [0.0, 0.55, 1.0],
                 ),
-                child: Stack(
+                border: Border.all(
+                  color: AppColors.glassBorder,
+                  width: 0.9,
+                ),
+              ),
+              child: Stack(
                   children: [
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: AppRadius.borderXxl,
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                AppColors.glassHighlight.withValues(alpha: 0.16),
+                                Colors.transparent,
+                              ],
+                              stops: const [0.0, 0.45],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                     Positioned(
                       top: 0,
                       left: 0,
@@ -134,8 +149,8 @@ class GlassBottomNavBar extends StatelessWidget {
                               clipBehavior: Clip.none,
                               children: [
                                 AnimatedPositioned(
-                                  duration: const Duration(milliseconds: 320),
-                                  curve: Curves.easeOutCubic,
+                                  duration: AppMotion.nav,
+                                  curve: AppMotion.easeInOut,
                                   left: selectedIndex * slotWidth + indicatorInset,
                                   top: indicatorInset,
                                   bottom: indicatorInset,
@@ -179,7 +194,6 @@ class GlassBottomNavBar extends StatelessWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }
@@ -223,24 +237,19 @@ class _NavItem extends StatelessWidget {
                   badgeCount: destination.badgeCount,
                 ),
                 const SizedBox(height: 2),
-                AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
+                Text(
+                  destination.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
                   style: theme.textTheme.bodySmall?.copyWith(
-                        fontSize: selected ? 10 : 9.5,
+                        fontSize: 10,
                         height: 1.0,
                         fontWeight:
                             selected ? FontWeight.w700 : FontWeight.w500,
                         color: selected ? AppColors.textOnPrimary : color,
                         letterSpacing: selected ? 0.12 : 0.04,
-                      ) ??
-                      const TextStyle(),
-                  child: Text(
-                    destination.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                  ),
+                      ),
                 ),
               ],
             ),
@@ -275,26 +284,10 @@ class _NavIcon extends StatelessWidget {
         clipBehavior: Clip.hardEdge,
         alignment: Alignment.center,
         children: [
-          if (selected)
-            Positioned(
-              child: Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.ui.withValues(alpha: 0.08),
-                ),
-              ),
-            ),
-          AnimatedScale(
-            scale: selected ? 1.05 : 1.0,
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-            child: Icon(
-              icon,
-              size: GlassBottomNavBar._iconSize,
-              color: color,
-            ),
+          Icon(
+            icon,
+            size: GlassBottomNavBar._iconSize,
+            color: color,
           ),
           if (showBadge)
             Positioned(

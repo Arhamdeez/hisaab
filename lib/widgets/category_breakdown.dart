@@ -336,25 +336,6 @@ class _CategoryReportRow extends StatelessWidget {
   }
 }
 
-class CategoryBreakdownList extends StatelessWidget {
-  const CategoryBreakdownList({
-    super.key,
-    required this.summaries,
-    required this.totalExpense,
-  });
-
-  final List<CategorySummary> summaries;
-  final double totalExpense;
-
-  @override
-  Widget build(BuildContext context) {
-    return CategoryReportSection(
-      summaries: summaries,
-      totalExpense: totalExpense,
-    );
-  }
-}
-
 class SourceBadge extends StatelessWidget {
   const SourceBadge({super.key, required this.source});
 
@@ -393,45 +374,6 @@ class SourceBadge extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class SectionHeader extends StatelessWidget {
-  const SectionHeader({
-    super.key,
-    required this.title,
-    this.action,
-    this.onActionTap,
-  });
-
-  final String title;
-  final String? action;
-  final VoidCallback? onActionTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-        ),
-        if (action != null)
-          GestureDetector(
-            onTap: onActionTap,
-            child: Text(
-              action!,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-      ],
     );
   }
 }

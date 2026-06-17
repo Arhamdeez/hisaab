@@ -54,27 +54,6 @@ abstract final class AppTheme {
           borderRadius: BorderRadius.all(Radius.circular(AppRadius.lg)),
         ),
       ),
-      navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: AppColors.navBar,
-        indicatorColor: AppColors.glassFillStrong,
-        surfaceTintColor: Colors.transparent,
-        height: 72,
-        labelTextStyle: WidgetStateProperty.resolveWith((states) {
-          final selected = states.contains(WidgetState.selected);
-          return GoogleFonts.plusJakartaSans(
-            fontSize: 11,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-            color: selected ? AppColors.ui : AppColors.textMuted,
-          );
-        }),
-        iconTheme: WidgetStateProperty.resolveWith((states) {
-          final selected = states.contains(WidgetState.selected);
-          return IconThemeData(
-            color: selected ? AppColors.ui : AppColors.textMuted,
-            size: 22,
-          );
-        }),
-      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.glassFillStrong,
@@ -97,22 +76,6 @@ abstract final class AppTheme {
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-      ),
-      segmentedButtonTheme: SegmentedButtonThemeData(
-        style: ButtonStyle(
-          backgroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return AppColors.glassFillStrong;
-            }
-            return AppColors.surfaceHigh;
-          }),
-          foregroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return AppColors.ui;
-            }
-            return AppColors.textSecondary;
-          }),
-        ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
@@ -159,6 +122,16 @@ abstract final class AppTheme {
           borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xxl)),
         ),
       ),
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: CupertinoPageTransitionsBuilder(),
+        },
+      ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.ui,
@@ -191,9 +164,6 @@ abstract final class AppTheme {
       ),
     );
   }
-
-  /// Legacy alias — app uses the dark Vintage Hearth theme.
-  static ThemeData get light => dark;
 
   static TextTheme get _textTheme {
     return TextTheme(

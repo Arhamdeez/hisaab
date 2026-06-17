@@ -139,14 +139,14 @@ class _AboutHero extends StatelessWidget {
               border: Border.all(color: AppColors.glassBorder),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.ui.withValues(alpha: 0.08),
+                  color: AppColors.brand.withValues(alpha: 0.18),
                   blurRadius: 24,
                   offset: const Offset(0, 8),
                 ),
               ],
             ),
             child: const Center(
-              child: AppLogoMark(size: 52),
+              child: AppLogoMark(size: 52, emphasized: true),
             ),
           ),
           const SizedBox(height: 18),

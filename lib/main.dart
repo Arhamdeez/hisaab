@@ -16,6 +16,7 @@ import 'providers/app_preferences.dart';
 import 'providers/transaction_provider.dart';
 import 'screens/app_bootstrap.dart';
 import 'core/brand.dart';
+import 'core/motion.dart';
 import 'core/theme/app_theme.dart';
 
 Future<void> main() async {
@@ -101,6 +102,7 @@ class SpendTrackerApp extends StatelessWidget {
           title: AppBrand.name,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.dark,
+          scrollBehavior: const AppScrollBehavior(),
           home: const AppBootstrap(),
         ),
       ),
@@ -120,6 +122,7 @@ class _IngestSync extends StatefulWidget {
 
 class _IngestSyncState extends State<_IngestSync> {
   IngestService? _ingest;
+  Timer? _reloadDebounce;
 
   @override
   void didChangeDependencies() {
@@ -133,13 +136,17 @@ class _IngestSyncState extends State<_IngestSync> {
 
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
     _ingest?.removeListener(_onIngest);
     super.dispose();
   }
 
   void _onIngest() {
-    if (!mounted) return;
-    context.read<TransactionProvider>().reload();
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(const Duration(milliseconds: 450), () {
+      if (!mounted) return;
+      context.read<TransactionProvider>().reload();
+    });
   }
 
   @override

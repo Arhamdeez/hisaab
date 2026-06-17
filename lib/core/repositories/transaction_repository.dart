@@ -14,6 +14,12 @@ class TransactionRepository {
     return rows.map(_mapRow).toList();
   }
 
+  Future<List<domain.Transaction>> getConfirmed() async {
+    final rows =
+        await _db.getTransactionsByStatus(domain.TransactionStatus.confirmed.storageKey);
+    return rows.map(_mapRow).toList();
+  }
+
   Future<domain.Transaction?> getByFingerprint(String fingerprint) async {
     final row = await _db.getByFingerprint(fingerprint);
     return row == null ? null : _mapRow(row);

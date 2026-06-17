@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
@@ -6,7 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/database/app_database.dart' show AppDatabase;
+import '../../core/database/app_database.dart' hide Transaction;
 import '../../core/repositories/transaction_repository.dart';
 import '../../core/utils/formatters.dart';
 import '../../features/parser/category_guesser.dart';
@@ -41,14 +42,11 @@ class NotificationDecision {
 
 /// Handles notification action responses delivered to a background isolate.
 ///
-/// Notification action buttons (with no UI) are ALWAYS routed here by Android —
-/// even when the app is alive — so to apply the typed note immediately we open
-/// the database right here and write it, rather than only queueing for later.
+/// Android routes action buttons here even when the app is alive. Keep this path
+/// fast: write to SQLite and return so the inline-reply spinner clears immediately.
 /// Must be a top-level function annotated for the AOT compiler.
 @pragma('vm:entry-point')
 Future<void> notificationBackgroundHandler(NotificationResponse response) async {
-  WidgetsFlutterBinding.ensureInitialized();
-  DartPluginRegistrant.ensureInitialized();
   await NotificationService.handleBackgroundResponse(response);
 }
 
@@ -230,22 +228,28 @@ class NotificationService {
     }
   }
 
-  void _onForegroundResponse(NotificationResponse response) async {
+  void _onForegroundResponse(NotificationResponse response) {
     final decision = _parse(response);
     if (decision == null) return;
-    await _dismiss(decision.id);
+
+    unawaited(_dismiss(decision.id));
     final handler = onForegroundDecision;
     if (handler != null) {
-      await handler(decision);
+      unawaited(
+        handler(decision).then((_) => _removePendingForId(decision.id)),
+      );
+    } else {
+      unawaited(_enqueue(decision));
     }
   }
 
-  /// Applies a single decision to [repository] in one read + one write (accept)
-  /// or a single write (reject). Returns true if anything changed.
+  /// Applies a single decision to [repository]. [fast] skips merchant-history
+  /// lookup so notification actions return quickly (text/parser guess only).
   Future<bool> applyDecision(
     TransactionRepository repository,
-    NotificationDecision decision,
-  ) async {
+    NotificationDecision decision, {
+    bool fast = false,
+  }) async {
     try {
       if (!decision.accept) {
         return repository.applyReview(
@@ -254,36 +258,60 @@ class NotificationService {
         );
       }
 
+      if (!decision.isDebit) {
+        return repository.applyReview(
+          decision.id,
+          status: TransactionStatus.confirmed,
+        );
+      }
+
       final note = decision.note?.trim();
       final hasNote = note != null && note.isNotEmpty;
 
-      final existing = await repository.getById(decision.id);
-      final confirmed = (await repository.getAll())
-          .where((t) => t.status == TransactionStatus.confirmed)
-          .toList();
-
-      SpendingCategory? category;
-      String? merchant;
-      if (decision.isDebit) {
+      // Inline reply — infer from typed text only (single DB write).
+      if (fast && hasNote) {
         final suggestion = CategoryGuesser.suggest(
-          merchant: hasNote ? note : (existing?.merchant ?? ''),
-          rawText: existing?.rawText,
-          userNote: hasNote ? note : null,
-          parsedCategory: existing?.category,
-          confirmedHistory: confirmed,
+          merchant: note,
+          userNote: note,
         );
-        category = suggestion.category;
-        if (hasNote &&
-            suggestion.source == CategorySuggestionSource.defaultOther) {
+        String? merchant;
+        if (suggestion.source == CategorySuggestionSource.defaultOther) {
           merchant = note;
         }
+        return repository.applyReview(
+          decision.id,
+          status: TransactionStatus.confirmed,
+          merchant: merchant,
+          category: suggestion.category,
+        );
+      }
+
+      final existing = await repository.getById(decision.id);
+
+      Iterable<Transaction>? history;
+      if (!fast) {
+        history = await repository.getConfirmed();
+      }
+
+      final suggestion = CategoryGuesser.suggest(
+        merchant: hasNote ? note : (existing?.merchant ?? ''),
+        rawText: existing?.rawText,
+        userNote: hasNote ? note : null,
+        parsedCategory: existing?.category,
+        confirmedHistory: history,
+      );
+
+      String? merchant;
+      if (hasNote &&
+          suggestion.source == CategorySuggestionSource.defaultOther) {
+        merchant = note;
       }
 
       return repository.applyReview(
         decision.id,
         status: TransactionStatus.confirmed,
         merchant: merchant,
-        category: category,
+        category: suggestion.category,
       );
     } catch (e) {
       debugPrint('NotificationService apply error: $e');
@@ -320,29 +348,38 @@ class NotificationService {
     return '${transaction.id}|$kind';
   }
 
-  /// Background-isolate entry: dismiss the notification, then apply the decision
-  /// straight to the database so the typed note lands immediately. Falls back to
-  /// the persisted queue if the direct write fails.
+  /// Background-isolate entry: persist to SQLite immediately so Android clears
+  /// the inline-reply loading state, then queue only if the write failed.
   static Future<void> handleBackgroundResponse(
     NotificationResponse response,
   ) async {
+    WidgetsFlutterBinding.ensureInitialized();
+    DartPluginRegistrant.ensureInitialized();
+
     final decision = _parse(response);
     if (decision == null) return;
 
-    await _dismiss(decision.id);
-
-    AppDatabase? db;
+    var applied = false;
     try {
-      db = AppDatabase();
-      final repo = TransactionRepository(db);
-      final applied = await instance.applyDecision(repo, decision);
-      if (!applied) await _enqueue(decision);
+      final database = AppDatabase();
+      try {
+        applied = await NotificationService.instance.applyDecision(
+          TransactionRepository(database),
+          decision,
+          fast: true,
+        );
+      } finally {
+        await database.close();
+      }
     } catch (e) {
       debugPrint('NotificationService background apply error: $e');
-      await _enqueue(decision);
-    } finally {
-      await db?.close();
     }
+
+    if (!applied) {
+      await _enqueue(decision);
+    }
+
+    unawaited(_dismiss(decision.id));
   }
 
   /// Persists a decision so the app can apply it on next launch/resume. Used as
@@ -350,8 +387,15 @@ class NotificationService {
   static Future<void> _enqueue(NotificationDecision decision) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.reload();
       final raw = prefs.getStringList(_pendingActionsKey) ?? <String>[];
+      raw.removeWhere((entry) {
+        try {
+          final map = jsonDecode(entry) as Map<String, dynamic>;
+          return map['id'] == decision.id;
+        } catch (_) {
+          return false;
+        }
+      });
       raw.add(jsonEncode({
         'id': decision.id,
         'action': decision.accept ? 'accept' : 'reject',
@@ -364,13 +408,47 @@ class NotificationService {
     }
   }
 
+  static Future<void> _removePendingForId(String id) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getStringList(_pendingActionsKey) ?? <String>[];
+      if (raw.isEmpty) return;
+      final next = raw.where((entry) {
+        try {
+          final map = jsonDecode(entry) as Map<String, dynamic>;
+          return map['id'] != id;
+        } catch (_) {
+          return true;
+        }
+      }).toList();
+      if (next.length == raw.length) return;
+      if (next.isEmpty) {
+        await prefs.remove(_pendingActionsKey);
+      } else {
+        await prefs.setStringList(_pendingActionsKey, next);
+      }
+    } catch (e) {
+      debugPrint('NotificationService dequeue error: $e');
+    }
+  }
+
+  /// True when quick-reply actions are waiting for the main isolate to apply.
+  static Future<bool> hasPendingActions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getStringList(_pendingActionsKey);
+      return raw != null && raw.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Drains decisions queued while the app was terminated and applies them.
   /// Returns true if anything changed (so callers can refresh the UI).
   Future<bool> drainPendingActions(TransactionRepository repository) async {
     List<String> raw;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.reload();
       raw = prefs.getStringList(_pendingActionsKey) ?? <String>[];
       if (raw.isEmpty) return false;
       await prefs.remove(_pendingActionsKey);
@@ -394,6 +472,7 @@ class NotificationService {
             note: note,
             isDebit: map['isDebit'] as bool? ?? true,
           ),
+          fast: true,
         );
         changed = changed || applied;
       } catch (e) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../core/motion.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
@@ -115,6 +116,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
         return SafeArea(
           child: AppRefreshScroll(
+            orbTopOffset: -8,
+            orbMinPull: 44,
             child: CustomScrollView(
               physics: refreshScrollPhysics,
               slivers: [
@@ -215,7 +218,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 if (txs.isEmpty)
                   SliverFillRemaining(
                     hasScrollBody: false,
-                    child: CenteredScrollEmpty(
+                    child: Center(
                       child: EmptyStateView(
                         icon: Icons.receipt_long_rounded,
                         title: hasFilters
@@ -343,11 +346,11 @@ class _SortButton extends StatelessWidget {
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: AppColors.glassFillStrong,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            border: Border.all(color: AppColors.glassBorder),
-          ),
+        decoration: BoxDecoration(
+          color: AppColors.glassFillStrong,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: AppColors.glassBorder),
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -596,53 +599,57 @@ class _FilterChip extends StatelessWidget {
             onTap();
           },
           borderRadius: BorderRadius.circular(AppRadius.pill),
-          child: AnimatedScale(
-            scale: selected ? 1.0 : 0.96,
-            duration: const Duration(milliseconds: 180),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-              decoration: BoxDecoration(
-                gradient: selected
-                    ? LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          activeColor.withValues(alpha: 0.32),
-                          activeColor.withValues(alpha: 0.1),
-                        ],
-                      )
-                    : null,
-                color: selected ? null : AppColors.glassFill,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                border: Border.all(
-                  color: selected ? AppColors.ui : AppColors.glassBorder,
-                  width: selected ? 2 : 0.85,
-                ),
-                boxShadow: selected
-                    ? [
-                        BoxShadow(
-                          color: activeColor.withValues(alpha: 0.28),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
-                        ),
-                      ]
-                    : null,
+          child: AnimatedContainer(
+            duration: AppMotion.fast,
+            curve: AppMotion.easeOut,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              gradient: selected
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        activeColor.withValues(alpha: 0.32),
+                        activeColor.withValues(alpha: 0.1),
+                      ],
+                    )
+                  : null,
+              color: selected ? null : AppColors.glassFill,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              border: Border.all(
+                color: selected ? AppColors.ui : AppColors.glassBorder,
+                width: 1.5,
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (selected) ...[
-                    Icon(
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: activeColor.withValues(alpha: 0.28),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: AnimatedOpacity(
+                    opacity: selected ? 1 : 0,
+                    duration: AppMotion.fast,
+                    child: Icon(
                       Icons.check_rounded,
                       size: 14,
                       color: activeColor == AppColors.ui
                           ? AppColors.ui
                           : activeColor,
                     ),
-                    const SizedBox(width: 5),
-                  ],
-                  Text(
+                  ),
+                ),
+                if (selected) const SizedBox(width: 5),
+                Text(
                     label,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: selected
@@ -656,7 +663,6 @@ class _FilterChip extends StatelessWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }

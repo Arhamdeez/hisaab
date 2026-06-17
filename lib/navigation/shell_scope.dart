@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../screens/inbox_screen.dart';
+import '../screens/settings_screen.dart';
+
 /// Lets nested screens switch the main bottom-nav tab.
 class ShellScope extends InheritedWidget {
   const ShellScope({
@@ -20,9 +23,11 @@ class ShellScope extends InheritedWidget {
 
   static void goToTransactions(BuildContext context) => goToTab(context, 1);
 
-  static void goToSettings(BuildContext context) => goToTab(context, 2);
+  static Future<void> goToSettings(BuildContext context) =>
+      SettingsScreen.open(context);
 
-  static void goToInbox(BuildContext context) => goToTab(context, 3);
+  static Future<void> goToInbox(BuildContext context) =>
+      InboxScreen.open(context);
 
   @override
   bool updateShouldNotify(ShellScope oldWidget) =>

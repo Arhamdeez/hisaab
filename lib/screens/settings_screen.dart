@@ -23,7 +23,7 @@ Future<void> _editMonthlyIncome(
 ) async {
   final controller = TextEditingController(
     text: prefs.hasMonthlyIncome
-        ? prefs.monthlyIncome.toStringAsFixed(0)
+        ? formatAmountInput(prefs.monthlyIncome)
         : '',
   );
 
@@ -50,9 +50,8 @@ Future<void> _editMonthlyIncome(
             TextField(
               controller: controller,
               autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
+              keyboardType: TextInputType.number,
+              inputFormatters: [CommaThousandsInputFormatter()],
               decoration: const InputDecoration(
                 prefixText: 'Rs ',
                 hintText: '0',
@@ -75,9 +74,7 @@ Future<void> _editMonthlyIncome(
           ),
           FilledButton(
             onPressed: () {
-              final parsed = double.tryParse(
-                controller.text.replaceAll(',', '').trim(),
-              );
+              final parsed = parseAmountInput(controller.text);
               Navigator.pop(dialogContext, parsed ?? prefs.monthlyIncome);
             },
             style: FilledButton.styleFrom(
@@ -99,6 +96,12 @@ Future<void> _editMonthlyIncome(
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
+  static Future<void> open(BuildContext context) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+  }
+
   Future<void> _exportBackup(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
@@ -116,31 +119,46 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<IngestService, AppPreferences>(
-      builder: (context, ingest, prefs, _) {
-        return SafeArea(
-          child: SingleChildScrollView(
-            padding: AppSpacing.page,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const AppAccentBar(height: 28),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Settings',
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineLarge
-                            ?.copyWith(letterSpacing: -0.4),
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppBackground(),
+          Consumer2<IngestService, AppPreferences>(
+            builder: (context, ingest, prefs, _) {
+              return SafeArea(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.pageH,
+                    4,
+                    AppSpacing.pageH,
+                    32,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                            color: AppColors.textSecondary,
+                          ),
+                          const AppAccentBar(height: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Settings',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(letterSpacing: -0.3),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.section),
+                      const SizedBox(height: AppSpacing.section),
                 _SettingsGroup(
                   title: 'Data Sources',
                   children: [
@@ -256,6 +274,9 @@ class SettingsScreen extends StatelessWidget {
           ),
         );
       },
+    ),
+        ],
+      ),
     );
   }
 }
