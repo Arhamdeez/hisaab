@@ -1,12 +1,37 @@
-/// Package ids / keywords for known bank & wallet apps. Keep aligned with
-/// [IngestPlugin.kt] on Android so capture-time and parse-time filters match.
+/// Finance-app detection for notification capture. Any bank, wallet, UPI, or
+/// payment app should match via [keywords] or [ids]. Keep aligned with
+/// [IngestPlugin.kt] on Android.
 abstract final class MonitoredPackages {
+  /// Never treat these as finance apps (system / social noise).
+  static const excludedPrefixes = [
+    'com.android.systemui',
+    'com.android.settings',
+    'com.android.vending',
+    'com.google.android.apps.messaging',
+    'com.google.android.gm',
+    'com.google.android.youtube',
+    'com.samsung.android.messaging',
+    'com.facebook.',
+    'com.instagram.',
+    'com.twitter.',
+    'com.zhiliaoapp.musically', // TikTok
+  ];
+
+  /// Explicit package ids — Google Wallet, global wallets, major banks.
   static const ids = {
+    // Google Pay / Wallet
     'com.google.android.apps.nbu.paisa.user',
+    'com.google.android.apps.nbu.paisa',
+    'com.google.android.apps.walletnfcrel',
+    'com.google.commerce.tapandpay',
+    // India UPI & wallets
     'com.phonepe.app',
     'net.one97.paytm',
     'in.org.npci.upiapp',
     'com.dreamplug.androidapp',
+    'com.whatsapp',
+    'com.amazon.mShop.android.shopping',
+    // India banks
     'com.csam.icici.bank.imobile',
     'com.sbi.lotusintouch',
     'com.sbi.SBIFreedomPlus',
@@ -20,8 +45,31 @@ abstract final class MonitoredPackages {
     'com.YES.YESbank',
     'com.idbibank.mpassbook',
     'com.infrasofttech.indianbank',
-    'com.amazon.mShop.android.shopping',
-    'com.whatsapp',
+    'com.canarabank.mobility',
+    'com.rblbank.mobbanking',
+    'com.indusind.mobilebanking',
+    'com.federalbank.mobile',
+    'com.unionbankofindia.mobilebanking',
+    'com.centralbank.mobile',
+    // Global wallets
+    'com.paypal.android.p2pmobile',
+    'com.squareup.cash',
+    'com.venmo',
+    'com.revolut.revolut',
+    'com.transferwise.android',
+    'com.wise.android',
+    'com.samsung.android.spay',
+    'com.samsung.android.spaylite',
+    'com.chase.sig.android',
+    'com.wf.wellsfargomobile',
+    'com.bankofamerica.cashpromobile',
+    'com.citi.citimobile',
+    'com.usabank.mobilebanking',
+    'com.capitalone.mobile',
+    'com.starlingbank.android',
+    'com.monzo',
+    'com.n26',
+    // Pakistan banks & wallets
     'app.com.brd',
     'com.ubluk.dc',
     'com.techlogix.mobilinkcustomer',
@@ -38,16 +86,28 @@ abstract final class MonitoredPackages {
     'com.faysalbank.mobile',
     'com.sc.mobilebanking.pk',
     'com.askari.mobile',
+    'com.standardchartered.mobile',
+    'com.bop.mobilebanking',
   };
 
+  /// Substrings in package names that indicate a bank / wallet / payment app.
   static const keywords = [
     'bank',
-    'upi',
+    'banking',
     'wallet',
+    'walletnfcrel',
+    'upi',
+    'finance',
+    'financial',
+    'mobilebank',
+    'passbook',
+    'paisa',
+    'gpay',
+    'tapandpay',
+    'nfc',
     'paytm',
     'phonepe',
     'bhim',
-    'gpay',
     'hdfc',
     'icici',
     'sbi',
@@ -61,12 +121,21 @@ abstract final class MonitoredPackages {
     'rbl',
     'indus',
     'federal',
-    'paisa',
     'razorpay',
     'payu',
     'mobikwik',
     'freecharge',
     'cred',
+    'paypal',
+    'venmo',
+    'cashapp',
+    'squareup',
+    'revolut',
+    'transferwise',
+    'stripe',
+    'remit',
+    'remittance',
+    'spay',
     'ubl',
     'brd',
     'jazzcash',
@@ -79,10 +148,27 @@ abstract final class MonitoredPackages {
     'mcb',
     'meezan',
     'faysal',
+    'chase',
+    'wellsfargo',
+    'citibank',
+    'citi',
+    'monzo',
+    'starling',
   ];
 
+  static bool isExcluded(String? packageName) {
+    if (packageName == null || packageName.isEmpty) return false;
+    final pkg = packageName.toLowerCase();
+    for (final prefix in excludedPrefixes) {
+      if (pkg == prefix || pkg.startsWith('$prefix')) return true;
+    }
+    return false;
+  }
+
+  /// True for any bank, wallet, UPI, or payment app notification source.
   static bool matches(String? packageName) {
     if (packageName == null || packageName.isEmpty) return false;
+    if (isExcluded(packageName)) return false;
     final pkg = packageName.toLowerCase();
     for (final id in ids) {
       if (pkg.contains(id.toLowerCase())) return true;

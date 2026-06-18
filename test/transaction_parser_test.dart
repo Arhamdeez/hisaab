@@ -178,7 +178,20 @@ void main() {
     );
     expect(result, isNotNull);
     expect(result!.amount, 500);
+    expect(result.type, TransactionType.credit);
     expect(result.merchant, 'Ahmed Khan');
+  });
+
+  test('classifies credit from money received title', () {
+    final result = parser.parse(
+      'Money Received — PKR 2,500.00',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+      notificationTitle: 'Money Received',
+    );
+    expect(result, isNotNull);
+    expect(result!.type, TransactionType.credit);
+    expect(result.amount, 2500);
   });
 
   test('credit merchant uses sender from received-from wording', () {
@@ -212,7 +225,8 @@ void main() {
       notificationTitle: 'Fatima Noor',
     );
     expect(result, isNotNull);
-    expect(result!.merchant, 'Fatima Noor');
+    expect(result!.type, TransactionType.credit);
+    expect(result.merchant, 'Fatima Noor');
   });
 
   test('prefers person name over phone in transferred-to body', () {
@@ -271,5 +285,38 @@ void main() {
     expect(result, isNotNull);
     expect(result!.merchant, 'Hassan Shah');
     expect(result.receiverName, 'Hassan Shah');
+  });
+
+  test('parses Google Wallet USD payment', () {
+    final result = parser.parse(
+      r'You sent $25.00 to Coffee Shop — Google Wallet',
+      source: TransactionSource.notification,
+      packageName: 'com.google.android.apps.walletnfcrel',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 25);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses unknown bank app with amount-only body', () {
+    final result = parser.parse(
+      'PKR 3,200.00 — Trx ID 112233',
+      source: TransactionSource.notification,
+      packageName: 'com.example.newbank.mobilebanking',
+      notificationTitle: 'Sara Ali',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 3200);
+    expect(result.type, TransactionType.credit);
+    expect(result.merchant, 'Sara Ali');
+  });
+
+  test('rejects system UI package even with amount-like text', () {
+    final result = parser.parse(
+      'PKR 500.00 debited from account',
+      source: TransactionSource.notification,
+      packageName: 'com.android.systemui',
+    );
+    expect(result, isNull);
   });
 }

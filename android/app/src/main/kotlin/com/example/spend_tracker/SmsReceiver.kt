@@ -33,15 +33,17 @@ class SmsReceiver : BroadcastReceiver() {
 
         val senderLower = sender.lowercase()
         val bodyLower = body.lowercase()
+        val txnHints = listOf(
+            "rs", "inr", "pkr", "usd", "eur", "gbp", "debited", "credited",
+            "received", "spent", "paid", "upi", "transferred", "withdrawn",
+            "deducted", "added", "\$", "€", "£",
+        )
         val bankHints = listOf(
             "hdfc", "icici", "sbi", "axis", "kotak", "yes", "paytm", "phonepe",
             "gpay", "upi", "bank", "vm-", "jd-", "ax-", "bp-",
             "ubl", "hbl", "mcb", "alfalah", "jazz", "telenor", "easypaisa",
             "jazzcash", "sadapay", "nayapay", "meezan", "faysal", "brd",
-        )
-        val txnHints = listOf(
-            "rs", "inr", "pkr", "debited", "credited", "spent", "paid", "upi",
-            "transferred", "withdrawn", "deducted",
+            "chase", "wellsfargo", "citi", "paypal", "venmo", "wallet",
         )
         val senderMatch = bankHints.any { senderLower.contains(it) }
         val bodyMatch = txnHints.any { bodyLower.contains(it) }

@@ -9,7 +9,7 @@ class AppPreferences extends ChangeNotifier {
     this._prefs, {
     bool showIncome = false,
     double monthlyIncome = 0,
-    bool trackInwardFlow = false,
+    bool trackInwardFlow = true,
     bool settingsTourSeen = false,
     bool homeTourSeen = false,
   })  : _showIncome = showIncome,
@@ -58,8 +58,8 @@ class AppPreferences extends ChangeNotifier {
 
   /// When enabled, the app tracks cash received (credits) from alerts and
   /// manual entry, and surfaces inward flow across Home, Transactions, and
-  /// Reports. Off by default — outflow/spending only.
-  bool get trackInwardFlow => _trackInwardFlow ?? false;
+  /// Reports.
+  bool get trackInwardFlow => _trackInwardFlow ?? true;
 
   /// Manually declared monthly income (PKR). 0 means "not set" — callers
   /// should fall back to income derived from credit transactions.
@@ -70,7 +70,7 @@ class AppPreferences extends ChangeNotifier {
   void _repairAfterHotReload() {
     _showIncome ??= false;
     _monthlyIncome ??= 0;
-    _trackInwardFlow ??= false;
+    _trackInwardFlow ??= true;
     _settingsTourSeen ??= false;
     _homeTourSeen ??= false;
   }
@@ -79,7 +79,7 @@ class AppPreferences extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final showIncome = prefs.getBool(_showIncomeKey) ?? false;
     final monthlyIncome = prefs.getDouble(_monthlyIncomeKey) ?? 0;
-    final trackInwardFlow = prefs.getBool(_trackInwardFlowKey) ?? false;
+    final trackInwardFlow = prefs.getBool(_trackInwardFlowKey) ?? true;
     final settingsTourSeen = prefs.getBool(_settingsTourSeenKey) ?? false;
     final homeTourSeen = prefs.getBool(_homeTourSeenKey) ?? false;
 

@@ -111,7 +111,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                             icon: Icons.notifications_active_outlined,
                             title: 'Bank & wallet alerts',
                             subtitle:
-                                'UBL, JazzCash, EasyPaisa, and other app notifications are parsed on-device.',
+                                'Bank, wallet, and payment app notifications (Google Wallet, JazzCash, UBL, etc.) are parsed on-device.',
                           ),
                           _SetupFeature(
                             icon: Icons.sms_outlined,

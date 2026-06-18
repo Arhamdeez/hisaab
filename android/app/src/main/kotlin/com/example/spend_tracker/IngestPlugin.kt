@@ -37,12 +37,34 @@ class IngestPlugin(
         private var eventSink: EventChannel.EventSink? = null
         private val mainHandler = Handler(Looper.getMainLooper())
 
+        private val excludedPackagePrefixes = listOf(
+            "com.android.systemui",
+            "com.android.settings",
+            "com.android.vending",
+            "com.google.android.apps.messaging",
+            "com.google.android.gm",
+            "com.google.android.youtube",
+            "com.samsung.android.messaging",
+            "com.facebook.",
+            "com.instagram.",
+            "com.twitter.",
+            "com.zhiliaoapp.musically",
+        )
+
         private val monitoredPackages = setOf(
+            // Google Pay / Wallet
             "com.google.android.apps.nbu.paisa.user",
+            "com.google.android.apps.nbu.paisa",
+            "com.google.android.apps.walletnfcrel",
+            "com.google.commerce.tapandpay",
+            // India UPI & wallets
             "com.phonepe.app",
             "net.one97.paytm",
             "in.org.npci.upiapp",
             "com.dreamplug.androidapp",
+            "com.whatsapp",
+            "com.amazon.mShop.android.shopping",
+            // India banks
             "com.csam.icici.bank.imobile",
             "com.sbi.lotusintouch",
             "com.sbi.SBIFreedomPlus",
@@ -56,8 +78,31 @@ class IngestPlugin(
             "com.YES.YESbank",
             "com.idbibank.mpassbook",
             "com.infrasofttech.indianbank",
-            "com.amazon.mShop.android.shopping",
-            "com.whatsapp",
+            "com.canarabank.mobility",
+            "com.rblbank.mobbanking",
+            "com.indusind.mobilebanking",
+            "com.federalbank.mobile",
+            "com.unionbankofindia.mobilebanking",
+            "com.centralbank.mobile",
+            // Global wallets
+            "com.paypal.android.p2pmobile",
+            "com.squareup.cash",
+            "com.venmo",
+            "com.revolut.revolut",
+            "com.transferwise.android",
+            "com.wise.android",
+            "com.samsung.android.spay",
+            "com.samsung.android.spaylite",
+            "com.chase.sig.android",
+            "com.wf.wellsfargomobile",
+            "com.bankofamerica.cashpromobile",
+            "com.citi.citimobile",
+            "com.usabank.mobilebanking",
+            "com.capitalone.mobile",
+            "com.starlingbank.android",
+            "com.monzo",
+            "com.n26",
+            // Pakistan banks & wallets
             "app.com.brd",
             "com.ubluk.dc",
             "com.techlogix.mobilinkcustomer",
@@ -74,15 +119,21 @@ class IngestPlugin(
             "com.faysalbank.mobile",
             "com.sc.mobilebanking.pk",
             "com.askari.mobile",
+            "com.standardchartered.mobile",
+            "com.bop.mobilebanking",
         )
 
         private val monitoredKeywords = listOf(
-            "bank", "upi", "wallet", "paytm", "phonepe",
-            "bhim", "gpay", "hdfc", "icici", "sbi", "axis", "kotak",
-            "yesbank", "idbi", "pnb", "baroda", "canara", "rbl", "indus",
-            "federal", "paisa", "razorpay", "payu", "mobikwik", "freecharge",
-            "cred", "ubl", "brd", "jazzcash", "mobilink", "easypaisa",
-            "sadapay", "nayapay", "alfalah", "hbl", "mcb", "meezan", "faysal",
+            "bank", "banking", "wallet", "walletnfcrel", "upi", "finance",
+            "financial", "mobilebank", "passbook", "paisa", "gpay", "tapandpay",
+            "nfc", "paytm", "phonepe", "bhim", "hdfc", "icici", "sbi", "axis",
+            "kotak", "yesbank", "idbi", "pnb", "baroda", "canara", "rbl",
+            "indus", "federal", "razorpay", "payu", "mobikwik", "freecharge",
+            "cred", "paypal", "venmo", "cashapp", "squareup", "revolut",
+            "transferwise", "stripe", "remit", "remittance", "spay", "ubl",
+            "brd", "jazzcash", "mobilink", "easypaisa", "sadapay", "nayapay",
+            "alfalah", "hbl", "mcb", "meezan", "faysal", "chase", "wellsfargo",
+            "citibank", "citi", "monzo", "starling",
         )
 
         private val recentAmountAlerts = LinkedHashMap<String, Pair<Long, String>>()
@@ -130,8 +181,8 @@ class IngestPlugin(
         private const val DEDUP_MS = 15000L
 
         private val amountRegex = Regex(
-            "(?:rs\\.?|pkr|inr|₹|₨)\\s*[\\d,]+(?:\\.\\d+)?|" +
-                "[\\d,]+(?:\\.\\d+)?\\s*(?:rs\\.?|pkr|inr|₹|₨)",
+            "(?:rs\\.?|pkr|inr|₹|₨|usd|eur|gbp|aed|sar|cad|aud|\\$|€|£)\\s*[\\d,]+(?:\\.\\d+)?|" +
+                "[\\d,]+(?:\\.\\d+)?\\s*(?:rs\\.?|pkr|inr|₹|₨|usd|eur|gbp|aed|sar|cad|aud)",
             RegexOption.IGNORE_CASE,
         )
 
@@ -146,7 +197,8 @@ class IngestPlugin(
             "debited|credited|spent|withdrawn|deducted|transferred|received|" +
                 "paid|sent|purchase|txn|transaction|debit|credit|refund|" +
                 "cashback|deposited|salary|transfer|withdrawal|" +
-                "payment|charged|bill|" +
+                "payment|charged|bill|added|" +
+                "money\\s+received|money\\s+sent|payment\\s+received|" +
                 "transfer\\s*successful|successfully\\s*transferred|" +
                 "sent\\s*(?:rs|pkr)|received\\s*(?:rs|pkr)|" +
                 "a/c\\s*\\*+|account\\s*\\*+|trx\\s*id|trans(?:action)?\\s*id|" +
@@ -219,7 +271,15 @@ class IngestPlugin(
             return out
         }
 
+        fun isExcludedPackage(packageName: String): Boolean {
+            val pkg = packageName.lowercase()
+            return excludedPackagePrefixes.any { prefix ->
+                pkg == prefix || pkg.startsWith(prefix)
+            }
+        }
+
         fun shouldMonitor(packageName: String): Boolean {
+            if (isExcludedPackage(packageName)) return false
             val pkg = packageName.lowercase()
             return monitoredPackages.any { pkg.contains(it.lowercase()) } ||
                 monitoredKeywords.any { pkg.contains(it) }
@@ -232,9 +292,17 @@ class IngestPlugin(
         }
 
         fun shouldCapture(packageName: String, text: String): Boolean {
+            if (isExcludedPackage(packageName)) return false
+            // Any app: capture when the text clearly looks like money movement.
             if (looksLikeTransaction(text)) return true
-            // Monitored wallet/bank apps: amount alone is enough — bodies are often minimal.
-            if (shouldMonitor(packageName) && amountRegex.containsMatchIn(text)) return true
+            // Bank / wallet / payment apps: amount-only bodies are common.
+            if (shouldMonitor(packageName) && amountRegex.containsMatchIn(text)) {
+                return true
+            }
+            // Title-only credit/debit alerts ("Money Received") before amount loads.
+            if (shouldMonitor(packageName) && walletTxnRegex.containsMatchIn(text)) {
+                return true
+            }
             return false
         }
 
@@ -274,6 +342,7 @@ class IngestPlugin(
         fun processNotification(context: Context, sbn: StatusBarNotification) {
             val pkg = sbn.packageName ?: return
             if (pkg == context.packageName) return
+            if (isExcludedPackage(pkg)) return
 
             val extras = sbn.notification.extras
             val text = extractNotificationText(extras)
