@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/app_launch_scope.dart';
+import '../core/splash_timing.dart';
 import '../core/theme/app_colors.dart';
 import '../core/motion.dart';
 import '../core/theme/app_spacing.dart' show AppRadius;
 import '../features/notifications/notification_service.dart';
 import '../models/transaction.dart';
 import '../providers/app_preferences.dart';
+import '../providers/category_catalog.dart';
 import '../providers/transaction_provider.dart';
 import '../widgets/category_selector.dart';
 import '../widgets/glass_bottom_nav_bar.dart';
 import '../widgets/glass_container.dart';
+import '../widgets/settings_tour_overlay.dart';
+import '../widgets/spend_focus_hero.dart' show kHeroIntroDuration;
 import '../navigation/shell_scope.dart';
 import 'home_screen.dart';
 import 'transactions_screen.dart';
@@ -24,9 +29,24 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _index = 0;
-  // Tabs visited before the current one, so the system back button returns to
-  // the previous screen (e.g. Inbox -> Home) instead of exiting the app.
   final List<int> _history = [];
+  final _homeScrollController = ScrollController();
+  final _netBalanceToggleKey = GlobalKey();
+  bool _showHomeTour = false;
+  bool _homeTourScheduled = false;
+  TransactionProvider? _transactions;
+
+  late final List<SettingsTourStep> _homeTourStepList = [
+    SettingsTourStep(
+      targetKey: _netBalanceToggleKey,
+      title: 'Show net balance',
+      body:
+          'Tap this to change what the big number shows. It switches from '
+          'cash out only to your net for the month — money in minus money '
+          'out. Tap again when you want cash out back on top.',
+      icon: Icons.compare_arrows_rounded,
+    ),
+  ];
 
   @override
   void initState() {
@@ -41,7 +61,57 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _transactions?.removeListener(_onTransactionsChanged);
+    _homeScrollController.dispose();
     super.dispose();
+  }
+
+  void _onHeroIntroComplete() {
+    // Hero intro is visual polish only — tour timing is driven by splash + delay.
+  }
+
+  Duration _homeTourDelay() {
+    return kHeroIntroDuration + SplashTiming.postBubbleTourDelay;
+  }
+
+  void _maybeStartHomeTour() {
+    if (_homeTourScheduled || !mounted || _index != 0) return;
+    if (!AppLaunchScope.of(context).splashComplete) return;
+    final prefs = context.read<AppPreferences>();
+    if (!prefs.trackInwardFlow) return;
+    if (prefs.hasSeenHomeTour) return;
+    if (!context.read<TransactionProvider>().isLoaded) return;
+
+    _homeTourScheduled = true;
+    Future<void>.delayed(_homeTourDelay(), () {
+      if (!mounted || _index != 0) return;
+      if (!AppLaunchScope.of(context).splashComplete) return;
+      if (context.read<AppPreferences>().hasSeenHomeTour) return;
+      setState(() => _showHomeTour = true);
+    });
+  }
+
+  void _onTransactionsChanged() {
+    if (_transactions?.isLoaded ?? false) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeStartHomeTour());
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final tx = context.read<TransactionProvider>();
+    if (_transactions != tx) {
+      _transactions?.removeListener(_onTransactionsChanged);
+      _transactions = tx;
+      _transactions!.addListener(_onTransactionsChanged);
+    }
+    _onTransactionsChanged();
+  }
+
+  Future<void> _completeHomeTour() async {
+    await context.read<AppPreferences>().markHomeTourSeen();
+    if (mounted) setState(() => _showHomeTour = false);
   }
 
   @override
@@ -103,7 +173,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     RepaintBoundary(
                       child: TickerMode(
                         enabled: _index == 0,
-                        child: const HomeScreen(),
+                        child: HomeScreen(
+                          netBalanceToggleKey: _netBalanceToggleKey,
+                          scrollController: _homeScrollController,
+                          onHeroIntroComplete: _onHeroIntroComplete,
+                        ),
                       ),
                     ),
                     RepaintBoundary(
@@ -138,6 +212,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                   ),
                 ),
               ),
+              if (_showHomeTour && _index == 0)
+                SettingsTourOverlay(
+                  key: const ValueKey('home_tour_overlay'),
+                  steps: _homeTourStepList,
+                  scrollController: _homeScrollController,
+                  scrollToTarget: false,
+                  bottomObstruction: GlassBottomNavBar.reservedHeight(context),
+                  onComplete: _completeHomeTour,
+                ),
             ],
           ),
           floatingActionButton: AnimatedSwitcher(
@@ -169,9 +252,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   void _showAddSheet(BuildContext context) {
     final trackInward = context.read<AppPreferences>().trackInwardFlow;
+    final catalog = context.read<CategoryCatalog>();
     final merchantCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
-    var category = SpendingCategory.other;
+    var categoryId = SpendingCategory.other.storageKey;
     var type = TransactionType.debit;
 
     showModalBottomSheet(
@@ -221,8 +305,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     const SizedBox(height: 14),
                     CategorySelector(
                       compact: true,
-                      selected: category,
-                      onSelected: (v) => setSheetState(() => category = v),
+                      categories: catalog.all,
+                      selectedId: categoryId,
+                      onSelected: (v) => setSheetState(() => categoryId = v),
                     ),
                     if (trackInward) ...[
                       const SizedBox(height: 18),
@@ -248,7 +333,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                             .addManualTransaction(
                               amount: amount,
                               merchant: merchantCtrl.text,
-                              category: category,
+                              categoryId: categoryId,
                               type: type,
                             );
                         Navigator.pop(ctx);

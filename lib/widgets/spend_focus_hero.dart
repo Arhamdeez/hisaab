@@ -7,7 +7,8 @@ import '../core/utils/formatters.dart';
 import 'app_logo_mark.dart';
 import 'glass_container.dart';
 
-const _kHeroAnimDuration = Duration(milliseconds: 520);
+const kHeroIntroDuration = Duration(milliseconds: 520);
+const _kHeroAnimDuration = kHeroIntroDuration;
 
 /// Fade out → swap content → fade in so two states never stack on screen.
 class _SequentialFadeSwap extends StatefulWidget {
@@ -111,6 +112,7 @@ class _FadeSwapText extends StatelessWidget {
       child: Text(
         text,
         softWrap: true,
+        textAlign: TextAlign.center,
         style: resolved,
       ),
     );
@@ -126,19 +128,19 @@ class SpendFocusHero extends StatefulWidget {
     required this.totalSpent,
     required this.income,
     required this.showIncome,
-    required this.monthLabel,
-    required this.transactionCount,
     this.trackInwardFlow = false,
     this.totalReceived = 0,
+    this.netBalanceToggleKey,
+    this.onHeroIntroComplete,
   });
 
   final double totalSpent;
   final double income;
   final bool showIncome;
-  final String monthLabel;
-  final int transactionCount;
   final bool trackInwardFlow;
   final double totalReceived;
+  final GlobalKey? netBalanceToggleKey;
+  final VoidCallback? onHeroIntroComplete;
 
   @override
   State<SpendFocusHero> createState() => _SpendFocusHeroState();
@@ -150,6 +152,7 @@ class _SpendFocusHeroState extends State<SpendFocusHero> {
 
   /// Anchor for the amount tween when toggling cash out ↔ net.
   double _amountAnimFrom = 0;
+  bool _heroIntroNotified = false;
 
   @override
   void initState() {
@@ -180,7 +183,6 @@ class _SpendFocusHeroState extends State<SpendFocusHero> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final hasIncome = widget.showIncome && widget.income > 0;
     final cashFlowOnly = widget.trackInwardFlow && !widget.showIncome;
     final remaining = widget.income - widget.totalSpent;
@@ -215,18 +217,11 @@ class _SpendFocusHeroState extends State<SpendFocusHero> {
               if (_amountAnimFrom != heroAmount) {
                 setState(() => _amountAnimFrom = heroAmount);
               }
+              if (!_heroIntroNotified) {
+                _heroIntroNotified = true;
+                widget.onHeroIntroComplete?.call();
+              }
             },
-          ),
-          const SizedBox(height: 8),
-          Text(
-            cashFlowOnly
-                ? 'Cash out · ${widget.monthLabel}'
-                : hasIncome
-                    ? 'in ${widget.monthLabel}'
-                    : '${widget.transactionCount} transaction${widget.transactionCount == 1 ? '' : 's'} · ${widget.monthLabel}',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: AppColors.textMuted,
-            ),
           ),
           if (widget.trackInwardFlow &&
               (widget.totalReceived > 0 || widget.totalSpent > 0)) ...[
@@ -249,6 +244,7 @@ class _SpendFocusHeroState extends State<SpendFocusHero> {
             ],
             const SizedBox(height: 8),
             _NetBalanceToggle(
+              key: widget.netBalanceToggleKey,
               active: _showNetOnMain,
               cashIn: widget.totalReceived,
               cashOut: widget.totalSpent,
@@ -509,6 +505,7 @@ class _HeroStat extends StatelessWidget {
 /// Full-width control — tap to show net (cash in − cash out) on the hero.
 class _NetBalanceToggle extends StatefulWidget {
   const _NetBalanceToggle({
+    super.key,
     required this.active,
     required this.cashIn,
     required this.cashOut,
@@ -528,8 +525,36 @@ class _NetBalanceToggle extends StatefulWidget {
 
 class _NetBalanceToggleState extends State<_NetBalanceToggle> {
   static const _animDuration = _kHeroAnimDuration;
+  static const _restScale = 1.024;
+  static const _pressedScale = 0.988;
 
   bool _pressed = false;
+
+  List<BoxShadow> _bulgeShadow({required Color accent}) {
+    if (_pressed) {
+      return [
+        BoxShadow(
+          color: AppColors.shadow.withValues(alpha: 0.20),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ];
+    }
+    return [
+      BoxShadow(
+        color: AppColors.shadow.withValues(alpha: 0.36),
+        blurRadius: 20,
+        offset: const Offset(0, 8),
+      ),
+      BoxShadow(
+        color: (widget.active ? accent : AppColors.ui)
+            .withValues(alpha: widget.active ? 0.12 : 0.06),
+        blurRadius: 16,
+        spreadRadius: -3,
+        offset: const Offset(0, 4),
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -585,12 +610,15 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
       onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
       behavior: HitTestBehavior.opaque,
-      child: AnimatedOpacity(
-        opacity: _pressed ? 0.92 : 1,
-        duration: AppMotion.fast,
-        curve: AppMotion.easeOut,
+      child: AnimatedScale(
+        scale: _pressed ? _pressedScale : _restScale,
+        duration: _pressed
+            ? const Duration(milliseconds: 90)
+            : const Duration(milliseconds: 260),
+        curve: _pressed ? Curves.easeInCubic : Curves.easeOutCubic,
+        alignment: Alignment.center,
         child: AnimatedContainer(
-          duration: _animDuration,
+          duration: _pressed ? AppMotion.fast : _animDuration,
           curve: Curves.easeOutCubic,
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
           decoration: BoxDecoration(
@@ -604,12 +632,13 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
                   : AppColors.glassBorder,
               width: 1.25,
             ),
+            boxShadow: _bulgeShadow(accent: netColor),
           ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   AnimatedContainer(
                     duration: _animDuration,
@@ -640,21 +669,19 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: _FadeSwapText(
-                        text: widget.active
-                            ? 'Net shown on main'
-                            : 'Show net balance',
-                        duration: _animDuration,
-                        style: theme.textTheme.titleMedium!.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                          letterSpacing: 0.1,
-                          height: 1.25,
-                        ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: _FadeSwapText(
+                      text: widget.active
+                          ? 'Net shown on main'
+                          : 'Show net balance',
+                      duration: _animDuration,
+                      alignment: Alignment.center,
+                      style: theme.textTheme.titleMedium!.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                        letterSpacing: 0.1,
+                        height: 1.25,
                       ),
                     ),
                   ),
@@ -695,9 +722,11 @@ class _NetFlowStat extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Text(
           label,
+          textAlign: TextAlign.center,
           style: theme.textTheme.labelMedium?.copyWith(
             color: AppColors.textPrimary,
             fontWeight: FontWeight.w600,
@@ -707,6 +736,7 @@ class _NetFlowStat extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           value,
+          textAlign: TextAlign.center,
           style: theme.textTheme.titleMedium?.copyWith(
             color: color,
             fontWeight: FontWeight.w800,

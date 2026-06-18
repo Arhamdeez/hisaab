@@ -10,8 +10,8 @@ import '../core/utils/app_refresh.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/glass_container.dart';
 import '../core/utils/formatters.dart';
-import '../models/transaction.dart';
 import '../providers/app_preferences.dart';
+import '../providers/category_catalog.dart';
 import '../providers/transaction_provider.dart';
 import '../screens/transaction_detail_screen.dart';
 import '../widgets/transaction_tile.dart';
@@ -51,13 +51,13 @@ enum _TxSort {
 
 class _TransactionsScreenState extends State<TransactionsScreen> {
   String _query = '';
-  SpendingCategory? _filterCategory;
+  String? _filterCategoryId;
   _TxSort _sort = _TxSort.timeDesc;
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<TransactionProvider, AppPreferences>(
-      builder: (context, provider, prefs, _) {
+    return Consumer3<TransactionProvider, AppPreferences, CategoryCatalog>(
+      builder: (context, provider, prefs, catalog, _) {
         final selected = provider.selectedMonth;
         final summary = provider.summaryForMonth(selected);
 
@@ -90,14 +90,16 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               .where(
                 (t) =>
                     t.merchant.toLowerCase().contains(_query.toLowerCase()) ||
-                    t.category.label
+                    catalog
+                        .resolve(t.categoryId)
+                        .label
                         .toLowerCase()
                         .contains(_query.toLowerCase()),
               )
               .toList();
         }
-        if (_filterCategory != null) {
-          txs = txs.where((t) => t.category == _filterCategory).toList();
+        if (_filterCategoryId != null) {
+          txs = txs.where((t) => t.categoryId == _filterCategoryId).toList();
         }
 
         txs = [...txs];
@@ -112,7 +114,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             txs.sort((a, b) => a.amount.compareTo(b.amount));
         }
 
-        final hasFilters = _query.isNotEmpty || _filterCategory != null;
+        final hasFilters = _query.isNotEmpty || _filterCategoryId != null;
 
         return SafeArea(
           child: AppRefreshScroll(
@@ -199,15 +201,15 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                         children: [
                           _FilterChip(
                             label: 'All',
-                            selected: _filterCategory == null,
-                            onTap: () => setState(() => _filterCategory = null),
+                            selected: _filterCategoryId == null,
+                            onTap: () => setState(() => _filterCategoryId = null),
                           ),
-                          ...SpendingCategory.values.map(
+                          ...catalog.all.map(
                             (c) => _FilterChip(
                               label: c.label,
-                              selected: _filterCategory == c,
+                              selected: _filterCategoryId == c.id,
                               color: c.color,
-                              onTap: () => setState(() => _filterCategory = c),
+                              onTap: () => setState(() => _filterCategoryId = c.id),
                             ),
                           ),
                         ],

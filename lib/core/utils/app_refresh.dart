@@ -26,6 +26,7 @@ Future<void> refreshAppData(BuildContext context) async {
   if (ingest.isGmailConnected) {
     await ingest.syncGmail();
   }
+  await ingest.syncCaptures();
   await provider.reload();
 
   // Keep the logo on screen long enough to read as a deliberate refresh.

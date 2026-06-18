@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
+import '../models/category_info.dart';
 import '../models/transaction.dart';
+import '../providers/category_catalog.dart';
 
 class TransactionTile extends StatelessWidget {
   const TransactionTile({
@@ -24,6 +27,7 @@ class TransactionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDebit = transaction.isDebit;
+    final category = context.watch<CategoryCatalog>().resolve(transaction.categoryId);
 
     return Material(
       color: Colors.transparent,
@@ -41,10 +45,10 @@ class TransactionTile extends StatelessWidget {
               Container(
                 width: 42,
                 height: 42,
-                decoration: AppDecorations.iconBadge(transaction.category.color),
+                decoration: AppDecorations.iconBadge(category.color),
                 child: Icon(
-                  transaction.category.icon,
-                  color: transaction.category.color,
+                  category.icon,
+                  color: category.color,
                   size: 19,
                 ),
               ),
@@ -61,7 +65,7 @@ class TransactionTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      _subtitle(),
+                      _subtitle(category),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: AppColors.textMuted,
                       ),
@@ -96,8 +100,8 @@ class TransactionTile extends StatelessWidget {
     );
   }
 
-  String _subtitle() {
-    final base = transaction.category.label;
+  String _subtitle(CategoryInfo category) {
+    final base = category.label;
     if (!showSource) return base;
     return '$base · ${_sourceLabel(transaction.source)}';
   }

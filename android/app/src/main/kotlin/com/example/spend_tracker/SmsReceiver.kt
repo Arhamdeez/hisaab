@@ -29,13 +29,20 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     private fun isLikelyTransaction(sender: String, body: String): Boolean {
+        if (IngestPlugin.looksLikeTransaction(body)) return true
+
         val senderLower = sender.lowercase()
         val bodyLower = body.lowercase()
         val bankHints = listOf(
             "hdfc", "icici", "sbi", "axis", "kotak", "yes", "paytm", "phonepe",
             "gpay", "upi", "bank", "vm-", "jd-", "ax-", "bp-",
+            "ubl", "hbl", "mcb", "alfalah", "jazz", "telenor", "easypaisa",
+            "jazzcash", "sadapay", "nayapay", "meezan", "faysal", "brd",
         )
-        val txnHints = listOf("rs", "inr", "debited", "credited", "spent", "paid", "upi")
+        val txnHints = listOf(
+            "rs", "inr", "pkr", "debited", "credited", "spent", "paid", "upi",
+            "transferred", "withdrawn", "deducted",
+        )
         val senderMatch = bankHints.any { senderLower.contains(it) }
         val bodyMatch = txnHints.any { bodyLower.contains(it) }
         return senderMatch && bodyMatch

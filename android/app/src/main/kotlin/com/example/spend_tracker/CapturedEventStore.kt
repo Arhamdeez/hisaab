@@ -36,6 +36,17 @@ object CapturedEventStore {
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
     }
 
+    fun pendingCount(context: Context): Int {
+        return try {
+            val db = QueueDb(context).readableDatabase
+            db.compileStatement("SELECT COUNT(*) FROM captured_events")
+                .simpleQueryForLong()
+                .toInt()
+        } catch (_: Exception) {
+            0
+        }
+    }
+
     fun enqueue(context: Context, event: Map<String, Any?>) {
         val text = event["text"] as? String ?: return
         if (text.isBlank()) return

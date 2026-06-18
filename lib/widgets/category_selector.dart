@@ -1,25 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
+import '../models/category_info.dart';
 import '../models/transaction.dart';
+import '../providers/category_catalog.dart';
 
-/// Frosted picker for [SpendingCategory].
+/// Frosted picker for spending categories (built-in + custom).
 ///
 /// [compact] uses small wrap chips (Add sheet). Default grid is for confirm sheets.
 class CategorySelector extends StatelessWidget {
   const CategorySelector({
     super.key,
-    required this.selected,
+    required this.categories,
+    required this.selectedId,
     required this.onSelected,
     this.label = 'Category',
     this.compact = false,
   });
 
-  final SpendingCategory selected;
-  final ValueChanged<SpendingCategory> onSelected;
+  final List<CategoryInfo> categories;
+  final String selectedId;
+  final ValueChanged<String> onSelected;
   final String? label;
   final bool compact;
 
@@ -43,11 +48,11 @@ class CategorySelector extends StatelessWidget {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: SpendingCategory.values.map((category) {
+            children: categories.map((category) {
               return _CategoryChip(
                 category: category,
-                selected: selected == category,
-                onTap: () => onSelected(category),
+                selected: selectedId == category.id,
+                onTap: () => onSelected(category.id),
               );
             }).toList(),
           )
@@ -55,7 +60,7 @@ class CategorySelector extends StatelessWidget {
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: SpendingCategory.values.length,
+            itemCount: categories.length,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
               mainAxisSpacing: 10,
@@ -63,11 +68,11 @@ class CategorySelector extends StatelessWidget {
               childAspectRatio: 1.05,
             ),
             itemBuilder: (context, index) {
-              final category = SpendingCategory.values[index];
+              final category = categories[index];
               return _CategoryTile(
                 category: category,
-                selected: selected == category,
-                onTap: () => onSelected(category),
+                selected: selectedId == category.id,
+                onTap: () => onSelected(category.id),
               );
             },
           ),
@@ -76,7 +81,6 @@ class CategorySelector extends StatelessWidget {
   }
 }
 
-/// Compact pill — used in the Add transaction sheet.
 class _CategoryChip extends StatelessWidget {
   const _CategoryChip({
     required this.category,
@@ -84,7 +88,7 @@ class _CategoryChip extends StatelessWidget {
     required this.onTap,
   });
 
-  final SpendingCategory category;
+  final CategoryInfo category;
   final bool selected;
   final VoidCallback onTap;
 
@@ -95,7 +99,7 @@ class _CategoryChip extends StatelessWidget {
 
     return Material(
       color: Colors.transparent,
-        child: InkWell(
+      child: InkWell(
         onTap: () {
           HapticFeedback.selectionClick();
           onTap();
@@ -172,7 +176,7 @@ class _CategoryTile extends StatelessWidget {
     required this.onTap,
   });
 
-  final SpendingCategory category;
+  final CategoryInfo category;
   final bool selected;
   final VoidCallback onTap;
 
@@ -364,6 +368,78 @@ class _FlowOption extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Compact bottom sheet — tap a chip to pick and dismiss.
+Future<String?> showCategoryPickerSheet(
+  BuildContext context, {
+  required String selectedId,
+  String title = 'Choose category',
+}) {
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      final maxH = MediaQuery.sizeOf(ctx).height * 0.52;
+      return Container(
+        constraints: BoxConstraints(maxHeight: maxH),
+        decoration: sheetDecoration(),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        child: _CategoryPickerSheet(
+          title: title,
+          selectedId: selectedId,
+        ),
+      );
+    },
+  );
+}
+
+class _CategoryPickerSheet extends StatelessWidget {
+  const _CategoryPickerSheet({
+    required this.title,
+    required this.selectedId,
+  });
+
+  final String title;
+  final String selectedId;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final catalog = context.watch<CategoryCatalog>();
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SheetHandle(),
+        Text(
+          title,
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Flexible(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: CategorySelector(
+              categories: catalog.all,
+              selectedId: selectedId,
+              compact: true,
+              label: null,
+              onSelected: (id) {
+                HapticFeedback.selectionClick();
+                Navigator.pop(context, id);
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

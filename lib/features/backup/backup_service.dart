@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/repositories/transaction_repository.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/transaction.dart';
+import '../../providers/category_catalog.dart';
 
 /// Outcome of an export operation, used to drive UI feedback.
 class BackupResult {
@@ -111,7 +112,7 @@ class BackupService {
       final amount = '$sign${formatCurrency(t.amount)}';
       buffer.writeln(
         '${dateFmt.format(t.occurredAt)}  •  '
-        '${t.merchant} (${t.category.label})  •  $amount',
+        '${t.merchant} (${CategoryCatalog.instance.resolve(t.categoryId).label})  •  $amount',
       );
     }
 

@@ -91,11 +91,11 @@ class TransactionProvider extends ChangeNotifier {
     final totalDebit = debits.fold<double>(0, (s, t) => s + t.amount);
     final totalCredit = credits.fold<double>(0, (s, t) => s + t.amount);
 
-    final categoryMap = <SpendingCategory, CategorySummary>{};
+    final categoryMap = <String, CategorySummary>{};
     for (final t in debits) {
-      final existing = categoryMap[t.category];
-      categoryMap[t.category] = CategorySummary(
-        category: t.category,
+      final existing = categoryMap[t.categoryId];
+      categoryMap[t.categoryId] = CategorySummary(
+        categoryId: t.categoryId,
         total: (existing?.total ?? 0) + t.amount,
         count: (existing?.count ?? 0) + 1,
       );
@@ -152,13 +152,13 @@ class TransactionProvider extends ChangeNotifier {
 
   Future<void> confirmTransaction(
     String id, {
-    SpendingCategory? category,
+    String? categoryId,
   }) async {
-    if (category != null) {
+    if (categoryId != null) {
       await _repository.applyReview(
         id,
         status: TransactionStatus.confirmed,
-        category: category,
+        categoryId: categoryId,
       );
     } else {
       await _repository.updateStatus(id, TransactionStatus.confirmed);
@@ -171,7 +171,7 @@ class TransactionProvider extends ChangeNotifier {
     return CategoryGuesser.suggest(
       merchant: transaction.merchant,
       rawText: transaction.rawText,
-      parsedCategory: transaction.category,
+      parsedCategory: SpendingCategoryX.fromKey(transaction.categoryId),
       confirmedHistory: confirmedTransactions,
     );
   }
@@ -189,14 +189,17 @@ class TransactionProvider extends ChangeNotifier {
     if (tx == null || !tx.isPending) return false;
 
     if (!tx.isDebit) {
-      await confirmTransaction(id, category: SpendingCategory.other);
+      await confirmTransaction(
+        id,
+        categoryId: SpendingCategory.other.storageKey,
+      );
       return true;
     }
 
     final suggestion = suggestCategory(tx);
     if (!suggestion.isConfident) return false;
 
-    await confirmTransaction(id, category: suggestion.category);
+    await confirmTransaction(id, categoryId: suggestion.categoryId);
     return true;
   }
 
@@ -208,7 +211,7 @@ class TransactionProvider extends ChangeNotifier {
   Future<void> addManualTransaction({
     required double amount,
     required String merchant,
-    required SpendingCategory category,
+    required String categoryId,
     required TransactionType type,
   }) async {
     final now = DateTime.now();
@@ -224,7 +227,7 @@ class TransactionProvider extends ChangeNotifier {
         amount: amount,
         type: type,
         merchant: merchant,
-        category: category,
+        categoryId: categoryId,
         occurredAt: now,
         source: TransactionSource.manual,
         status: TransactionStatus.confirmed,
@@ -256,6 +259,19 @@ class TransactionProvider extends ChangeNotifier {
       rawText: text,
       messageTime: timestamp ?? DateTime.now(),
     );
+    await load();
+  }
+
+  int countForCategory(String categoryId) =>
+      _transactions.where((t) => t.categoryId == categoryId).length;
+
+  Future<void> reassignCategory(String fromId, String toId) async {
+    await _repository.reassignCategory(fromId, toId);
+    await load();
+  }
+
+  Future<void> updateTransactionCategory(String id, String categoryId) async {
+    await _repository.updateCategory(id, categoryId);
     await load();
   }
 }

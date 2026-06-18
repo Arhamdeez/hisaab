@@ -9,12 +9,15 @@ import '../core/theme/app_colors.dart';
 import '../core/brand.dart';
 import '../core/theme/app_decorations.dart';
 import '../widgets/glass_container.dart';
+import '../widgets/settings_tour_overlay.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
 import '../features/backup/backup_service.dart';
 import '../features/ingest/ingest_service.dart';
 import '../providers/app_preferences.dart';
+import '../providers/category_catalog.dart';
 import 'about_screen.dart';
+import 'categories_screen.dart';
 import 'month_end_screen.dart';
 
 Future<void> _editMonthlyIncome(
@@ -93,13 +96,91 @@ Future<void> _editMonthlyIncome(
   }
 }
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
   static Future<void> open(BuildContext context) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => const SettingsScreen()),
     );
+  }
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final _scrollController = ScrollController();
+  final _dataSourcesKey = GlobalKey();
+  final _backupKey = GlobalKey();
+  final _reportsKey = GlobalKey();
+  final _cashFlowKey = GlobalKey();
+  final _aboutKey = GlobalKey();
+
+  bool _showTour = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final prefs = context.read<AppPreferences>();
+      if (!prefs.hasSeenSettingsTour) {
+        setState(() => _showTour = true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  List<SettingsTourStep> _tourSteps() => [
+        SettingsTourStep(
+          targetKey: _dataSourcesKey,
+          title: 'Data sources',
+          body:
+              'Connect app notifications, SMS, and Gmail here. '
+              'This is how HISAAB auto-captures your payments.',
+          icon: Icons.notifications_active_outlined,
+        ),
+        SettingsTourStep(
+          targetKey: _backupKey,
+          title: 'Backup',
+          body: 'Export all your transactions to a file anytime — '
+              'everything stays on your device until you share it.',
+          icon: Icons.ios_share_rounded,
+        ),
+        SettingsTourStep(
+          targetKey: _reportsKey,
+          title: 'Reports',
+          body: 'Open month-end breakdowns, category trends, and CSV export '
+              'when you want a full picture of the month.',
+          icon: Icons.pie_chart_outline_rounded,
+        ),
+        SettingsTourStep(
+          targetKey: _cashFlowKey,
+          title: 'Cash flow',
+          body:
+              'Income budget is off by default. Turn on "Show income budget" '
+              'when you want savings tracking — or enable cash received to '
+              'log money in.',
+          icon: Icons.account_balance_wallet_outlined,
+        ),
+        SettingsTourStep(
+          targetKey: _aboutKey,
+          title: 'About & privacy',
+          body: 'App info and our privacy promise — '
+              'your data never leaves your phone unless you export it.',
+          icon: Icons.info_outline_rounded,
+        ),
+      ];
+
+  Future<void> _completeTour() async {
+    await context.read<AppPreferences>().markSettingsTourSeen();
+    if (mounted) setState(() => _showTour = false);
   }
 
   Future<void> _exportBackup(BuildContext context) async {
@@ -129,11 +210,12 @@ class SettingsScreen extends StatelessWidget {
             builder: (context, ingest, prefs, _) {
               return SafeArea(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(
+                  controller: _scrollController,
+                  padding: EdgeInsets.fromLTRB(
                     AppSpacing.pageH,
                     4,
                     AppSpacing.pageH,
-                    32,
+                    _showTour ? 268 : 32,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -159,7 +241,9 @@ class SettingsScreen extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: AppSpacing.section),
-                _SettingsGroup(
+                KeyedSubtree(
+                  key: _dataSourcesKey,
+                  child: _SettingsGroup(
                   title: 'Data Sources',
                   children: [
                     _SettingsTile(
@@ -176,9 +260,28 @@ class SettingsScreen extends StatelessWidget {
                         label: Platform.isAndroid ? null : 'N/A',
                       ),
                       onTap: Platform.isAndroid
-                          ? () => ingest.openNotificationSettings()
+                          ? () async {
+                              await ingest.openNotificationSettings();
+                              await ingest.refreshNotificationAccess();
+                            }
                           : null,
                     ),
+                    if (Platform.isAndroid && ingest.hasNotificationAccessGranted)
+                      _SettingsTile(
+                        icon: Icons.battery_charging_full_rounded,
+                        title: 'Background monitoring',
+                        subtitle: ingest.isBatteryUnrestricted
+                            ? 'Battery unrestricted — best capture reliability'
+                            : 'Tap to disable battery limits for HISAAB',
+                        trailing: _StatusPill(
+                          enabled: ingest.isBatteryUnrestricted,
+                          label: ingest.isBatteryUnrestricted ? 'On' : 'Fix',
+                        ),
+                        onTap: () async {
+                          await ingest.requestBatteryOptimizationExemption();
+                          await ingest.refreshBatteryOptimization();
+                        },
+                      ),
                     _SettingsTile(
                       icon: Icons.sms_outlined,
                       title: 'SMS Alerts',
@@ -226,8 +329,11 @@ class SettingsScreen extends StatelessWidget {
                       ),
                   ],
                 ),
+                ),
                 const SizedBox(height: AppSpacing.section),
-                _SettingsGroup(
+                KeyedSubtree(
+                  key: _backupKey,
+                  child: _SettingsGroup(
                   title: 'Backup',
                   children: [
                     _SettingsTile(
@@ -238,8 +344,11 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ],
                 ),
+                ),
                 const SizedBox(height: AppSpacing.section),
-                _SettingsGroup(
+                KeyedSubtree(
+                  key: _reportsKey,
+                  child: _SettingsGroup(
                   title: 'Reports',
                   children: [
                     _SettingsTile(
@@ -250,10 +359,16 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ],
                 ),
+                ),
                 const SizedBox(height: AppSpacing.section),
-                const _CashFlowSettingsGroup(),
+                KeyedSubtree(
+                  key: _cashFlowKey,
+                  child: const _CashFlowSettingsGroup(),
+                ),
                 const SizedBox(height: AppSpacing.section),
-                _SettingsGroup(
+                KeyedSubtree(
+                  key: _aboutKey,
+                  child: _SettingsGroup(
                   title: 'About',
                   children: [
                     _SettingsTile(
@@ -269,12 +384,19 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ],
                 ),
+                ),
               ],
             ),
           ),
         );
       },
     ),
+          if (_showTour)
+            SettingsTourOverlay(
+              steps: _tourSteps(),
+              scrollController: _scrollController,
+              onComplete: _completeTour,
+            ),
         ],
       ),
     );
@@ -352,10 +474,18 @@ class _CashFlowSettingsGroup extends StatelessWidget {
                   );
                 },
               ),
-            const _SettingsTile(
-              icon: Icons.category_outlined,
-              title: 'Categories',
-              subtitle: 'Food, Transport, Bills, and more',
+            Selector<CategoryCatalog, int>(
+              selector: (_, catalog) => catalog.customCount,
+              builder: (context, customCount, _) {
+                return _SettingsTile(
+                  icon: Icons.category_outlined,
+                  title: 'Categories',
+                  subtitle: customCount == 0
+                      ? 'Food, Transport, Bills, and more'
+                      : '$customCount custom · tap to manage',
+                  onTap: () => CategoriesScreen.open(context),
+                );
+              },
             ),
           ],
         );

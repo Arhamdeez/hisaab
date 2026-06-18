@@ -4,6 +4,12 @@ import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -29,105 +35,150 @@ class IngestPlugin(
         private const val MAX_PENDING = 500
 
         private var eventSink: EventChannel.EventSink? = null
+        private val mainHandler = Handler(Looper.getMainLooper())
 
-        // Known bank / UPI / wallet apps. The substring checks below also catch
-        // most banking apps whose package id embeds an obvious keyword.
         private val monitoredPackages = setOf(
-            "com.google.android.apps.nbu.paisa.user", // Google Pay
-            "com.phonepe.app",                        // PhonePe
-            "net.one97.paytm",                        // Paytm
-            "in.org.npci.upiapp",                     // BHIM
-            "com.dreamplug.androidapp",               // CRED
-            "com.csam.icici.bank.imobile",            // ICICI iMobile
-            "com.sbi.lotusintouch",                   // SBI YONO
-            "com.sbi.SBIFreedomPlus",                 // SBI
-            "com.axis.mobile",                        // Axis
-            "com.hdfcbank.android.now",               // HDFC
-            "com.snapwork.hdfc",                      // HDFC
-            "com.bankofbaroda.mconnect",              // BoB
-            "com.fss.pnbpsp",                         // PNB
-            "com.kotak.mobile",                       // Kotak
-            "com.konylabs.cbplpat",                   // Kotak 811
-            "com.YES.YESbank",                        // YES
-            "com.idbibank.mpassbook",                 // IDBI
-            "com.infrasofttech.indianbank",           // Indian Bank
-            "com.amazon.mShop.android.shopping",      // Amazon (Amazon Pay)
-            "com.whatsapp",                           // WhatsApp Pay
-            "app.com.brd",                            // UBL Digital (Pakistan)
-            "com.ubluk.dc",                           // UBL UK
+            "com.google.android.apps.nbu.paisa.user",
+            "com.phonepe.app",
+            "net.one97.paytm",
+            "in.org.npci.upiapp",
+            "com.dreamplug.androidapp",
+            "com.csam.icici.bank.imobile",
+            "com.sbi.lotusintouch",
+            "com.sbi.SBIFreedomPlus",
+            "com.axis.mobile",
+            "com.hdfcbank.android.now",
+            "com.snapwork.hdfc",
+            "com.bankofbaroda.mconnect",
+            "com.fss.pnbpsp",
+            "com.kotak.mobile",
+            "com.konylabs.cbplpat",
+            "com.YES.YESbank",
+            "com.idbibank.mpassbook",
+            "com.infrasofttech.indianbank",
+            "com.amazon.mShop.android.shopping",
+            "com.whatsapp",
+            "app.com.brd",
+            "com.ubluk.dc",
+            "com.techlogix.mobilinkcustomer",
+            "pk.com.telenor.phoenix",
+            "com.sadaPay.sadaPay",
+            "com.sadapay.app",
+            "com.nayapay.app",
+            "com.hbl.android.hblmobilebanking",
+            "com.mcb.mobile",
+            "com.mcb.mobilebanking",
+            "com.bankalfalah",
+            "com.alfalah.mobile",
+            "com.meezanbank.mobile",
+            "com.faysalbank.mobile",
+            "com.sc.mobilebanking.pk",
+            "com.askari.mobile",
         )
 
-        // Lower-cased substrings that strongly suggest a banking / payments app.
         private val monitoredKeywords = listOf(
-            "bank", "upi", "pay", "wallet", "card", "paytm", "phonepe",
+            "bank", "upi", "wallet", "paytm", "phonepe",
             "bhim", "gpay", "hdfc", "icici", "sbi", "axis", "kotak",
             "yesbank", "idbi", "pnb", "baroda", "canara", "rbl", "indus",
             "federal", "paisa", "razorpay", "payu", "mobikwik", "freecharge",
-            "cred", "finance", "ubl", "brd",
+            "cred", "ubl", "brd", "jazzcash", "mobilink", "easypaisa",
+            "sadapay", "nayapay", "alfalah", "hbl", "mcb", "meezan", "faysal",
         )
 
-        // Suppress duplicate onNotificationPosted bursts (same pkg + body within
-        // a few seconds — common when Gmail mirrors a payment alert twice).
-        private val recentKeys = LinkedHashMap<String, Long>()
-        private const val DEDUP_MS = 4000L
+        private val recentAmountAlerts = LinkedHashMap<String, Pair<Long, String>>()
+
+        private fun amountKey(pkg: String, text: String): String? {
+            val amountMatch = amountRegex.find(text)?.value ?: return null
+            val normalized = amountMatch.replace("\\s".toRegex(), "").lowercase()
+            return "$pkg:$normalized"
+        }
 
         fun shouldDeliverNow(pkg: String, text: String): Boolean {
-            val key = "$pkg:${text.hashCode()}"
             val now = System.currentTimeMillis()
-            synchronized(recentKeys) {
-                val last = recentKeys[key]
-                if (last != null && now - last < DEDUP_MS) {
-                    Log.d(INGEST_TAG, "  deduped (same alert ${now - last}ms ago)")
-                    return false
+            val aKey = amountKey(pkg, text) ?: return true
+            val normalized = text.replace("\\s+".toRegex(), " ").trim().lowercase()
+            synchronized(recentAmountAlerts) {
+                val prev = recentAmountAlerts[aKey]
+                if (prev != null && now - prev.first < DEDUP_MS) {
+                    val prevNorm =
+                        prev.second.replace("\\s+".toRegex(), " ").trim().lowercase()
+                    when {
+                        normalized == prevNorm -> {
+                            Log.d(INGEST_TAG, "  deduped identical alert for $aKey")
+                            return false
+                        }
+                        normalized.length < prevNorm.length &&
+                            prevNorm.contains(normalized) -> {
+                            Log.d(
+                                INGEST_TAG,
+                                "  deduped shorter subset alert for $aKey",
+                            )
+                            return false
+                        }
+                    }
+                    // Richer or materially different text for the same amount — deliver.
                 }
-                recentKeys[key] = now
-                while (recentKeys.size > 200) {
-                    val oldest = recentKeys.keys.first()
-                    recentKeys.remove(oldest)
+                recentAmountAlerts[aKey] = now to text
+                while (recentAmountAlerts.size > 200) {
+                    val oldest = recentAmountAlerts.keys.first()
+                    recentAmountAlerts.remove(oldest)
                 }
             }
             return true
         }
 
-        fun emit(event: Map<String, Any?>) {
-            eventSink?.success(event)
-        }
+        private const val DEDUP_MS = 15000L
 
-        /**
-         * Deliver an ingest event. When the Flutter side is listening it goes
-         * straight through; otherwise (app closed / engine not attached) it is
-         * persisted so it can be drained on the next launch — so transactions
-         * captured in the background are never lost.
-         */
+        private val amountRegex = Regex(
+            "(?:rs\\.?|pkr|inr|₹|₨)\\s*[\\d,]+(?:\\.\\d+)?|" +
+                "[\\d,]+(?:\\.\\d+)?\\s*(?:rs\\.?|pkr|inr|₹|₨)",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Samsung / PK wallets sometimes post amount + trx id only — match Dart parser. */
+        private val monitoredWalletFallbackRegex = Regex(
+            "a/c|account|\\*\\*\\*|trx\\s*id|trans(?:action)?\\s*id",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Signals real money movement — aligned with Dart [TransactionParser]. */
+        private val walletTxnRegex = Regex(
+            "debited|credited|spent|withdrawn|deducted|transferred|received|" +
+                "paid|sent|purchase|txn|transaction|debit|credit|refund|" +
+                "cashback|deposited|salary|transfer|withdrawal|" +
+                "payment|charged|bill|" +
+                "transfer\\s*successful|successfully\\s*transferred|" +
+                "sent\\s*(?:rs|pkr)|received\\s*(?:rs|pkr)|" +
+                "a/c\\s*\\*+|account\\s*\\*+|trx\\s*id|trans(?:action)?\\s*id|" +
+                "has\\s*been\\s*(?:debited|credited|deducted)",
+            RegexOption.IGNORE_CASE,
+        )
+
         fun deliver(context: Context, event: Map<String, Any?>) {
-            val sink = eventSink
-            if (sink != null) {
-                Log.d(INGEST_TAG, "deliver -> live sink: $event")
-                sink.success(event)
-            } else {
-                Log.d(INGEST_TAG, "deliver -> durable queue (app not running)")
-                CapturedEventStore.enqueue(context, event)
-                // Legacy prefs buffer — kept for upgrades from older builds.
-                persist(context, event)
+            // NotificationListener callbacks are not always on the main thread;
+            // EventChannel requires the UI thread or events are silently dropped.
+            mainHandler.post {
+                val sink = eventSink
+                if (sink != null) {
+                    try {
+                        Log.d(
+                            INGEST_TAG,
+                            "deliver -> live sink: ${(event["text"] as? String)?.take(80)}",
+                        )
+                        sink.success(event)
+                    } catch (e: Exception) {
+                        Log.w(INGEST_TAG, "live sink failed, queueing", e)
+                        CapturedEventStore.enqueue(context, event)
+                    }
+                } else {
+                    Log.d(INGEST_TAG, "deliver -> durable queue (app not running)")
+                    CapturedEventStore.enqueue(context, event)
+                }
             }
         }
 
-        private fun persist(context: Context, event: Map<String, Any?>) {
-            try {
-                val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                val arr = JSONArray(prefs.getString(KEY_PENDING, "[]"))
-                val obj = JSONObject()
-                for ((k, v) in event) obj.put(k, v ?: JSONObject.NULL)
-                arr.put(obj)
-                // Guard against unbounded growth if the app is never reopened.
-                while (arr.length() > MAX_PENDING) arr.remove(0)
-                prefs.edit().putString(KEY_PENDING, arr.toString()).apply()
-            } catch (_: Exception) {
-                // Never crash a system callback over a buffering failure.
-            }
-        }
-
-        private fun drainPending(context: Context): List<Map<String, Any?>> {
+        /** Migrate legacy SharedPreferences buffer into the drain result once. */
+        private fun drainLegacyPending(context: Context): List<Map<String, Any?>> {
             return try {
                 val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 val raw = prefs.getString(KEY_PENDING, "[]") ?: "[]"
@@ -155,44 +206,144 @@ class IngestPlugin(
             }
         }
 
+        private fun dedupeEvents(events: List<Map<String, Any?>>): List<Map<String, Any?>> {
+            val seen = LinkedHashSet<String>()
+            val out = ArrayList<Map<String, Any?>>(events.size)
+            for (event in events) {
+                val text = event["text"] as? String ?: ""
+                val source = event["source"] as? String ?: "notification"
+                val ts = (event["timestamp"] as? Number)?.toLong() ?: 0L
+                val key = "$source|$ts|${text.hashCode()}"
+                if (seen.add(key)) out.add(event)
+            }
+            return out
+        }
+
         fun shouldMonitor(packageName: String): Boolean {
             val pkg = packageName.lowercase()
             return monitoredPackages.any { pkg.contains(it.lowercase()) } ||
                 monitoredKeywords.any { pkg.contains(it) }
         }
 
-        // A money amount: Rs/PKR/INR/₹/₨ next to a number, in either order.
-        private val amountRegex = Regex(
-            "(?:rs\\.?|pkr|inr|₹|₨)\\s*[\\d,]+(?:\\.\\d+)?|" +
-                "[\\d,]+(?:\\.\\d+)?\\s*(?:rs\\.?|pkr|inr|₹|₨)",
-            RegexOption.IGNORE_CASE,
-        )
-
-        // A word signalling actual money movement (not a promo / price tag).
-        private val movementRegex = Regex(
-            "debited|credited|spent|withdrawn|deducted|transferred|received|" +
-                "paid|sent|purchase|txn|transaction|debit|credit|refund|" +
-                "cashback|deposited|salary|got|sent to|transfer|withdrawal|" +
-                "payment|fee|charged|bill",
-            RegexOption.IGNORE_CASE,
-        )
-
-        /**
-         * True when a notification body looks like a real transaction from any
-         * app — it contains both a money amount and a movement keyword. Lets us
-         * capture from payment apps that aren't in the explicit allowlist.
-         */
         fun looksLikeTransaction(text: String): Boolean {
-            return amountRegex.containsMatchIn(text) &&
-                movementRegex.containsMatchIn(text)
+            if (!amountRegex.containsMatchIn(text)) return false
+            if (walletTxnRegex.containsMatchIn(text)) return true
+            return monitoredWalletFallbackRegex.containsMatchIn(text)
+        }
+
+        fun shouldCapture(packageName: String, text: String): Boolean {
+            if (looksLikeTransaction(text)) return true
+            // Monitored wallet/bank apps: amount alone is enough — bodies are often minimal.
+            if (shouldMonitor(packageName) && amountRegex.containsMatchIn(text)) return true
+            return false
+        }
+
+        /** True when native SQLite / legacy queues hold unprocessed captures. */
+        fun hasPendingCaptures(context: Context): Boolean {
+            return CapturedEventStore.pendingCount(context) > 0 ||
+                legacyPendingCount(context) > 0
+        }
+
+        private fun legacyPendingCount(context: Context): Int {
+            return try {
+                val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                val raw = prefs.getString(KEY_PENDING, "[]") ?: "[]"
+                JSONArray(raw).length()
+            } catch (_: Exception) {
+                0
+            }
+        }
+
+        fun isNotificationAccessEnabled(context: Context): Boolean {
+            val component = ComponentName(context, NotificationCaptureService::class.java)
+            val flat = Settings.Secure.getString(
+                context.contentResolver,
+                "enabled_notification_listeners",
+            ) ?: return false
+            return flat.split(":").any { entry ->
+                val enabled = ComponentName.unflattenFromString(entry.trim())
+                enabled != null &&
+                    enabled.packageName == component.packageName &&
+                    enabled.className == component.className
+            }
         }
 
         /**
-         * Pulls every human-readable line from a notification — banking apps
-         * (e.g. UBL Digital) often put the transaction body in [bigText],
-         * [textLines], or MessagingStyle [messages] instead of [text].
+         * Shared capture path for live posts and the active-notification scan on connect.
          */
-        fun extractNotificationText(extras: android.os.Bundle?): String {
+        fun processNotification(context: Context, sbn: StatusBarNotification) {
+            val pkg = sbn.packageName ?: return
+            if (pkg == context.packageName) return
+
+            val extras = sbn.notification.extras
+            val text = extractNotificationText(extras)
+            val title =
+                extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
+
+            if (text.isBlank()) {
+                if (shouldMonitor(pkg)) {
+                    Log.d(INGEST_TAG, "empty text pkg=$pkg")
+                }
+                return
+            }
+            if (!shouldCapture(pkg, text)) {
+                if (shouldMonitor(pkg)) {
+                    Log.d(
+                        INGEST_TAG,
+                        "skip pkg=$pkg len=${text.length} preview=${text.take(100)}",
+                    )
+                }
+                return
+            }
+            if (!shouldDeliverNow(pkg, text)) return
+
+            Log.d(INGEST_TAG, "capture pkg=$pkg preview=${text.take(100)}")
+
+            deliver(
+                context,
+                mapOf(
+                    "source" to "notification",
+                    "text" to text,
+                    "package" to pkg,
+                    "sender" to title,
+                    "timestamp" to sbn.postTime,
+                ),
+            )
+        }
+
+        fun requestNotificationRebind(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+            try {
+                NotificationListenerService.requestRebind(
+                    ComponentName(context, NotificationCaptureService::class.java),
+                )
+                Log.d(INGEST_TAG, "requested notification listener rebind")
+            } catch (e: Exception) {
+                Log.w(INGEST_TAG, "rebind request failed", e)
+            }
+        }
+
+        fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            return pm.isIgnoringBatteryOptimizations(context.packageName)
+        }
+
+        fun requestIgnoreBatteryOptimizations(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+            if (isIgnoringBatteryOptimizations(context)) return
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:${context.packageName}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        }
+
+        /**
+         * Pulls every human-readable line from a notification. Samsung and wallet
+         * apps often stash the transaction body in non-standard extra keys.
+         */
+        fun extractNotificationText(extras: Bundle?): String {
             if (extras == null) return ""
             val parts = LinkedHashSet<String>()
 
@@ -214,8 +365,48 @@ class IngestPlugin(
             val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
             if (messages != null) {
                 for (parcelable in messages) {
-                    if (parcelable is android.os.Bundle) {
+                    if (parcelable is Bundle) {
                         add(parcelable.getCharSequence("text"))
+                    }
+                }
+            }
+
+            // Wallet apps often stash the body under custom or extra android.* keys.
+            val skipKeys = setOf(
+                "android.icon",
+                "android.largeIcon",
+                "android.picture",
+                "android.progress",
+                "android.progressMax",
+                "android.progressIndeterminate",
+                "android.appInfo",
+                "android.colorized",
+                "android.showWhen",
+                "android.showChronometer",
+                "android.chronometerCountDown",
+                "android.reduced.images",
+            )
+            for (key in extras.keySet()) {
+                if (key in skipKeys) continue
+                when (val value = extras.get(key)) {
+                    is CharSequence -> add(value)
+                    is Array<*> -> {
+                        for (item in value) {
+                            when (item) {
+                                is CharSequence -> add(item)
+                                is Bundle -> {
+                                    add(item.getCharSequence("text"))
+                                    add(item.getCharSequence(Notification.EXTRA_TEXT))
+                                    add(item.getCharSequence(Notification.EXTRA_BIG_TEXT))
+                                }
+                            }
+                        }
+                    }
+                    is Bundle -> {
+                        add(value.getCharSequence("text"))
+                        add(value.getCharSequence(Notification.EXTRA_TEXT))
+                        add(value.getCharSequence(Notification.EXTRA_BIG_TEXT))
+                        add(value.getCharSequence(Notification.EXTRA_TITLE))
                     }
                 }
             }
@@ -229,20 +420,42 @@ class IngestPlugin(
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "isNotificationAccessEnabled" -> {
-                        result.success(isNotificationAccessEnabled())
+                        result.success(isNotificationAccessEnabled(context))
                     }
                     "openNotificationAccessSettings" -> {
                         context.startActivity(
                             Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
+                            },
                         )
                         result.success(null)
                     }
                     "drainPending" -> {
-                        val legacy = drainPending(context)
+                        val legacy = drainLegacyPending(context)
                         val queued = CapturedEventStore.drain(context)
-                        result.success(legacy + queued)
+                        result.success(dedupeEvents(legacy + queued))
+                    }
+                    "hasPendingCaptures" -> {
+                        result.success(hasPendingCaptures(context))
+                    }
+                    "requestNotificationRebind" -> {
+                        requestNotificationRebind(context)
+                        result.success(null)
+                    }
+                    "startKeepAlive" -> {
+                        IngestKeepAliveService.start(context)
+                        result.success(null)
+                    }
+                    "stopKeepAlive" -> {
+                        IngestKeepAliveService.stop(context)
+                        result.success(null)
+                    }
+                    "isIgnoringBatteryOptimizations" -> {
+                        result.success(isIgnoringBatteryOptimizations(context))
+                    }
+                    "requestIgnoreBatteryOptimizations" -> {
+                        requestIgnoreBatteryOptimizations(context)
+                        result.success(null)
                     }
                     else -> result.notImplemented()
                 }
@@ -261,62 +474,34 @@ class IngestPlugin(
                 }
             })
     }
-
-    private fun isNotificationAccessEnabled(): Boolean {
-        val component = ComponentName(context, NotificationCaptureService::class.java)
-        val flat = Settings.Secure.getString(
-            context.contentResolver,
-            "enabled_notification_listeners",
-        ) ?: return false
-        return flat.split(":").any { it.contains(component.flattenToString()) }
-    }
 }
 
 class NotificationCaptureService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
-        Log.d(INGEST_TAG, "NotificationListener CONNECTED — access granted, capturing")
+        Log.d(INGEST_TAG, "NotificationListener CONNECTED")
+        // Catch wallet alerts already sitting in the shade when the listener binds.
+        Handler(Looper.getMainLooper()).post {
+            try {
+                activeNotifications?.forEach { sbn ->
+                    IngestPlugin.processNotification(applicationContext, sbn)
+                }
+            } catch (e: Exception) {
+                Log.w(INGEST_TAG, "active notification scan failed", e)
+            }
+        }
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
-        Log.d(INGEST_TAG, "NotificationListener DISCONNECTED — access revoked/stopped")
+        Log.d(INGEST_TAG, "NotificationListener DISCONNECTED — requesting rebind")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            requestRebind(ComponentName(this, NotificationCaptureService::class.java))
+        }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn == null) return
-        val pkg = sbn.packageName ?: return
-
-        // Ignore our own notifications outright.
-        if (pkg == applicationContext.packageName) return
-
-        val extras = sbn.notification.extras
-        val text = IngestPlugin.extractNotificationText(extras)
-
-        Log.d(INGEST_TAG, "posted pkg=$pkg text=\"$text\"")
-
-        if (text.isBlank()) return
-
-        // Capture from known payment apps, OR from any app whose notification
-        // clearly describes a transaction (amount + movement keyword).
-        val monitored = IngestPlugin.shouldMonitor(pkg)
-        val looksLike = IngestPlugin.looksLikeTransaction(text)
-        if (!monitored && !looksLike) {
-            Log.d(INGEST_TAG, "  dropped (monitored=$monitored looksLike=$looksLike)")
-            return
-        }
-
-        Log.d(INGEST_TAG, "  CAPTURED (monitored=$monitored looksLike=$looksLike)")
-        if (!IngestPlugin.shouldDeliverNow(pkg, text)) return
-
-        IngestPlugin.deliver(
-            applicationContext,
-            mapOf(
-                "source" to "notification",
-                "text" to text,
-                "package" to pkg,
-                "timestamp" to sbn.postTime,
-            ),
-        )
+        IngestPlugin.processNotification(applicationContext, sbn)
     }
 }

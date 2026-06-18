@@ -12,14 +12,16 @@ class IngestEvent {
     required this.source,
     required this.timestamp,
     this.packageName,
-    this.sender,
+    this.notificationTitle,
   });
 
   final String text;
   final TransactionSource source;
   final DateTime timestamp;
   final String? packageName;
-  final String? sender;
+
+  /// [Notification.EXTRA_TITLE] — wallet apps often put the counterparty here.
+  final String? notificationTitle;
 }
 
 class IngestBridge {
@@ -57,7 +59,7 @@ class IngestBridge {
             source: source,
             timestamp: DateTime.fromMillisecondsSinceEpoch(timestampMs),
             packageName: map['package'] as String?,
-            sender: map['sender'] as String?,
+            notificationTitle: _readTitle(map),
           ),
         );
       },
@@ -83,19 +85,24 @@ class IngestBridge {
         final timestampMs = (map['timestamp'] as num?)?.toInt() ??
             DateTime.now().millisecondsSinceEpoch;
         final package = map['package'] as String?;
-        final sender = map['sender'] as String?;
         return IngestEvent(
           text: map['text'] as String? ?? '',
           source: TransactionSourceX.fromKey(sourceKey),
           timestamp: DateTime.fromMillisecondsSinceEpoch(timestampMs),
           packageName: (package != null && package.isEmpty) ? null : package,
-          sender: (sender != null && sender.isEmpty) ? null : sender,
+          notificationTitle: _readTitle(map),
         );
       }).toList();
     } catch (e) {
       debugPrint('IngestBridge drainPending error: $e');
       return const [];
     }
+  }
+
+  static String? _readTitle(Map<String, dynamic> map) {
+    final title = (map['sender'] as String?) ?? (map['title'] as String?);
+    if (title == null || title.trim().isEmpty) return null;
+    return title.trim();
   }
 
   Future<bool> isNotificationAccessEnabled() async {
@@ -113,6 +120,69 @@ class IngestBridge {
   Future<void> openNotificationAccessSettings() async {
     if (!Platform.isAndroid) return;
     await _methodChannel.invokeMethod<void>('openNotificationAccessSettings');
+  }
+
+  Future<void> startKeepAlive() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _methodChannel.invokeMethod<void>('startKeepAlive');
+    } catch (e) {
+      debugPrint('IngestBridge startKeepAlive error: $e');
+    }
+  }
+
+  Future<void> stopKeepAlive() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _methodChannel.invokeMethod<void>('stopKeepAlive');
+    } catch (e) {
+      debugPrint('IngestBridge stopKeepAlive error: $e');
+    }
+  }
+
+  Future<bool> isIgnoringBatteryOptimizations() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final result = await _methodChannel.invokeMethod<bool>(
+        'isIgnoringBatteryOptimizations',
+      );
+      return result ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> requestIgnoreBatteryOptimizations() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _methodChannel.invokeMethod<void>(
+        'requestIgnoreBatteryOptimizations',
+      );
+    } catch (e) {
+      debugPrint('IngestBridge battery opt error: $e');
+    }
+  }
+
+  Future<bool> hasPendingCaptures() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final result = await _methodChannel.invokeMethod<bool>(
+        'hasPendingCaptures',
+      );
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Samsung and some OEMs disconnect the listener silently — nudge a rebind.
+  Future<void> requestNotificationRebind() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _methodChannel.invokeMethod<void>('requestNotificationRebind');
+    } catch (e) {
+      debugPrint('IngestBridge rebind error: $e');
+    }
   }
 
   Future<void> dispose() async {

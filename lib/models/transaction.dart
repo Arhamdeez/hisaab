@@ -83,7 +83,7 @@ class Transaction {
     required this.amount,
     required this.type,
     required this.merchant,
-    required this.category,
+    required this.categoryId,
     required this.occurredAt,
     required this.source,
     required this.status,
@@ -99,7 +99,7 @@ class Transaction {
   final String currency;
   final TransactionType type;
   final String merchant;
-  final SpendingCategory category;
+  final String categoryId;
   final DateTime occurredAt;
   final TransactionSource source;
   final TransactionStatus status;
@@ -111,9 +111,20 @@ class Transaction {
   bool get isDebit => type == TransactionType.debit;
   bool get isPending => status == TransactionStatus.pendingReview;
 
+  /// When the payment alert was captured (from the id timestamp). Used for
+  /// back-to-back transfer detection; falls back to [occurredAt] for manual rows.
+  DateTime get capturedAt {
+    final head = id.split('_').first;
+    final ms = int.tryParse(head);
+    if (ms != null && ms > 946684800000) {
+      return DateTime.fromMillisecondsSinceEpoch(ms);
+    }
+    return occurredAt;
+  }
+
   Transaction copyWith({
     TransactionStatus? status,
-    SpendingCategory? category,
+    String? categoryId,
     List<TransactionSource>? linkedSources,
   }) {
     return Transaction(
@@ -122,7 +133,7 @@ class Transaction {
       currency: currency,
       type: type,
       merchant: merchant,
-      category: category ?? this.category,
+      categoryId: categoryId ?? this.categoryId,
       occurredAt: occurredAt,
       source: source,
       status: status ?? this.status,
@@ -136,12 +147,12 @@ class Transaction {
 
 class CategorySummary {
   const CategorySummary({
-    required this.category,
+    required this.categoryId,
     required this.total,
     required this.count,
   });
 
-  final SpendingCategory category;
+  final String categoryId;
   final double total;
   final int count;
 }

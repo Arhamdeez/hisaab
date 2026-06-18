@@ -1,4 +1,5 @@
 import '../../models/transaction.dart';
+import '../../providers/category_catalog.dart';
 
 enum CategorySuggestionSource {
   history,
@@ -9,26 +10,27 @@ enum CategorySuggestionSource {
 
 class CategorySuggestion {
   const CategorySuggestion({
-    required this.category,
+    required this.categoryId,
     required this.source,
   });
 
-  final SpendingCategory category;
+  final String categoryId;
   final CategorySuggestionSource source;
 
   bool get isConfident =>
-      category != SpendingCategory.other &&
+      categoryId != SpendingCategory.other.storageKey &&
       source != CategorySuggestionSource.defaultOther;
 
-  String get reasonLabel => switch (source) {
-        CategorySuggestionSource.history =>
-          'Same merchant before · ${category.label}',
-        CategorySuggestionSource.text =>
-          'Detected from details · ${category.label}',
-        CategorySuggestionSource.parsed =>
-          'Parser guess · ${category.label}',
-        CategorySuggestionSource.defaultOther => 'Choose a category',
-      };
+  String get reasonLabel {
+    final label = CategoryCatalog.instance.resolve(categoryId).label;
+    return switch (source) {
+      CategorySuggestionSource.history =>
+        'Same merchant before · $label',
+      CategorySuggestionSource.text => 'Detected from details · $label',
+      CategorySuggestionSource.parsed => 'Parser guess · $label',
+      CategorySuggestionSource.defaultOther => 'Choose a category',
+    };
+  }
 }
 
 class CategoryGuesser {
@@ -137,7 +139,7 @@ class CategoryGuesser {
     final history = _fromHistory(merchant, confirmedHistory);
     if (history != null) {
       return CategorySuggestion(
-        category: history,
+        categoryId: history,
         source: CategorySuggestionSource.history,
       );
     }
@@ -150,7 +152,7 @@ class CategoryGuesser {
     final fromText = guess(blob);
     if (fromText != SpendingCategory.other) {
       return CategorySuggestion(
-        category: fromText,
+        categoryId: fromText.storageKey,
         source: CategorySuggestionSource.text,
       );
     }
@@ -158,18 +160,18 @@ class CategoryGuesser {
     if (parsedCategory != null &&
         parsedCategory != SpendingCategory.other) {
       return CategorySuggestion(
-        category: parsedCategory,
+        categoryId: parsedCategory.storageKey,
         source: CategorySuggestionSource.parsed,
       );
     }
 
-    return const CategorySuggestion(
-      category: SpendingCategory.other,
+    return CategorySuggestion(
+      categoryId: SpendingCategory.other.storageKey,
       source: CategorySuggestionSource.defaultOther,
     );
   }
 
-  static SpendingCategory? _fromHistory(
+  static String? _fromHistory(
     String merchant,
     Iterable<Transaction>? history,
   ) {
@@ -178,11 +180,11 @@ class CategoryGuesser {
     final needle = _normalizeMerchant(merchant);
     if (needle.isEmpty) return null;
 
-    final counts = <SpendingCategory, int>{};
+    final counts = <String, int>{};
     for (final tx in history) {
       if (!tx.isDebit || tx.status != TransactionStatus.confirmed) continue;
       if (!_merchantsMatch(needle, _normalizeMerchant(tx.merchant))) continue;
-      counts[tx.category] = (counts[tx.category] ?? 0) + 1;
+      counts[tx.categoryId] = (counts[tx.categoryId] ?? 0) + 1;
     }
 
     if (counts.isEmpty) return null;

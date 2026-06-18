@@ -13,6 +13,7 @@ import 'features/dedup/deduplicator.dart';
 import 'features/ingest/gmail_service.dart';
 import 'features/ingest/ingest_service.dart';
 import 'providers/app_preferences.dart';
+import 'providers/category_catalog.dart';
 import 'providers/transaction_provider.dart';
 import 'screens/app_bootstrap.dart';
 import 'core/brand.dart';
@@ -67,6 +68,7 @@ Future<void> _warmFontsAndPrefs(TransactionRepository repository) async {
   await GoogleFonts.pendingFonts();
   await repository.deleteLegacySeedData();
   await AppPreferences.load();
+  await CategoryCatalog.load();
 }
 
 class SpendTrackerApp extends StatelessWidget {
@@ -96,6 +98,7 @@ class SpendTrackerApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: ingestService),
         Provider.value(value: backupService),
         ChangeNotifierProvider.value(value: AppPreferences.instance),
+        ChangeNotifierProvider.value(value: CategoryCatalog.instance),
       ],
       child: _IngestSync(
         child: MaterialApp(

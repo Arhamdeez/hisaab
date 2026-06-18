@@ -117,6 +117,31 @@ class AppDatabase extends _$AppDatabase {
         .get();
   }
 
+  Future<List<Transaction>> getLatestTransactions({int limit = 50}) {
+    return (select(transactions)
+          ..orderBy([(t) => OrderingTerm.desc(t.occurredAt)])
+          ..limit(limit))
+        .get();
+  }
+
+  Future<List<Transaction>> getTransactionsByAmountTypeOnDay({
+    required double amount,
+    required String type,
+    required DateTime day,
+  }) {
+    final start = DateTime(day.year, day.month, day.day);
+    final end = start.add(const Duration(days: 1));
+    return (select(transactions)
+          ..where(
+            (t) =>
+                t.amount.equals(amount) &
+                t.type.equals(type) &
+                t.occurredAt.isBetweenValues(start, end),
+          )
+          ..orderBy([(t) => OrderingTerm.desc(t.occurredAt)]))
+        .get();
+  }
+
   Future<void> upsertTransaction(TransactionsCompanion row) =>
       into(transactions).insertOnConflictUpdate(row);
 
@@ -153,6 +178,24 @@ class AppDatabase extends _$AppDatabase {
   Future<void> updateLinkedSources(String id, String linkedSources) async {
     await (update(transactions)..where((t) => t.id.equals(id))).write(
       TransactionsCompanion(linkedSources: Value(linkedSources)),
+    );
+  }
+
+  Future<void> updateTransactionMerchant(String id, String merchant) async {
+    await (update(transactions)..where((t) => t.id.equals(id))).write(
+      TransactionsCompanion(merchant: Value(merchant)),
+    );
+  }
+
+  Future<void> updateTransactionCategory(String id, String categoryId) async {
+    await (update(transactions)..where((t) => t.id.equals(id))).write(
+      TransactionsCompanion(category: Value(categoryId)),
+    );
+  }
+
+  Future<int> reassignTransactionCategory(String fromId, String toId) {
+    return (update(transactions)..where((t) => t.category.equals(fromId))).write(
+      TransactionsCompanion(category: Value(toId)),
     );
   }
 

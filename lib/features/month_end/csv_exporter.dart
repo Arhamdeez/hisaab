@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../models/transaction.dart';
+import '../../providers/category_catalog.dart';
 
 class CsvExporter {
   static Future<void> exportMonth({
@@ -21,7 +22,7 @@ class CsvExporter {
       buffer.writeln([
         dateFormat.format(t.occurredAt),
         _escape(t.merchant),
-        t.category.label,
+        _escape(CategoryCatalog.instance.resolve(t.categoryId).label),
         t.type.name,
         t.amount.toStringAsFixed(2),
         t.currency,
@@ -54,7 +55,7 @@ class CsvExporter {
         summaries
             .map(
               (s) => {
-                'category': s.category.storageKey,
+                'category': s.categoryId,
                 'total': s.total,
                 'count': s.count,
               },

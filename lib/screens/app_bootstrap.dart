@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../widgets/glass_container.dart';
+import '../core/app_launch_scope.dart';
 import '../providers/transaction_provider.dart';
 import 'main_shell.dart';
 import 'onboarding_screen.dart';
@@ -52,30 +53,38 @@ class _AppBootstrapState extends State<AppBootstrap> {
 
   @override
   Widget build(BuildContext context) {
+    final content = _onboardingComplete == null
+        ? const SizedBox.shrink()
+        : _appContent();
+
     if (!_splashDone) {
-      return SplashGate(
-        ready: _onboardingComplete != null,
-        onFinished: () {
-          if (mounted) setState(() => _splashDone = true);
-        },
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            const AppBackground(),
-            _onboardingComplete == null
-                ? const SizedBox.shrink()
-                : _appContent(),
-          ],
+      return AppLaunchScope(
+        splashComplete: false,
+        child: SplashGate(
+          ready: _onboardingComplete != null,
+          onFinished: () {
+            if (mounted) setState(() => _splashDone = true);
+          },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              const AppBackground(),
+              content,
+            ],
+          ),
         ),
       );
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        const AppBackground(),
-        _appContent(),
-      ],
+    return AppLaunchScope(
+      splashComplete: true,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppBackground(),
+          _appContent(),
+        ],
+      ),
     );
   }
 }

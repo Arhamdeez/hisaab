@@ -85,4 +85,191 @@ void main() {
     );
     expect(fp1, fp2);
   });
+
+  test('extracts from/to parties for self-transfer detection', () {
+    final result = parser.parse(
+      'PKR 5,000 transferred from Arham Babar to Arham Babar',
+      source: TransactionSource.notification,
+    );
+    expect(result, isNotNull);
+    expect(result!.senderName, 'Arham Babar');
+    expect(result.receiverName, 'Arham Babar');
+  });
+
+  test('extracts receiver on paid-to messages', () {
+    final result = parser.parse(
+      'You paid PKR 1,200 to Ali Khan via wallet',
+      source: TransactionSource.notification,
+    );
+    expect(result, isNotNull);
+    expect(result!.receiverName, 'Ali Khan');
+  });
+
+  test('merchant name stops at sentence dot in notification title', () {
+    final result = parser.parse(
+      'Muhammad Ali. — You sent PKR 500 to Muhammad Ali. Trx ID 12345',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.merchant, 'Muhammad Ali');
+    expect(result.receiverName, 'Muhammad Ali');
+  });
+
+  test('merchant name stops at dot after counterparty in body', () {
+    final result = parser.parse(
+      'You sent Rs. 1,500.00 to ABC Store. Trx ID 998877 via JazzCash',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.merchant, 'ABC Store');
+    expect(result.receiverName, 'ABC Store');
+  });
+
+  test('parses JazzCash sent notification', () {
+    final result = parser.parse(
+      'You sent Rs. 1,500.00 to ABC Store via JazzCash',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 1500);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses EasyPaisa transfer successful notification', () {
+    final result = parser.parse(
+      'PKR 1,000.00 has been successfully transferred to 03331234567',
+      source: TransactionSource.notification,
+      packageName: 'pk.com.telenor.phoenix',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 1000);
+  });
+
+  test('parses has been debited by PKR wording', () {
+    final result = parser.parse(
+      'Dear Customer, Your account has been debited by PKR 500.00 on 16-JUN-2026. Trx ID: 123456',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 500);
+    expect(result.occurredAt, DateTime(2026, 6, 16));
+  });
+
+  test('parses wallet capture with amount and trx id only', () {
+    final result = parser.parse(
+      'PKR 750.00 — Trx ID 998877 — A/C ***4521',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 750);
+  });
+
+  test('parses monitored wallet alert with amount only in body', () {
+    final result = parser.parse(
+      'Ahmed Khan — PKR 500.00',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+      notificationTitle: 'Ahmed Khan',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 500);
+    expect(result.merchant, 'Ahmed Khan');
+  });
+
+  test('credit merchant uses sender from received-from wording', () {
+    final result = parser.parse(
+      'You have received PKR 2,500.00 from Sara Ali via JazzCash',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.type, TransactionType.credit);
+    expect(result.merchant, 'Sara Ali');
+    expect(result.senderName, 'Sara Ali');
+  });
+
+  test('credit merchant uses title before sentence dot', () {
+    final result = parser.parse(
+      'Ahmed Khan. — PKR 1,000.00 has been credited to your account',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.merchant, 'Ahmed Khan');
+    expect(result.senderName, 'Ahmed Khan');
+  });
+
+  test('uses notification title when body only has amount', () {
+    final result = parser.parse(
+      'PKR 750.00 — Trx ID 998877 — A/C ***4521',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+      notificationTitle: 'Fatima Noor',
+    );
+    expect(result, isNotNull);
+    expect(result!.merchant, 'Fatima Noor');
+  });
+
+  test('prefers person name over phone in transferred-to body', () {
+    final result = parser.parse(
+      'PKR 1,000.00 has been successfully transferred to 03331234567',
+      source: TransactionSource.notification,
+      packageName: 'pk.com.telenor.phoenix',
+      notificationTitle: 'Ali Raza',
+    );
+    expect(result, isNotNull);
+    expect(result!.merchant, 'Ali Raza');
+  });
+
+  test('prefers name after from over generic amount title', () {
+    final result = parser.parse(
+      'Rs.500 received — You have received Rs.500 from Ahmed Khan via JazzCash',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+      notificationTitle: 'Rs.500 received',
+    );
+    expect(result, isNotNull);
+    expect(result!.type, TransactionType.credit);
+    expect(result.merchant, 'Ahmed Khan');
+    expect(result.senderName, 'Ahmed Khan');
+  });
+
+  test('prefers name after from over money received title', () {
+    final result = parser.parse(
+      'Money Received — You have received PKR 2,500.00 from Sara Ali on 16-JUN-2026',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+      notificationTitle: 'Money Received',
+    );
+    expect(result, isNotNull);
+    expect(result!.merchant, 'Sara Ali');
+    expect(result.senderName, 'Sara Ali');
+  });
+
+  test('parses pkr amount from name wording', () {
+    final result = parser.parse(
+      'PKR 750.00 from Hassan Shah has been credited to your JazzCash account',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.merchant, 'Hassan Shah');
+    expect(result.senderName, 'Hassan Shah');
+  });
+
+  test('parses you sent rs amount to merchant', () {
+    final result = parser.parse(
+      'You sent Rs. 2,500.00 to Hassan Shah via JazzCash',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.merchant, 'Hassan Shah');
+    expect(result.receiverName, 'Hassan Shah');
+  });
 }

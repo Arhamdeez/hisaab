@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../../models/transaction.dart';
+import '../ingest/monitored_packages.dart';
 import 'category_guesser.dart';
 
 class ParserRule {
@@ -30,6 +31,8 @@ class ParsedTransaction {
     required this.confidence,
     this.accountRef,
     this.occurredAt,
+    this.senderName,
+    this.receiverName,
   });
 
   final double amount;
@@ -39,6 +42,12 @@ class ParsedTransaction {
   final double confidence;
   final String? accountRef;
   final DateTime? occurredAt;
+
+  /// Counterparty sending money (credit alerts). May be null when unknown.
+  final String? senderName;
+
+  /// Counterparty receiving money (debit alerts). May be null when unknown.
+  final String? receiverName;
 }
 
 class TransactionParser {
@@ -151,6 +160,37 @@ class TransactionParser {
           r'(?:debited|deducted|withdrawn).*?(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?)',
       enabled: true,
     ),
+    ParserRule(
+      id: 14,
+      name: 'JazzCash Sent',
+      pattern:
+          r'(?:sent|you sent)\s+(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?).*?(?:to|via)',
+      sourceHint: 'notification',
+      enabled: true,
+    ),
+    ParserRule(
+      id: 15,
+      name: 'JazzCash / EasyPaisa Received',
+      pattern:
+          r'(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?).*?(?:received|credited|added)',
+      sourceHint: 'notification',
+      enabled: true,
+    ),
+    ParserRule(
+      id: 16,
+      name: 'Wallet Transfer Successful',
+      pattern:
+          r'(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?).*?(?:transfer\s*successful|successfully\s*transferred)',
+      sourceHint: 'notification',
+      enabled: true,
+    ),
+    ParserRule(
+      id: 17,
+      name: 'Has been debited/credited',
+      pattern:
+          r'has\s+been\s+(?:debited|credited|deducted).*?(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?)',
+      enabled: true,
+    ),
   ];
 
   void updateRules(List<ParserRule> rules) {
@@ -159,14 +199,16 @@ class TransactionParser {
       ..addAll(rules);
   }
 
-  // A word that signals real money movement. Required so that promotional or
-  // price-tag notifications (which contain an amount but no movement) are not
-  // recorded as transactions.
-  static final _movementKeywords = RegExp(
+  // Signals real money movement — aligned with Android IngestPlugin.walletTxnRegex.
+  static final _walletTxnSignals = RegExp(
     r'debited|credited|spent|withdrawn|deducted|transferred|received|'
     r'\bpaid\b|\bsent\b|purchase|\btxn\b|transaction|\bdebit\b|\bcredit\b|'
-    r'refund|cashback|deposited|salary|\bgot\b|transfer|withdrawal|'
-    r'payment|charged|\bbill\b',
+    r'refund|cashback|deposited|salary|transfer|withdrawal|'
+    r'payment|charged|\bbill\b|'
+    r'transfer\s*successful|successfully\s*transferred|'
+    r'sent\s*(?:rs|pkr)|received\s*(?:rs|pkr)|'
+    r'a/c\s*\*+|account\s*\*+|trx\s*id|trans(?:action)?\s*id|'
+    r'has\s*been\s*(?:debited|credited|deducted)',
     caseSensitive: false,
   );
 
@@ -174,18 +216,40 @@ class TransactionParser {
     String text, {
     required TransactionSource source,
     DateTime? fallbackTime,
+    String? packageName,
+    String? notificationTitle,
   }) {
     final normalized = text.replaceAll('\n', ' ').trim();
     if (normalized.isEmpty) return null;
 
-    // Must describe an actual transaction, not just mention a price.
-    if (!_movementKeywords.hasMatch(normalized)) return null;
+    if (!_looksLikeTransaction(normalized, packageName: packageName)) {
+      return null;
+    }
 
     final type = _detectType(normalized);
     final amount = _extractAmount(normalized);
     if (amount == null || amount <= 0) return null;
 
-    final merchant = _extractMerchant(normalized) ?? 'Unknown';
+    final parties = _extractTransferParties(normalized, type);
+    final merchant = _resolveMerchantName(
+          normalized,
+          type,
+          parties,
+          notificationTitle: notificationTitle,
+        ) ??
+        'Unknown';
+    var senderName = parties.$1;
+    var receiverName = parties.$2;
+    if (type == TransactionType.credit &&
+        senderName == null &&
+        merchant != 'Unknown') {
+      senderName = merchant;
+    } else if (type == TransactionType.debit &&
+        receiverName == null &&
+        merchant != 'Unknown') {
+      receiverName = merchant;
+    }
+
     final accountRef = _extractAccountRef(normalized);
     final occurredAt = _extractDate(normalized) ?? fallbackTime;
     final category = CategoryGuesser.guess('$merchant $normalized');
@@ -212,7 +276,187 @@ class TransactionParser {
       confidence: confidence,
       accountRef: accountRef,
       occurredAt: occurredAt,
+      senderName: senderName,
+      receiverName: receiverName,
     );
+  }
+
+  static const _partyCapture =
+      r"([A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF .'\-&]{0,48})";
+  static const _partyCaptureLazy =
+      r"([A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF .'\-&]{0,48}?)";
+
+  static final _genericMerchants = RegExp(
+    r'^(?:unknown|dear customer|customer|wallet|account|payment|money|'
+    r'jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|'
+    r'transaction alert|money received|money sent|payment received|'
+    r'transfer successful|successful transfer|transfer)$',
+    caseSensitive: false,
+  );
+
+  String? _resolveMerchantName(
+    String text,
+    TransactionType type,
+    (String?, String?) parties, {
+    String? notificationTitle,
+  }) {
+    // Body "from/to" patterns are more reliable than notification titles, which
+    // are often generic ("Money received") or amount-only ("Rs.500 received").
+    if (type == TransactionType.credit) {
+      final sender = parties.$1;
+      if (_isUsablePartyName(sender)) return sender;
+
+      for (final pattern in _creditSenderPatterns) {
+        final match = pattern.firstMatch(text);
+        if (match == null) continue;
+        final name = _trimMerchant(match.group(1)!.trim());
+        if (_isUsablePartyName(name)) return name;
+      }
+    } else {
+      final receiver = parties.$2;
+      if (_isUsablePartyName(receiver)) return receiver;
+    }
+
+    final fromTitle = _extractMerchantFromTitle(notificationTitle);
+    if (_isUsablePartyName(fromTitle)) return fromTitle;
+
+    final extracted = _extractMerchant(text, type: type);
+    if (_isUsablePartyName(extracted)) return extracted;
+
+    if (_isUsableMerchant(fromTitle) && !_isPhoneLike(fromTitle!)) {
+      return fromTitle;
+    }
+    return extracted;
+  }
+
+  String? _extractMerchantFromTitle(String? title) {
+    if (title == null) return null;
+    final trimmed = title.trim();
+    if (trimmed.isEmpty ||
+        _isGenericAlertTitle(trimmed) ||
+        _isAmountOrAlertTitle(trimmed)) {
+      return null;
+    }
+
+    final leading = _nameBeforeSentenceDot(trimmed);
+    if (leading != null) return leading;
+
+    if (_isUsableMerchant(trimmed) && !_isPhoneLike(trimmed)) {
+      return _trimMerchant(trimmed);
+    }
+    return null;
+  }
+
+  bool _isAmountOrAlertTitle(String value) {
+    final v = value.trim();
+    if (RegExp(
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]',
+      caseSensitive: false,
+    ).hasMatch(v)) {
+      return true;
+    }
+    if (RegExp(
+      r'[\d,]+(?:\.\d+)?\s*(?:rs\.?|pkr|inr|₹|₨)',
+      caseSensitive: false,
+    ).hasMatch(v)) {
+      return true;
+    }
+    return RegExp(
+      r'^(?:you\s+)?(?:have\s+)?(?:received|sent|paid|credited|debited|'
+      r'transferred|transfer)\b',
+      caseSensitive: false,
+    ).hasMatch(v);
+  }
+
+  bool _isUsablePartyName(String? value) {
+    if (!_isUsableMerchant(value)) return false;
+    if (_isPhoneLike(value!)) return false;
+    if (_isGenericFromTarget(value)) return false;
+    return true;
+  }
+
+  static final _genericFromTargets = RegExp(
+    r'^(?:your|my|the|a|an|wallet|account|customer|a/c|ac\b|bank)\b',
+    caseSensitive: false,
+  );
+
+  bool _isGenericFromTarget(String value) => _genericFromTargets.hasMatch(value);
+
+  bool _isGenericAlertTitle(String value) {
+    return _genericMerchants.hasMatch(value.trim());
+  }
+
+  bool _isPhoneLike(String value) {
+    final trimmed = value.trim();
+    final digits = trimmed.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 10 || digits.length > 13) return false;
+    return RegExp(r'^[\d+\s\-().]+$').hasMatch(trimmed);
+  }
+
+  bool _isUsableMerchant(String? value) {
+    if (value == null) return false;
+    final trimmed = value.trim();
+    if (trimmed.length < 2) return false;
+    return !_genericMerchants.hasMatch(trimmed);
+  }
+
+  static final _creditSenderPatterns = [
+    RegExp(
+      r'(?:have\s+)?(?:received|credited|credit(?:ed)?)\s+(?:'
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+)?'
+      r'from\s+' +
+          _partyCapture,
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+'
+      r'(?:has been\s+)?(?:received|credited)\s+from\s+' +
+          _partyCapture,
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+from\s+' + _partyCapture,
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'money\s+(?:has been\s+)?received\s+from\s+' + _partyCapture,
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'from\s+' +
+          _partyCapture +
+          r'(?:\s+(?:on|via|at|for|dated)\b|\s*[,.]|$)',
+      caseSensitive: false,
+    ),
+  ];
+
+  static bool _looksLikeTransaction(String text, {String? packageName}) {
+    final amount = _peekAmount(text);
+    if (amount == null || amount <= 0) return false;
+    if (_walletTxnSignals.hasMatch(text)) return true;
+    // Monitored wallet/bank apps often post amount (+ name in title) only.
+    if (MonitoredPackages.matches(packageName)) return true;
+    return false;
+  }
+
+  static double? _peekAmount(String text) {
+    final patterns = [
+      RegExp(
+        r'(?:Rs\.?|PKR|INR|₹|₨)\s*([\d,]+(?:\.\d+)?)',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'([\d,]+(?:\.\d+)?)\s*(?:Rs\.?|PKR|INR|₹|₨)',
+        caseSensitive: false,
+      ),
+    ];
+    for (final p in patterns) {
+      final match = p.firstMatch(text);
+      if (match != null) {
+        return double.tryParse(match.group(1)!.replaceAll(',', ''));
+      }
+    }
+    return null;
   }
 
   static String buildFingerprint({
@@ -283,10 +527,32 @@ class TransactionParser {
     return null;
   }
 
-  String? _extractMerchant(String text) {
+  String? _extractMerchant(String text, {TransactionType? type}) {
+    // Wallet/bank notifications often lead with "Counterparty Name. …" in the title.
+    for (final segment in text.split(RegExp(r'\s*[—\-|]\s*'))) {
+      final leading = _nameBeforeSentenceDot(segment.trim());
+      if (leading != null && leading.length >= 2) return leading;
+    }
+
+    final fromMatches = RegExp(
+      r'from\s+' + _partyCapture,
+      caseSensitive: false,
+    ).allMatches(text);
+    for (final match in fromMatches) {
+      final value = _trimMerchant(match.group(1)!.trim());
+      if (value.length >= 2 &&
+          _isUsableMerchant(value) &&
+          !_isGenericFromTarget(value) &&
+          !_isPhoneLike(value)) {
+        // For debits, "from your account" is common — prefer "to Name" instead.
+        if (type == TransactionType.debit) continue;
+        return value;
+      }
+    }
+
     final patterns = [
       RegExp(
-        r'(?:to|at|for|from)\s+([A-Za-z0-9][A-Za-z0-9 &.\-]{1,39})',
+        r'(?:to|at|for)\s+' + _partyCapture,
         caseSensitive: false,
       ),
       RegExp(r'Info:\s*([A-Za-z0-9/.\-]+)', caseSensitive: false),
@@ -295,22 +561,60 @@ class TransactionParser {
       final match = p.firstMatch(text);
       if (match != null) {
         final value = _trimMerchant(match.group(1)!.trim());
-        if (value.length >= 2) return value;
+        if (value.length >= 2 &&
+            _isUsableMerchant(value) &&
+            !_isGenericFromTarget(value)) {
+          return value;
+        }
       }
     }
     return null;
+  }
+
+  /// PK wallet titles and bodies often use "Name. rest of alert" — keep only
+  /// the part before the first sentence dot (not decimals like 500.00).
+  String? _nameBeforeSentenceDot(String segment) {
+    if (segment.isEmpty) return null;
+    if (RegExp(
+      r'^(?:you |pkr|rs\.?|inr|₹|dear |payment |money |jazzcash|easypaisa|'
+      r'transaction |transfer |sent |received )',
+      caseSensitive: false,
+    ).hasMatch(segment)) {
+      return null;
+    }
+
+    final truncated = _truncateAtSentenceDot(segment);
+    if (truncated.length >= 2 && truncated.length < segment.length) {
+      return truncated;
+    }
+
+    if (segment.endsWith('.') && !RegExp(r'\d\.$').hasMatch(segment)) {
+      final withoutDot = segment.substring(0, segment.length - 1).trim();
+      if (withoutDot.length >= 2) return withoutDot;
+    }
+    return null;
+  }
+
+  /// First period that is not part of a decimal amount.
+  static String _truncateAtSentenceDot(String value) {
+    final match = RegExp(r'(?<!\d)\.(?!\d)').firstMatch(value);
+    if (match != null && match.start > 0) {
+      return value.substring(0, match.start).trim();
+    }
+    return value.trim();
   }
 
   /// Cuts off trailing noise that often follows a merchant name in bank/UPI
   /// messages (e.g. "Starbucks on 12/06" -> "Starbucks", "Amazon Ref 123" ->
   /// "Amazon").
   String _trimMerchant(String value) {
+    var v = _truncateAtSentenceDot(value);
     final boundary = RegExp(
       r'\s+(?:on|via|ref|refno|a/c|ac|upi|info|bal|avl|available|dated|date|'
       r'txn|trxn|id|using|through|towards|not|will|has|is)\b.*$',
       caseSensitive: false,
     );
-    var v = value.replaceAll(boundary, '');
+    v = v.replaceAll(boundary, '');
     // Strip a trailing standalone number/date fragment and punctuation.
     v = v.replaceAll(RegExp(r'\s+\d[\d/.\-]*$'), '');
     v = v.replaceAll(RegExp(r'[\s.,;:\-]+$'), '').trim();
@@ -319,13 +623,124 @@ class TransactionParser {
 
   String? _extractAccountRef(String text) {
     final match = RegExp(
-      r'A/c\s*\*+\s*(\d{4})',
+      r'(?:A/c|A/C|Account)\s*\*+\s*(\d{4})',
       caseSensitive: false,
     ).firstMatch(text);
     return match?.group(1);
   }
 
+  /// Pulls sender/receiver names when a message mentions both sides of a
+  /// transfer, or a single counterparty for debit/credit alerts.
+  (String?, String?) _extractTransferParties(
+    String text,
+    TransactionType type,
+  ) {
+    final fromTo = RegExp(
+      r'from\s+' + _partyCaptureLazy + r'\s+to\s+' + _partyCapture,
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (fromTo != null) {
+      return (
+        _trimMerchant(fromTo.group(1)!.trim()),
+        _trimMerchant(fromTo.group(2)!.trim()),
+      );
+    }
+
+    final sentTo = RegExp(
+      r'(?:you\s+)?(?:sent|paid|transferred|transfer(?:red)?)\s+(?:'
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+)?'
+      r'(?:to|for)\s+' + _partyCapture,
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (sentTo != null) {
+      final name = _trimMerchant(sentTo.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (null, name);
+    }
+
+    final amountSentTo = RegExp(
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+'
+      r'(?:sent|paid|transferred)\s+(?:to|for)\s+' + _partyCapture,
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (amountSentTo != null) {
+      final name = _trimMerchant(amountSentTo.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (null, name);
+    }
+
+    final transferredTo = RegExp(
+      r'(?:successfully\s+)?transferred\s+to\s+' + _partyCapture,
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (transferredTo != null) {
+      final name = _trimMerchant(transferredTo.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (null, name);
+    }
+
+    final receivedFrom = RegExp(
+      r'(?:have\s+)?(?:received|credited|credit(?:ed)?)\s+(?:'
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+)?'
+      r'from\s+' + _partyCapture,
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (receivedFrom != null) {
+      final name = _trimMerchant(receivedFrom.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (name, null);
+    }
+
+    final amountFirstCredit = RegExp(
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+'
+      r'(?:has been\s+)?(?:received|credited)\s+from\s+' +
+          _partyCapture,
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (amountFirstCredit != null) {
+      final name = _trimMerchant(amountFirstCredit.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (name, null);
+    }
+
+    final amountFrom = RegExp(
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+from\s+' + _partyCapture,
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (amountFrom != null) {
+      final name = _trimMerchant(amountFrom.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (name, null);
+    }
+
+    return (null, null);
+  }
+
   DateTime? _extractDate(String text) {
+    final monthNames = {
+      'jan': 1,
+      'feb': 2,
+      'mar': 3,
+      'apr': 4,
+      'may': 5,
+      'jun': 6,
+      'jul': 7,
+      'aug': 8,
+      'sep': 9,
+      'oct': 10,
+      'nov': 11,
+      'dec': 12,
+    };
+
+    final named = RegExp(
+      r'(\d{1,2})[-/](\w{3})[-/](\d{2,4})',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (named != null) {
+      final d = int.tryParse(named.group(1)!);
+      final m = monthNames[named.group(2)!.toLowerCase()];
+      var y = int.tryParse(named.group(3)!);
+      if (d != null && m != null && y != null) {
+        if (y < 100) y += 2000;
+        final date = _validDate(y, m, d);
+        if (date != null) return date;
+      }
+    }
+
     final slash = RegExp(r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})').firstMatch(text);
     if (slash == null) return null;
 
@@ -335,18 +750,14 @@ class TransactionParser {
     if (d == null || m == null || y == null) return null;
     if (y < 100) y += 2000;
 
-    // Reject anything that isn't a real calendar date. We intentionally do not
-    // let DateTime silently normalise out-of-range values (e.g. month 56 or
-    // day 34), because reference/card numbers like "1234-56-78" would otherwise
-    // be misread as a date and file the transaction into a bogus month — making
-    // it vanish from the current month's totals even after the user confirms.
+    return _validDate(y, m, d);
+  }
+
+  DateTime? _validDate(int y, int m, int d) {
     if (m < 1 || m > 12 || d < 1 || d > 31) return null;
     final date = DateTime(y, m, d);
     if (date.year != y || date.month != m || date.day != d) return null;
 
-    // A captured transaction can't have happened in the future, and a date more
-    // than a few years old is almost certainly a misparse rather than a real
-    // back-dated entry. In either case, fall back to the message time.
     final now = DateTime.now();
     if (date.isAfter(now.add(const Duration(days: 1)))) return null;
     if (date.isBefore(DateTime(now.year - 3))) return null;

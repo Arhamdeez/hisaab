@@ -3,6 +3,8 @@ import 'package:drift/drift.dart';
 import '../database/app_database.dart' as db;
 import '../../features/parser/transaction_parser.dart';
 import '../../models/transaction.dart' as domain;
+import '../../features/dedup/cross_source_dedup.dart';
+import '../../features/dedup/burst_dedup.dart';
 
 class TransactionRepository {
   TransactionRepository(this._db);
@@ -38,6 +40,64 @@ class TransactionRepository {
     return rows.map(_mapRow).toList();
   }
 
+  Future<List<domain.Transaction>> getLatestTransactions({int limit = 50}) async {
+    final rows = await _db.getLatestTransactions(limit: limit);
+    return rows.map(_mapRow).toList();
+  }
+
+  Future<domain.Transaction?> findCrossSourceDuplicate({
+    required double amount,
+    required domain.TransactionType type,
+    required DateTime occurredAt,
+    required DateTime messageTime,
+    required domain.TransactionSource incomingSource,
+    required String merchant,
+  }) async {
+    final rows = await _db.getTransactionsByAmountTypeOnDay(
+      amount: amount,
+      type: type.storageKey,
+      day: occurredAt,
+    );
+    final candidates = rows.map(_mapRow).toList();
+    return CrossSourceDedup.findMatch(
+      candidates: candidates,
+      incomingSource: incomingSource,
+      amount: amount,
+      type: type,
+      messageTime: messageTime,
+      merchant: merchant,
+    );
+  }
+
+  Future<domain.Transaction?> findBurstDuplicate({
+    required double amount,
+    required domain.TransactionType type,
+    required domain.TransactionSource source,
+    required DateTime messageTime,
+    required String merchant,
+  }) async {
+    final recent = await getLatestTransactions(limit: 30);
+    for (final existing in recent) {
+      if (BurstDedup.matches(
+        existing: existing,
+        amount: amount,
+        type: type,
+        source: source,
+        messageTime: messageTime,
+        merchant: merchant,
+      )) {
+        return existing;
+      }
+    }
+    return null;
+  }
+
+  Future<void> updateMerchant(String id, String merchant) =>
+      _db.updateTransactionMerchant(id, merchant);
+
+  Future<void> updateCategory(String id, String categoryId) =>
+      _db.updateTransactionCategory(id, categoryId);
+
   Future<void> save(domain.Transaction transaction) async {
     await _db.upsertTransaction(_toCompanion(transaction));
   }
@@ -56,17 +116,20 @@ class TransactionRepository {
     String id, {
     required domain.TransactionStatus status,
     String? merchant,
-    domain.SpendingCategory? category,
+    String? categoryId,
   }) async {
     final trimmed = merchant?.trim();
     final rows = await _db.updateTransactionReviewIfPending(
       id,
       status: status.storageKey,
       merchant: (trimmed != null && trimmed.isNotEmpty) ? trimmed : null,
-      category: category?.storageKey,
+      category: categoryId,
     );
     return rows > 0;
   }
+
+  Future<int> reassignCategory(String fromId, String toId) =>
+      _db.reassignTransactionCategory(fromId, toId);
 
   Future<void> updateLinkedSources(
     String id,
@@ -119,7 +182,7 @@ class TransactionRepository {
       currency: row.currency,
       type: domain.TransactionTypeX.fromKey(row.type),
       merchant: row.merchant,
-      category: domain.SpendingCategoryX.fromKey(row.category),
+      categoryId: row.category,
       occurredAt: row.occurredAt,
       source: domain.TransactionSourceX.fromKey(row.source),
       status: domain.TransactionStatusX.fromKey(row.status),
@@ -137,7 +200,7 @@ class TransactionRepository {
       currency: Value(t.currency),
       type: Value(t.type.storageKey),
       merchant: Value(t.merchant),
-      category: Value(t.category.storageKey),
+      category: Value(t.categoryId),
       occurredAt: Value(t.occurredAt),
       source: Value(t.source.storageKey),
       rawText: Value(t.rawText),

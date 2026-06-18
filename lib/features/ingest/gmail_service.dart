@@ -10,8 +10,13 @@ import '../../core/database/app_database.dart';
 import '../../core/config/gmail_config.dart';
 
 class GmailMessage {
-  const GmailMessage({required this.body, required this.receivedAt});
+  const GmailMessage({
+    required this.id,
+    required this.body,
+    required this.receivedAt,
+  });
 
+  final String id;
   final String body;
   final DateTime receivedAt;
 }
@@ -20,6 +25,8 @@ class GmailService {
   GmailService();
 
   static const _historyKey = 'gmail_history_id';
+  static const _processedIdsKey = 'gmail_processed_message_ids';
+  static const _maxProcessedIds = 1000;
   static const _scope = gmail.GmailApi.gmailReadonlyScope;
 
   final _storage = const FlutterSecureStorage();
@@ -55,7 +62,30 @@ class GmailService {
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     _account = null;
-    if (_db != null) await _db!.setSyncValue(_historyKey, '');
+    if (_db != null) {
+      await _db!.setSyncValue(_historyKey, '');
+      await _db!.setSyncValue(_processedIdsKey, '[]');
+    }
+  }
+
+  Future<Set<String>> _loadProcessedIds() async {
+    if (_db == null) return {};
+    final raw = await _db!.getSyncValue(_processedIdsKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      return (jsonDecode(raw) as List<dynamic>).map((e) => e.toString()).toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> markProcessed(Iterable<String> ids) async {
+    if (_db == null || ids.isEmpty) return;
+    final merged = {...await _loadProcessedIds(), ...ids};
+    final trimmed = merged.length <= _maxProcessedIds
+        ? merged.toList()
+        : merged.toList().sublist(merged.length - _maxProcessedIds);
+    await _db!.setSyncValue(_processedIdsKey, jsonEncode(trimmed));
   }
 
   Future<List<GmailMessage>> fetchTransactionEmails() async {
@@ -66,7 +96,8 @@ class GmailService {
       if (client == null) return [];
 
       final api = gmail.GmailApi(client);
-      final query = GmailConfig.searchQuery;
+      const query = GmailConfig.searchQuery;
+      final processed = await _loadProcessedIds();
 
       final list = await api.users.messages.list(
         'me',
@@ -79,6 +110,8 @@ class GmailService {
 
       for (final ref in ids) {
         if (ref.id == null) continue;
+        if (processed.contains(ref.id)) continue;
+
         final full = await api.users.messages.get('me', ref.id!);
         final body = _extractBody(full);
         if (body.isEmpty) continue;
@@ -89,7 +122,13 @@ class GmailService {
               )
             : DateTime.now();
 
-        messages.add(GmailMessage(body: body, receivedAt: receivedAt));
+        messages.add(
+          GmailMessage(
+            id: ref.id!,
+            body: body,
+            receivedAt: receivedAt,
+          ),
+        );
       }
 
       if (messages.isNotEmpty) {

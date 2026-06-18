@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
 import '../models/transaction.dart';
+import '../providers/category_catalog.dart';
 import 'cash_flow_chart.dart';
 import 'empty_state_view.dart';
 import 'glass_container.dart';
@@ -23,12 +25,13 @@ class CategoryReportSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final catalog = context.watch<CategoryCatalog>();
     final donutData = summaries
         .map(
           (s) => (
-            label: s.category.label,
+            label: catalog.resolve(s.categoryId).label,
             value: s.total,
-            color: s.category.color,
+            color: catalog.resolve(s.categoryId).color,
           ),
         )
         .toList();
@@ -83,7 +86,11 @@ class CategoryReportSection extends StatelessWidget {
               total: totalExpense,
             ),
             const SizedBox(height: 8),
-            _CategoryLegendStrip(summaries: summaries, total: totalExpense),
+            _CategoryLegendStrip(
+              summaries: summaries,
+              total: totalExpense,
+              catalog: catalog,
+            ),
             const SizedBox(height: 20),
             GlassContainer(
               radius: AppRadius.lg,
@@ -98,6 +105,7 @@ class CategoryReportSection extends StatelessWidget {
                       total: totalExpense,
                       rank: i + 1,
                       isLeader: i == 0,
+                      catalog: catalog,
                     ),
                     if (i < summaries.length - 1)
                       const Divider(
@@ -121,10 +129,12 @@ class _CategoryLegendStrip extends StatelessWidget {
   const _CategoryLegendStrip({
     required this.summaries,
     required this.total,
+    required this.catalog,
   });
 
   final List<CategorySummary> summaries;
   final double total;
+  final CategoryCatalog catalog;
 
   @override
   Widget build(BuildContext context) {
@@ -134,14 +144,15 @@ class _CategoryLegendStrip extends StatelessWidget {
       runSpacing: 8,
       alignment: WrapAlignment.center,
       children: top.map((s) {
+        final info = catalog.resolve(s.categoryId);
         final pct = total > 0 ? s.total / total : 0.0;
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: s.category.color.withValues(alpha: 0.12),
+            color: info.color.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(AppRadius.pill),
             border: Border.all(
-              color: s.category.color.withValues(alpha: 0.28),
+              color: info.color.withValues(alpha: 0.28),
             ),
           ),
           child: Row(
@@ -151,13 +162,13 @@ class _CategoryLegendStrip extends StatelessWidget {
                 width: 8,
                 height: 8,
                 decoration: BoxDecoration(
-                  color: s.category.color,
+                  color: info.color,
                   shape: BoxShape.circle,
                 ),
               ),
               const SizedBox(width: 6),
               Text(
-                s.category.label,
+                info.label,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: AppColors.textSecondary,
                       fontWeight: FontWeight.w700,
@@ -167,7 +178,7 @@ class _CategoryLegendStrip extends StatelessWidget {
               Text(
                 formatPercent(pct * 100),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: s.category.color,
+                      color: info.color,
                       fontWeight: FontWeight.w800,
                     ),
               ),
@@ -185,18 +196,21 @@ class _CategoryReportRow extends StatelessWidget {
     required this.total,
     required this.rank,
     required this.isLeader,
+    required this.catalog,
   });
 
   final CategorySummary summary;
   final double total;
   final int rank;
   final bool isLeader;
+  final CategoryCatalog catalog;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final info = catalog.resolve(summary.categoryId);
     final pct = total > 0 ? summary.total / total : 0.0;
-    final color = summary.category.color;
+    final color = info.color;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -212,7 +226,7 @@ class _CategoryReportRow extends StatelessWidget {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    Icon(summary.category.icon, color: color, size: 20),
+                    Icon(info.icon, color: color, size: 20),
                     if (isLeader)
                       Positioned(
                         top: 2,
@@ -242,7 +256,7 @@ class _CategoryReportRow extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            summary.category.label,
+                            info.label,
                             style: theme.textTheme.titleMedium,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

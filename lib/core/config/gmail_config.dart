@@ -4,8 +4,13 @@ abstract final class GmailConfig {
   static const String serverClientId =
       'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com';
 
+  /// Transaction alert senders — India banks + PK wallets/banks.
   static const searchQuery =
       'from:(alerts@hdfcbank.com OR noreply@paytm.com OR '
       'no-reply@phonepe.com OR alerts@icicibank.com OR '
-      'alerts@sbi.co.in OR statement@axisbank.com) newer_than:30d';
+      'alerts@sbi.co.in OR statement@axisbank.com OR '
+      'alerts@ubl.com OR noreply@hbl.com OR alerts@mcb.com.pk OR '
+      'noreply@bankalfalah.com OR no-reply@jazzcash.com OR '
+      'noreply@easypaisa.com.pk OR alerts@sadapay.com OR '
+      'noreply@nayapay.com) newer_than:30d';
 }

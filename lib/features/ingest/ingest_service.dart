@@ -30,10 +30,12 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _listening = false;
   bool _notificationAccess = false;
-  Timer? _notificationDrainTimer;
+  bool _batteryUnrestricted = true;
+  Timer? _foregroundSafetyTimer;
 
   bool get isListening => _listening;
   bool get isGmailConnected => _gmail.isConnected;
+  bool get isBatteryUnrestricted => _batteryUnrestricted;
 
   /// Whether the OS has actually granted notification-listener access. This is
   /// the real capture state (the bridge being initialized is not enough).
@@ -52,29 +54,48 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     _listening = true;
 
     WidgetsBinding.instance.addObserver(this);
-    _startNotificationActionDrain();
+    _startForegroundSafetyTimer();
 
     // Pull in anything captured while the app was closed, then verify access.
-    await _drainPending();
-    await _drainNotificationActions();
+    await _drainPendingIfNeeded();
+    await _drainNotificationActionsIfQueued();
     await refreshNotificationAccess();
+    await refreshBatteryOptimization();
+    await _syncCapturePipeline();
     notifyListeners();
   }
 
+  /// Drains the native capture queue and parses any pending alerts.
+  Future<void> syncCaptures() => _drainPendingIfNeeded();
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _onResumed();
+    switch (state) {
+      case AppLifecycleState.resumed:
+        unawaited(_onResumed());
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        unawaited(_onBackground());
+      case AppLifecycleState.detached:
+        _foregroundSafetyTimer?.cancel();
+      case AppLifecycleState.inactive:
+        break;
     }
   }
 
   Future<void> _onResumed() async {
     await refreshNotificationAccess();
-    await _drainPending();
-    await _drainNotificationActions();
-    // Background quick-replies write straight to SQLite; reload so Home/Inbox
-    // reflect confirmed/ignored items when returning from the shade.
+    await refreshBatteryOptimization();
+    await IngestBridge.instance.requestNotificationRebind();
+    await _drainPendingIfNeeded();
+    await _drainNotificationActionsIfQueued();
     notifyListeners();
+  }
+
+  Future<void> _onBackground() async {
+    if (_notificationAccess) {
+      await IngestBridge.instance.startKeepAlive();
+    }
   }
 
   /// Applies a single quick-reply decision on the main isolate (fast path).
@@ -87,13 +108,45 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     if (changed) notifyListeners();
   }
 
-  void _startNotificationActionDrain() {
-    _notificationDrainTimer?.cancel();
-    _notificationDrainTimer = Timer.periodic(
-      const Duration(milliseconds: 800),
-      (_) => unawaited(_drainNotificationActionsIfQueued()),
-    );
+  /// Rare safety net while the app is open — skips work when the queue is empty.
+  void _startForegroundSafetyTimer() {
+    _foregroundSafetyTimer?.cancel();
+    _foregroundSafetyTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+        return;
+      }
+      unawaited(_drainPendingIfNeeded());
+    });
   }
+
+  Future<void> _syncCapturePipeline() async {
+    if (!await IngestBridge.instance.isNotificationAccessEnabled()) {
+      await IngestBridge.instance.stopKeepAlive();
+      return;
+    }
+    await IngestBridge.instance.requestNotificationRebind();
+
+    // Samsung/OEM builds drop the listener without a foreground service — keep it
+    // running whenever notification access is granted.
+    if (_notificationAccess) {
+      await IngestBridge.instance.startKeepAlive();
+    } else {
+      await IngestBridge.instance.stopKeepAlive();
+    }
+  }
+
+  Future<bool> refreshBatteryOptimization() async {
+    final unrestricted =
+        await IngestBridge.instance.isIgnoringBatteryOptimizations();
+    if (unrestricted != _batteryUnrestricted) {
+      _batteryUnrestricted = unrestricted;
+      notifyListeners();
+    }
+    return unrestricted;
+  }
+
+  Future<void> requestBatteryOptimizationExemption() =>
+      IngestBridge.instance.requestIgnoreBatteryOptimizations();
 
   Future<void> _drainNotificationActionsIfQueued() async {
     if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
@@ -108,6 +161,10 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     final changed =
         await NotificationService.instance.drainPendingActions(_repository);
     if (changed) notifyListeners();
+  }
+
+  Future<void> _drainPendingIfNeeded() async {
+    await _drainPending();
   }
 
   Future<void> _drainPending() async {
@@ -129,6 +186,11 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       _notificationAccess = enabled;
       notifyListeners();
     }
+    if (enabled) {
+      await _syncCapturePipeline();
+    } else {
+      await IngestBridge.instance.stopKeepAlive();
+    }
     return enabled;
   }
 
@@ -139,8 +201,16 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       event.text,
       source: event.source,
       fallbackTime: event.timestamp,
+      packageName: event.packageName,
+      notificationTitle: event.notificationTitle,
     );
-    if (parsed == null) return;
+    if (parsed == null) {
+      debugPrint(
+        'IngestService: could not parse capture from ${event.packageName ?? event.source.storageKey}: '
+        '"${event.text.replaceAll('\n', ' ').trim()}"',
+      );
+      return;
+    }
 
     final outcome = await _deduplicator.processIncoming(
       parsed: parsed,
@@ -149,9 +219,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       messageTime: event.timestamp,
     );
 
-    // A brand-new capture: ping the user with a system notification so
-    // they know something landed in their review inbox even if the app is in
-    // the background. Skip stale backlog items when draining after a long gap.
+    // Short confirmation whenever a new payment is tracked.
     final captured = outcome.transaction;
     if (outcome.result == DedupResult.created && captured != null) {
       final alertAge = DateTime.now().difference(event.timestamp);
@@ -166,12 +234,14 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   Future<int> syncGmail() async {
     final messages = await _gmail.fetchTransactionEmails();
     var count = 0;
+    final processedIds = <String>[];
     for (final msg in messages) {
       final parsed = _parser.parse(
         msg.body,
         source: TransactionSource.gmail,
         fallbackTime: msg.receivedAt,
       );
+      processedIds.add(msg.id);
       if (parsed == null) continue;
 
       final outcome = await _deduplicator.processIncoming(
@@ -180,14 +250,16 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
         rawText: msg.body,
         messageTime: msg.receivedAt,
       );
-      if (outcome.result == DedupResult.created ||
-          outcome.result == DedupResult.merged) {
+      if (outcome.result == DedupResult.created) {
         count++;
+        final captured = outcome.transaction;
+        if (captured != null) {
+          await NotificationService.instance.showTransactionCaptured(captured);
+        }
       }
-      final captured = outcome.transaction;
-      if (outcome.result == DedupResult.created && captured != null) {
-        await NotificationService.instance.showTransactionCaptured(captured);
-      }
+    }
+    if (processedIds.isNotEmpty) {
+      await _gmail.markProcessed(processedIds);
     }
     notifyListeners();
     return count;
@@ -212,7 +284,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    _notificationDrainTimer?.cancel();
+    _foregroundSafetyTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

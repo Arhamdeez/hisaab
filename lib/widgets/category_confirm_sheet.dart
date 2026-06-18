@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
 import '../features/parser/category_guesser.dart';
 import '../models/transaction.dart';
+import '../providers/category_catalog.dart';
 import 'category_selector.dart';
 
 /// Bottom sheet to pick a spending category when confirming a review item.
-Future<SpendingCategory?> showCategoryConfirmSheet(
+Future<String?> showCategoryConfirmSheet(
   BuildContext context, {
   required Transaction transaction,
   required CategorySuggestion suggestion,
 }) {
-  return showModalBottomSheet<SpendingCategory>(
+  return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
@@ -39,18 +41,19 @@ class _CategoryConfirmSheet extends StatefulWidget {
 }
 
 class _CategoryConfirmSheetState extends State<_CategoryConfirmSheet> {
-  late SpendingCategory _selected;
+  late String _selectedId;
 
   @override
   void initState() {
     super.initState();
-    _selected = widget.suggestion.category;
+    _selectedId = widget.suggestion.categoryId;
   }
 
   @override
   Widget build(BuildContext context) {
     final tx = widget.transaction;
     final theme = Theme.of(context);
+    final catalog = context.watch<CategoryCatalog>();
 
     return Container(
       decoration: sheetDecoration(),
@@ -109,13 +112,14 @@ class _CategoryConfirmSheetState extends State<_CategoryConfirmSheet> {
           ),
           const SizedBox(height: 18),
           CategorySelector(
-            selected: _selected,
-            onSelected: (c) => setState(() => _selected = c),
+            categories: catalog.all,
+            selectedId: _selectedId,
+            onSelected: (id) => setState(() => _selectedId = id),
             label: null,
           ),
           const SizedBox(height: 24),
           FilledButton(
-            onPressed: () => Navigator.pop(context, _selected),
+            onPressed: () => Navigator.pop(context, _selectedId),
             style: FilledButton.styleFrom(
               minimumSize: const Size(double.infinity, 54),
               backgroundColor: AppColors.ui,

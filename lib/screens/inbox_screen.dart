@@ -9,6 +9,7 @@ import '../core/utils/app_refresh.dart';
 import '../core/utils/formatters.dart';
 import '../features/parser/category_guesser.dart';
 import '../models/transaction.dart';
+import '../providers/category_catalog.dart';
 import '../providers/transaction_provider.dart';
 import '../widgets/category_breakdown.dart';
 import '../widgets/category_confirm_sheet.dart';
@@ -78,7 +79,7 @@ class InboxScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${pending.length} items from SMS, email & notifications',
+                          'Only self-transfers and between-account moves',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: AppColors.textMuted,
                               ),
@@ -123,7 +124,7 @@ class InboxScreen extends StatelessWidget {
       suggestion: suggestion,
     );
     if (category == null || !context.mounted) return;
-    await provider.confirmTransaction(tx.id, category: category);
+    await provider.confirmTransaction(tx.id, categoryId: category);
   }
 }
 
@@ -188,9 +189,10 @@ class _ReviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final confidence = transaction.confidence * 100;
+    final catalog = context.watch<CategoryCatalog>();
     final displayCategory = suggestion.isConfident
-        ? suggestion.category
-        : transaction.category;
+        ? catalog.resolve(suggestion.categoryId)
+        : catalog.resolve(transaction.categoryId);
 
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 12),

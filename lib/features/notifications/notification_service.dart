@@ -59,9 +59,9 @@ class NotificationService {
   static final NotificationService instance = NotificationService._();
 
   static const _channelId = 'captured_transactions';
-  static const _channelName = 'Captured transactions';
+  static const _channelName = 'Payment tracking';
   static const _channelDescription =
-      'Alerts when a new payment is detected and added to your review inbox.';
+      'Quick confirmation when Spend Tracker logs a payment.';
   static const _iosCategoryDebit = 'txn_review_out';
   static const _iosCategoryCredit = 'txn_review_in';
 
@@ -173,8 +173,7 @@ class NotificationService {
     return false;
   }
 
-  /// Shows a system notification for a newly captured transaction. The reply
-  /// prompt and copy adapt to whether money went out or came in.
+  /// Shows a short "Got it" confirmation when a payment is tracked.
   Future<void> showTransactionCaptured(Transaction transaction) async {
     if (!_initialized) await initialize();
     if (!_initialized) return;
@@ -182,33 +181,22 @@ class NotificationService {
     final isDebit = transaction.isDebit;
     final amount = formatCurrency(transaction.amount);
     final sign = isDebit ? '−' : '+';
-    final title = isDebit ? 'Payment detected' : 'Money received';
-    final body = '$sign$amount · ${transaction.merchant}';
-    final prompt = isDebit ? _outPrompt : _inPrompt;
+    final title = 'Got it';
+    final inboxHint = transaction.isPending ? ' · check inbox' : '';
+    final body = '$sign$amount · ${transaction.merchant}$inboxHint';
 
-    final androidDetails = AndroidNotificationDetails(
+    const androidDetails = AndroidNotificationDetails(
       _channelId,
       _channelName,
       channelDescription: _channelDescription,
-      importance: Importance.high,
-      priority: Priority.high,
-      category: AndroidNotificationCategory.recommendation,
-      actions: <AndroidNotificationAction>[
-        AndroidNotificationAction(
-          _acceptActionId,
-          'Accept',
-          inputs: [AndroidNotificationActionInput(label: prompt)],
-          cancelNotification: true,
-        ),
-        const AndroidNotificationAction(
-          _rejectActionId,
-          'Reject',
-          cancelNotification: true,
-        ),
-      ],
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      category: AndroidNotificationCategory.status,
     );
-    final darwinDetails = DarwinNotificationDetails(
-      categoryIdentifier: isDebit ? _iosCategoryDebit : _iosCategoryCredit,
+    const darwinDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: false,
+      presentSound: true,
     );
 
     try {
@@ -216,12 +204,11 @@ class NotificationService {
         id: _notificationIdFor(transaction.id),
         title: title,
         body: body,
-        notificationDetails: NotificationDetails(
+        notificationDetails: const NotificationDetails(
           android: androidDetails,
           iOS: darwinDetails,
           macOS: darwinDetails,
         ),
-        payload: _payloadFor(transaction),
       );
     } catch (e) {
       debugPrint('NotificationService show error: $e');
@@ -282,7 +269,7 @@ class NotificationService {
           decision.id,
           status: TransactionStatus.confirmed,
           merchant: merchant,
-          category: suggestion.category,
+          categoryId: suggestion.categoryId,
         );
       }
 
@@ -297,7 +284,9 @@ class NotificationService {
         merchant: hasNote ? note : (existing?.merchant ?? ''),
         rawText: existing?.rawText,
         userNote: hasNote ? note : null,
-        parsedCategory: existing?.category,
+        parsedCategory: existing == null
+            ? null
+            : SpendingCategoryX.fromKey(existing.categoryId),
         confirmedHistory: history,
       );
 
@@ -311,7 +300,7 @@ class NotificationService {
         decision.id,
         status: TransactionStatus.confirmed,
         merchant: merchant,
-        category: suggestion.category,
+        categoryId: suggestion.categoryId,
       );
     } catch (e) {
       debugPrint('NotificationService apply error: $e');
@@ -341,11 +330,6 @@ class NotificationService {
       note: response.input,
       isDebit: isDebit,
     );
-  }
-
-  static String _payloadFor(Transaction transaction) {
-    final kind = transaction.isDebit ? 'd' : 'c';
-    return '${transaction.id}|$kind';
   }
 
   /// Background-isolate entry: persist to SQLite immediately so Android clears

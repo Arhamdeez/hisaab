@@ -17,78 +17,87 @@ import '../widgets/spend_focus_hero.dart';
 import '../widgets/home_sections.dart' show HomeRecentActivity;
 import '../widgets/glass_bottom_nav_bar.dart';
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({
+    super.key,
+    required this.netBalanceToggleKey,
+    required this.scrollController,
+    this.onHeroIntroComplete,
+  });
 
+  final GlobalKey netBalanceToggleKey;
+  final ScrollController scrollController;
+  final VoidCallback? onHeroIntroComplete;
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Consumer2<TransactionProvider, AppPreferences>(
       builder: (context, provider, prefs, _) {
         final month = provider.selectedMonth;
         final summary = provider.summaryForMonth(month);
-        // Pending items are reviewed globally (the Inbox shows every month), so
-        // the bell badge and banner track the total, not just this month's.
         final pendingTotal = provider.pendingCount;
-        // Income budget uses [showIncome] only — independent of cash-in tracking.
         final income = prefs.resolveIncome(summary);
-
-        // Show the most recently-dated activity first.
         final recent = provider.recentForMonth(month);
 
         return SafeArea(
           child: AppRefreshScroll(
             child: CustomScrollView(
+              controller: widget.scrollController,
               physics: refreshScrollPhysics,
               slivers: [
-                SliverToBoxAdapter(
-                  child: CenteredContent(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _BrandHeader(pendingCount: pendingTotal),
-                        const SizedBox(height: 20),
-                        _MonthSelector(month: month),
-                        const SizedBox(height: 20),
-                        SpendFocusHero(
-                          totalSpent: summary.totalDebit,
-                          income: income,
-                          showIncome: prefs.showIncome,
-                          trackInwardFlow: prefs.trackInwardFlow,
-                          totalReceived: summary.totalCredit,
-                          monthLabel: formatMonthYear(month),
-                          transactionCount: summary.transactionCount,
+                    SliverToBoxAdapter(
+                      child: CenteredContent(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _BrandHeader(pendingCount: pendingTotal),
+                            const SizedBox(height: 20),
+                            _MonthSelector(month: month),
+                            const SizedBox(height: 20),
+                            SpendFocusHero(
+                              totalSpent: summary.totalDebit,
+                              income: income,
+                              showIncome: prefs.showIncome,
+                              trackInwardFlow: prefs.trackInwardFlow,
+                              totalReceived: summary.totalCredit,
+                              netBalanceToggleKey: widget.netBalanceToggleKey,
+                              onHeroIntroComplete: widget.onHeroIntroComplete,
+                            ),
+                            if (pendingTotal > 0) ...[
+                              const SizedBox(height: 16),
+                              _PendingBanner(count: pendingTotal),
+                            ],
+                          ],
                         ),
-                        if (pendingTotal > 0) ...[
-                          const SizedBox(height: 16),
-                          _PendingBanner(count: pendingTotal),
-                        ],
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: CenteredContent(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-                    child: HomeRecentActivity(
-                      transactions: recent,
-                      onViewAll: () => ShellScope.goToTransactions(context),
+                    SliverToBoxAdapter(
+                      child: CenteredContent(
+                        padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+                        child: HomeRecentActivity(
+                          transactions: recent,
+                          onViewAll: () => ShellScope.goToTransactions(context),
+                        ),
+                      ),
                     ),
-                  ),
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: GlassBottomNavBar.reservedHeight(context),
+                      ),
+                    ),
+                  ],
                 ),
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: GlassBottomNavBar.reservedHeight(context),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
+              ),
+            );
       },
     );
   }
-
 }
 
 class _BrandHeader extends StatelessWidget {
@@ -230,33 +239,33 @@ class _MonthSelector extends StatelessWidget {
             blur: 12,
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
             child: Row(
-            children: [
-              _NavCircle(
-                icon: Icons.chevron_left_rounded,
-                onTap: () => _shiftMonth(provider, -1),
-              ),
-              Expanded(
-                child: Text(
-                  formatMonthYear(month),
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
-                    shadows: [
-                      Shadow(
-                        color: AppColors.ui.withValues(alpha: 0.15),
-                        blurRadius: 12,
-                      ),
-                    ],
+              children: [
+                _NavCircle(
+                  icon: Icons.chevron_left_rounded,
+                  onTap: () => _shiftMonth(provider, -1),
+                ),
+                Expanded(
+                  child: Text(
+                    formatMonthYear(month),
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2,
+                      shadows: [
+                        Shadow(
+                          color: AppColors.ui.withValues(alpha: 0.15),
+                          blurRadius: 12,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              _NavCircle(
-                icon: Icons.chevron_right_rounded,
-                onTap: () => _shiftMonth(provider, 1),
-              ),
-            ],
-          ),
+                _NavCircle(
+                  icon: Icons.chevron_right_rounded,
+                  onTap: () => _shiftMonth(provider, 1),
+                ),
+              ],
+            ),
           ),
         );
       },

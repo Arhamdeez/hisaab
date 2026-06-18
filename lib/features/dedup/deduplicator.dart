@@ -1,6 +1,8 @@
 import '../../core/repositories/transaction_repository.dart';
 import '../../models/transaction.dart';
 import '../parser/transaction_parser.dart';
+import 'burst_dedup.dart';
+import 'review_policy.dart';
 
 enum DedupResult { created, merged, skipped }
 
@@ -52,18 +54,74 @@ class Deduplicator {
       return const IngestOutcome(DedupResult.merged);
     }
 
-    // Auto-captured money movements are never added silently — every one is
-    // held for the user to approve or reject in the Inbox. Confidence is still
-    // recorded so the review card can show how sure the parser was.
+    // Same payment often arrives as an app notification and an email — merge
+    // instead of creating a second row when amount/type/day align.
+    final crossSource = await _repository.findCrossSourceDuplicate(
+      amount: parsed.amount,
+      type: parsed.type,
+      occurredAt: occurredAt,
+      messageTime: messageTime,
+      incomingSource: source,
+      merchant: parsed.merchant,
+    );
+    if (crossSource != null) {
+      final linked = {
+        ...crossSource.linkedSources,
+        crossSource.source,
+        source,
+      }.toList();
+      await _repository.updateLinkedSources(crossSource.id, linked);
+      return const IngestOutcome(DedupResult.merged);
+    }
+
+    final burstDuplicate = await _repository.findBurstDuplicate(
+      amount: parsed.amount,
+      type: parsed.type,
+      source: source,
+      messageTime: messageTime,
+      merchant: parsed.merchant,
+    );
+    if (burstDuplicate != null) {
+      final betterMerchant = BurstDedup.pickBetterMerchant(
+        burstDuplicate.merchant,
+        parsed.merchant,
+      );
+      if (betterMerchant != burstDuplicate.merchant) {
+        await _repository.updateMerchant(burstDuplicate.id, betterMerchant);
+      }
+      return const IngestOutcome(DedupResult.merged);
+    }
+
+    final recent = await _repository.getLatestTransactions();
+    final needsReview = ReviewPolicy.requiresReview(
+      parsed: parsed,
+      rawText: rawText,
+      messageTime: messageTime,
+      recent: recent,
+    );
+
+    if (needsReview) {
+      final leg = ReviewPolicy.matchingTransferLeg(
+        incoming: parsed,
+        messageTime: messageTime,
+        recent: recent,
+      );
+      if (leg != null && leg.status == TransactionStatus.confirmed) {
+        await _repository.updateStatus(leg.id, TransactionStatus.pendingReview);
+      }
+    }
+
     final transaction = Transaction(
       id: '${messageTime.millisecondsSinceEpoch}_${source.storageKey}',
       amount: parsed.amount,
       type: parsed.type,
       merchant: parsed.merchant,
-      category: parsed.category,
+      categoryId: parsed.category.storageKey,
       occurredAt: occurredAt,
       source: source,
-      status: TransactionStatus.pendingReview,
+      status: needsReview
+          ? TransactionStatus.pendingReview
+          : TransactionStatus.confirmed,
       rawText: rawText,
       confidence: parsed.confidence,
       fingerprint: fingerprint,

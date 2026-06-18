@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
@@ -23,13 +24,10 @@ class SplashGate extends StatefulWidget {
   State<SplashGate> createState() => _SplashGateState();
 }
 
-enum _SplashPhase { enter, hold, drop, pause, bubble, done }
+enum _SplashPhase { enter, hold, drop, bubble, done }
 
 class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
   static const _logoSize = SplashTiming.logoSize;
-  static const _dropDuration = Duration(milliseconds: 580);
-  static const _bubbleDuration = Duration(milliseconds: 1200);
-  static const _pauseAfterDrop = Duration(milliseconds: 60);
 
   late final AnimationController _enter;
   late final AnimationController _drop;
@@ -80,7 +78,10 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
       ),
     );
 
-    _drop = AnimationController(vsync: this, duration: _dropDuration);
+    _drop = AnimationController(
+      vsync: this,
+      duration: SplashTiming.dropDuration,
+    );
     _dropTravel = CurvedAnimation(
       parent: _drop,
       curve: Curves.easeInCubic,
@@ -92,7 +93,10 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
       ),
     );
 
-    _bubble = AnimationController(vsync: this, duration: _bubbleDuration);
+    _bubble = AnimationController(
+      vsync: this,
+      duration: SplashTiming.bubbleDuration,
+    );
     _bubbleExpand = CurvedAnimation(
       parent: _bubble,
       curve: const _SmoothBubbleCurve(),
@@ -100,7 +104,6 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
 
     _drop.addStatusListener(_onDropStatus);
     _bubble.addStatusListener(_onBubbleStatus);
-    _bubble.addListener(_checkBubbleComplete);
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _runSequence());
   }
@@ -126,23 +129,12 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
     }
   }
 
-  void _checkBubbleComplete() {
-    if (_phase != _SplashPhase.bubble || _finished) return;
-    if (_bubbleExpand.value >= 0.995) {
-      _finish();
-    }
-  }
-
   void _onDropStatus(AnimationStatus status) {
     if (status != AnimationStatus.completed || _phase != _SplashPhase.drop) {
       return;
     }
-    setState(() => _phase = _SplashPhase.pause);
-    Future<void>.delayed(_pauseAfterDrop, () {
-      if (!mounted || _phase != _SplashPhase.pause) return;
-      setState(() => _phase = _SplashPhase.bubble);
-      _bubble.forward(from: 0);
-    });
+    setState(() => _phase = _SplashPhase.bubble);
+    _bubble.forward(from: 0);
   }
 
   void _onBubbleStatus(AnimationStatus status) {
@@ -196,16 +188,10 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
   void dispose() {
     _drop.removeStatusListener(_onDropStatus);
     _bubble.removeStatusListener(_onBubbleStatus);
-    _bubble.removeListener(_checkBubbleComplete);
     _enter.dispose();
     _drop.dispose();
     _bubble.dispose();
     super.dispose();
-  }
-
-  double _snapRadius(double radius) {
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    return (radius * dpr).round() / dpr;
   }
 
   bool get _showLogo =>
@@ -219,6 +205,7 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     _cacheLayoutMetrics(MediaQuery.sizeOf(context));
     final size = _cachedSize ?? MediaQuery.sizeOf(context);
+    final bubbleActive = _phase == _SplashPhase.bubble;
 
     return Stack(
       fit: StackFit.expand,
@@ -229,32 +216,25 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
           const ColoredBox(color: AppColors.background),
         if (_showOverlay)
           RepaintBoundary(
-            child: _phase == _SplashPhase.bubble
+            child: bubbleActive
                 ? AnimatedBuilder(
                     animation: _bubble,
                     builder: (context, _) {
-                      final bubbleT = _bubbleExpand.value;
-                      final radius = bubbleT > 0
-                          ? _snapRadius(_maxBubbleRadius * bubbleT)
-                          : 0.0;
                       return CustomPaint(
                         painter: _SplashMaskPainter(
                           center: _bubbleOrigin,
-                          radius: radius,
-                          bubbleT: bubbleT,
-                          fullCover: bubbleT <= 0,
+                          maxRadius: _maxBubbleRadius,
+                          progress: _bubbleExpand.value,
+                          size: size,
                         ),
                         size: size,
+                        isComplex: false,
+                        willChange: true,
                       );
                     },
                   )
                 : CustomPaint(
-                    painter: _SplashMaskPainter(
-                      center: _bubbleOrigin,
-                      radius: 0,
-                      bubbleT: 0,
-                      fullCover: true,
-                    ),
+                    painter: _SplashMaskPainter.fullCover(size: size),
                     size: size,
                   ),
           ),
@@ -309,75 +289,103 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
   }
 }
 
-/// One painter for mask + ring — avoids ClipPath compositing jank.
+/// GPU-friendly radial mask + a single soft ring at the bubble edge.
 class _SplashMaskPainter extends CustomPainter {
   _SplashMaskPainter({
     required this.center,
-    required this.radius,
-    required this.bubbleT,
-    required this.fullCover,
-  });
+    required this.maxRadius,
+    required double progress,
+    required this.size,
+  })  : fullCover = progress <= 0,
+        _progress = progress.clamp(0.0, 1.0);
+
+  _SplashMaskPainter.fullCover({required this.size})
+      : center = Offset.zero,
+        maxRadius = 0,
+        fullCover = true,
+        _progress = 0;
 
   final Offset center;
-  final double radius;
-  final double bubbleT;
+  final double maxRadius;
+  final double _progress;
+  final Size size;
   final bool fullCover;
 
   static final _fillPaint = Paint()..color = AppColors.background;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    if (fullCover || radius <= 0) {
-      canvas.drawRect(Offset.zero & size, _fillPaint);
+  void paint(Canvas canvas, Size canvasSize) {
+    final rect = Offset.zero & canvasSize;
+
+    if (fullCover || _progress <= 0) {
+      canvas.drawRect(rect, _fillPaint);
       return;
     }
 
-    final mask = Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..addOval(Rect.fromCircle(center: center, radius: radius));
-    canvas.drawPath(mask, _fillPaint);
+    if (_progress >= 0.999) {
+      return;
+    }
 
-    if (radius < 4 || bubbleT <= 0) return;
+    final holeRadius = maxRadius * _progress;
+    final shortestSide = canvasSize.shortestSide;
+    final normalizedRadius = (holeRadius / shortestSide).clamp(0.001, 2.5);
+    final alignment = Alignment(
+      (center.dx / canvasSize.width) * 2 - 1,
+      (center.dy / canvasSize.height) * 2 - 1,
+    );
+
+    // One shader fill replaces even-odd path + multi-stroke compositing.
+    final edgeSoftness = 6 / shortestSide;
+    final innerStop = ((normalizedRadius - edgeSoftness) / normalizedRadius)
+        .clamp(0.0, 0.98);
+
+    final maskPaint = Paint()
+      ..shader = RadialGradient(
+        center: alignment,
+        radius: normalizedRadius,
+        colors: const [
+          Color(0x00000000),
+          Color(0x00000000),
+          AppColors.background,
+        ],
+        stops: [0.0, innerStop, 1.0],
+      ).createShader(rect);
+    canvas.drawRect(rect, maskPaint);
+
+    if (holeRadius < 4) return;
 
     final edgeOpacity =
-        (1 - math.pow(bubbleT, 2.2).toDouble()).clamp(0.0, 1.0);
+        (1 - math.pow(_progress, 2.4).toDouble()).clamp(0.0, 1.0);
     if (edgeOpacity <= 0.01) return;
 
-    final glow = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.5
-      ..color = AppColors.brand.withValues(alpha: 0.28 * edgeOpacity);
-    canvas.drawCircle(center, radius, glow);
-
-    final ring = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.4
-      ..color = AppColors.brandGlow.withValues(alpha: 0.95 * edgeOpacity);
-    canvas.drawCircle(center, radius, ring);
-
-    final inner = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = AppColors.brand.withValues(alpha: 0.5 * edgeOpacity);
-    canvas.drawCircle(center, radius - 2, inner);
+    final ringWidth = lerpDouble(3.2, 1.6, _progress)!;
+    canvas.drawCircle(
+      center,
+      holeRadius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = ringWidth
+        ..color = AppColors.brandGlow.withValues(alpha: 0.72 * edgeOpacity),
+    );
   }
 
   @override
   bool shouldRepaint(covariant _SplashMaskPainter old) =>
-      old.radius != radius ||
-      old.bubbleT != bubbleT ||
       old.fullCover != fullCover ||
-      old.center != center;
+      old._progress != _progress ||
+      old.center != center ||
+      old.maxRadius != maxRadius ||
+      old.size != size;
 }
 
+/// Smootherstep — zero velocity at both ends for a softer open/close feel.
 class _SmoothBubbleCurve extends Curve {
   const _SmoothBubbleCurve();
 
   @override
   double transformInternal(double t) {
-    final inv = 1 - t;
-    return 1 - inv * inv * inv * inv * inv;
+    final x = t.clamp(0.0, 1.0);
+    return x * x * x * (x * (x * 6 - 15) + 10);
   }
 }
 

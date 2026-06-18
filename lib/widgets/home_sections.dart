@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
 import '../models/transaction.dart';
+import '../providers/category_catalog.dart';
 import 'empty_state_view.dart';
 import 'glass_container.dart';
 
@@ -194,7 +196,9 @@ class _RecentLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDebit = transaction.isDebit;
-    final color = transaction.category.color;
+    final category =
+        context.watch<CategoryCatalog>().resolve(transaction.categoryId);
+    final color = category.color;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -204,7 +208,7 @@ class _RecentLine extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: AppDecorations.iconBadge(color),
-            child: Icon(transaction.category.icon, color: color, size: 18),
+            child: Icon(category.icon, color: color, size: 18),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -221,7 +225,7 @@ class _RecentLine extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  transaction.category.label,
+                  category.label,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: AppColors.textMuted,
                   ),

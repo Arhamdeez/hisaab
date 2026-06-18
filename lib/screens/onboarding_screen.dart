@@ -589,6 +589,7 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
                         final ok = await ingest.hasNotificationAccess();
                         if (!ok) await ingest.openNotificationSettings();
                         await ingest.refreshNotificationAccess();
+                        await ingest.requestBatteryOptimizationExemption();
                       }
                     : null,
               ),
