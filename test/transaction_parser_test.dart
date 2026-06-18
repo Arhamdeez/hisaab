@@ -178,7 +178,7 @@ void main() {
     );
     expect(result, isNotNull);
     expect(result!.amount, 500);
-    expect(result.type, TransactionType.credit);
+    expect(result.type, TransactionType.debit);
     expect(result.merchant, 'Ahmed Khan');
   });
 
@@ -225,8 +225,69 @@ void main() {
       notificationTitle: 'Fatima Noor',
     );
     expect(result, isNotNull);
-    expect(result!.type, TransactionType.credit);
+    expect(result!.type, TransactionType.debit);
     expect(result.merchant, 'Fatima Noor');
+  });
+
+  test('parses NayaPay sent alert without PKR prefix', () {
+    final result = parser.parse(
+      'You sent — 1,500.00 — Transaction successful',
+      source: TransactionSource.notification,
+      packageName: 'com.nayapay.app',
+      notificationTitle: 'Ali Raza',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 1500);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant, 'Ali Raza');
+  });
+
+  test('parses canonical You sent Rs notification from NayaPay', () {
+    final result = parser.parse(
+      'You sent Rs. 500.00 to Sara Ali via NayaPay',
+      source: TransactionSource.notification,
+      packageName: 'com.nayapay.app',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 500);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant, 'Sara Ali');
+    expect(result.receiverName, 'Sara Ali');
+  });
+
+  test('You sent Rs in title alone is enough to parse', () {
+    final result = parser.parse(
+      'You sent Rs. 2,000.00',
+      source: TransactionSource.notification,
+      packageName: 'com.nayapay.app',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 2000);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses Raqami plain amount notification', () {
+    final result = parser.parse(
+      'Money Sent — 2,000.00',
+      source: TransactionSource.notification,
+      packageName: 'com.raqamidigital.cbt',
+      notificationTitle: 'Hassan Shah',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 2000);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses EasyPaisa amount without currency label', () {
+    final result = parser.parse(
+      '500.00 — Txn ID 445566',
+      source: TransactionSource.notification,
+      packageName: 'pk.com.telenor.phoenix',
+      notificationTitle: 'Transfer Successful',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 500);
+    expect(result.type, TransactionType.debit);
   });
 
   test('prefers person name over phone in transferred-to body', () {
@@ -307,7 +368,7 @@ void main() {
     );
     expect(result, isNotNull);
     expect(result!.amount, 3200);
-    expect(result.type, TransactionType.credit);
+    expect(result.type, TransactionType.debit);
     expect(result.merchant, 'Sara Ali');
   });
 

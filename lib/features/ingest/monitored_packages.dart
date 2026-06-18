@@ -88,6 +88,9 @@ abstract final class MonitoredPackages {
     'com.askari.mobile',
     'com.standardchartered.mobile',
     'com.bop.mobilebanking',
+    // Digital Islamic / newer PK banks
+    'com.raqamidigital.cbt',
+    'com.bopdigital.bop',
   };
 
   /// Substrings in package names that indicate a bank / wallet / payment app.
@@ -154,6 +157,15 @@ abstract final class MonitoredPackages {
     'citi',
     'monzo',
     'starling',
+    // Pakistan — catch-all for wallet / digital bank package names
+    'raqami',
+    'raqamidigital',
+    'telenor',
+    'phoenix',
+    'mobilink',
+    'digital',
+    'pk.',
+    '.pk',
   ];
 
   static bool isExcluded(String? packageName) {

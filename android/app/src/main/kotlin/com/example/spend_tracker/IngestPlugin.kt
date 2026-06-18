@@ -121,6 +121,8 @@ class IngestPlugin(
             "com.askari.mobile",
             "com.standardchartered.mobile",
             "com.bop.mobilebanking",
+            "com.raqamidigital.cbt",
+            "com.bopdigital.bop",
         )
 
         private val monitoredKeywords = listOf(
@@ -133,13 +135,16 @@ class IngestPlugin(
             "transferwise", "stripe", "remit", "remittance", "spay", "ubl",
             "brd", "jazzcash", "mobilink", "easypaisa", "sadapay", "nayapay",
             "alfalah", "hbl", "mcb", "meezan", "faysal", "chase", "wellsfargo",
-            "citibank", "citi", "monzo", "starling",
+            "citibank", "citi", "monzo", "starling", "raqami", "raqamidigital",
+            "telenor", "phoenix", "digital", ".pk",
         )
 
         private val recentAmountAlerts = LinkedHashMap<String, Pair<Long, String>>()
 
         private fun amountKey(pkg: String, text: String): String? {
-            val amountMatch = amountRegex.find(text)?.value ?: return null
+            val amountMatch = amountRegex.find(text)?.value
+                ?: plainAmountRegex.find(text)?.value
+                ?: return null
             val normalized = amountMatch.replace("\\s".toRegex(), "").lowercase()
             return "$pkg:$normalized"
         }
@@ -181,8 +186,32 @@ class IngestPlugin(
         private const val DEDUP_MS = 15000L
 
         private val amountRegex = Regex(
-            "(?:rs\\.?|pkr|inr|₹|₨|usd|eur|gbp|aed|sar|cad|aud|\\$|€|£)\\s*[\\d,]+(?:\\.\\d+)?|" +
-                "[\\d,]+(?:\\.\\d+)?\\s*(?:rs\\.?|pkr|inr|₹|₨|usd|eur|gbp|aed|sar|cad|aud)",
+            "(?:rs\\.?|pkr|inr|₹|₨|rupees?|usd|eur|gbp|aed|sar|cad|aud|\\$|€|£)" +
+                "\\s*[\\d,]+(?:\\.\\d+)?|" +
+                "[\\d,]+(?:\\.\\d+)?\\s*(?:rs\\.?|pkr|inr|₹|₨|rupees?|usd|eur|gbp|aed|sar|cad|aud)",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** PK wallets (NayaPay, JazzCash, …) often omit the currency label. */
+        private val plainAmountRegex = Regex(
+            "\\b([1-9]\\d{0,2}(?:,\\d{3})+(?:\\.\\d{2})?|[1-9]\\d{2,7}(?:\\.\\d{2})?)\\b",
+        )
+
+        fun hasFinanceAmount(text: String): Boolean {
+            if (amountRegex.containsMatchIn(text)) return true
+            val match = plainAmountRegex.find(text)?.groupValues?.getOrNull(1) ?: return false
+            val value = match.replace(",", "").toDoubleOrNull() ?: return false
+            return value >= 10.0
+        }
+
+        /** Primary PK wallet triggers — "You sent Rs. 500" / "You received Rs. …" */
+        private val youSentRsRegex = Regex(
+            "you\\s+sent\\s+(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+",
+            RegexOption.IGNORE_CASE,
+        )
+
+        private val youReceivedRsRegex = Regex(
+            "you\\s+(?:have\\s+)?(?:received|got)\\s+(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+",
             RegexOption.IGNORE_CASE,
         )
 
@@ -197,11 +226,12 @@ class IngestPlugin(
             "debited|credited|spent|withdrawn|deducted|transferred|received|" +
                 "paid|sent|purchase|txn|transaction|debit|credit|refund|" +
                 "cashback|deposited|salary|transfer|withdrawal|" +
-                "payment|charged|bill|added|" +
-                "money\\s+received|money\\s+sent|payment\\s+received|" +
+                "payment|charged|bill|added|successful|" +
+                "money\\s+received|money\\s+sent|payment\\s+received|payment\\s+sent|" +
                 "transfer\\s*successful|successfully\\s*transferred|" +
+                "you\\s+sent|sent\\s+to|transfer\\s+to|transfer\\s+from|" +
                 "sent\\s*(?:rs|pkr)|received\\s*(?:rs|pkr)|" +
-                "a/c\\s*\\*+|account\\s*\\*+|trx\\s*id|trans(?:action)?\\s*id|" +
+                "a/c\\s*\\*+|account\\s*\\*+|trx\\s*id|trans(?:action)?\\s*id|t(?:xn|rxn)\\s*no|" +
                 "has\\s*been\\s*(?:debited|credited|deducted)",
             RegexOption.IGNORE_CASE,
         )
@@ -286,20 +316,23 @@ class IngestPlugin(
         }
 
         fun looksLikeTransaction(text: String): Boolean {
-            if (!amountRegex.containsMatchIn(text)) return false
+            if (youSentRsRegex.containsMatchIn(text)) return true
+            if (youReceivedRsRegex.containsMatchIn(text)) return true
+            if (!hasFinanceAmount(text)) return false
             if (walletTxnRegex.containsMatchIn(text)) return true
             return monitoredWalletFallbackRegex.containsMatchIn(text)
         }
 
         fun shouldCapture(packageName: String, text: String): Boolean {
             if (isExcludedPackage(packageName)) return false
+            // Universal PK wallet phrase — capture from any app.
+            if (youSentRsRegex.containsMatchIn(text)) return true
+            if (youReceivedRsRegex.containsMatchIn(text)) return true
             // Any app: capture when the text clearly looks like money movement.
             if (looksLikeTransaction(text)) return true
-            // Bank / wallet / payment apps: amount-only bodies are common.
-            if (shouldMonitor(packageName) && amountRegex.containsMatchIn(text)) {
-                return true
-            }
-            // Title-only credit/debit alerts ("Money Received") before amount loads.
+            // PK/IN wallet apps: amount-only bodies are very common (NayaPay, JazzCash).
+            if (shouldMonitor(packageName) && hasFinanceAmount(text)) return true
+            // Title-only credit/debit alerts before amount loads.
             if (shouldMonitor(packageName) && walletTxnRegex.containsMatchIn(text)) {
                 return true
             }
@@ -351,15 +384,20 @@ class IngestPlugin(
 
             if (text.isBlank()) {
                 if (shouldMonitor(pkg)) {
-                    Log.d(INGEST_TAG, "empty text pkg=$pkg")
+                    Log.w(INGEST_TAG, "empty text pkg=$pkg title=${title.take(60)}")
                 }
                 return
             }
+
+            if (shouldMonitor(pkg)) {
+                Log.d(INGEST_TAG, "posted pkg=$pkg preview=${text.take(120)}")
+            }
+
             if (!shouldCapture(pkg, text)) {
                 if (shouldMonitor(pkg)) {
-                    Log.d(
+                    Log.w(
                         INGEST_TAG,
-                        "skip pkg=$pkg len=${text.length} preview=${text.take(100)}",
+                        "skip pkg=$pkg len=${text.length} preview=${text.take(120)}",
                     )
                 }
                 return
@@ -427,6 +465,15 @@ class IngestPlugin(
             add(extras.getCharSequence(Notification.EXTRA_SUB_TEXT))
             add(extras.getCharSequence(Notification.EXTRA_INFO_TEXT))
             add(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT))
+
+            for (key in listOf(
+                    "message", "body", "content", "description", "alert",
+                    "text", "subtext", "android.text", "android.title",
+                    "android.bigText", "android.infoText",
+                )) {
+                add(extras.getCharSequence(key))
+                extras.getString(key)?.let { add(it) }
+            }
 
             extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.forEach { add(it) }
 

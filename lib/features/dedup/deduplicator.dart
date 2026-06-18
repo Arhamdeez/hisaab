@@ -93,12 +93,15 @@ class Deduplicator {
     }
 
     final recent = await _repository.getLatestTransactions();
-    final needsReview = ReviewPolicy.requiresReview(
+    var needsReview = ReviewPolicy.requiresReview(
       parsed: parsed,
       rawText: rawText,
       messageTime: messageTime,
       recent: recent,
     );
+    if (parsed.confidence < TransactionParser.confidenceThreshold) {
+      needsReview = true;
+    }
 
     if (needsReview) {
       final leg = ReviewPolicy.matchingTransferLeg(

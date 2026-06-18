@@ -191,6 +191,22 @@ class TransactionParser {
           r'has\s+been\s+(?:debited|credited|deducted).*?(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?)',
       enabled: true,
     ),
+    ParserRule(
+      id: 18,
+      name: 'PK You sent Rs',
+      pattern:
+          r'you\s+sent\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
+      sourceHint: 'notification',
+      enabled: true,
+    ),
+    ParserRule(
+      id: 19,
+      name: 'PK You received Rs',
+      pattern:
+          r'you\s+(?:have\s+)?(?:received|got)\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
+      sourceHint: 'notification',
+      enabled: true,
+    ),
   ];
 
   void updateRules(List<ParserRule> rules) {
@@ -204,11 +220,12 @@ class TransactionParser {
     r'debited|credited|spent|withdrawn|deducted|transferred|received|'
     r'\bpaid\b|\bsent\b|purchase|\btxn\b|transaction|\bdebit\b|\bcredit\b|'
     r'refund|cashback|deposited|salary|transfer|withdrawal|'
-    r'payment|charged|\bbill\b|added|'
-    r'money\s+received|money\s+sent|payment\s+received|'
+    r'payment|charged|\bbill\b|added|successful|'
+    r'money\s+received|money\s+sent|payment\s+received|payment\s+sent|'
     r'transfer\s*successful|successfully\s*transferred|'
+    r'you\s+sent|sent\s+to|transfer\s+to|transfer\s+from|'
     r'sent\s*(?:rs|pkr)|received\s*(?:rs|pkr)|'
-    r'a/c\s*\*+|account\s*\*+|trx\s*id|trans(?:action)?\s*id|'
+    r'a/c\s*\*+|account\s*\*+|trx\s*id|trans(?:action)?\s*id|t(?:xn|rxn)\s*no|'
     r'has\s*been\s*(?:debited|credited|deducted)',
     caseSensitive: false,
   );
@@ -232,7 +249,7 @@ class TransactionParser {
       notificationTitle: notificationTitle,
       packageName: packageName,
     );
-    final amount = _extractAmount(normalized);
+    final amount = _extractAmount(normalized, packageName: packageName);
     if (amount == null || amount <= 0) return null;
 
     final parties = _extractTransferParties(normalized, type);
@@ -271,6 +288,13 @@ class TransactionParser {
     if (merchant != 'Unknown') confidence += 0.1;
     if (accountRef != null) confidence += 0.08;
     if (occurredAt != null) confidence += 0.05;
+    if (_youSentRsPattern.hasMatch(normalized) ||
+        _youReceivedRsPattern.hasMatch(normalized)) {
+      confidence += 0.15;
+    }
+    if (_isAmbiguousDirection(normalized, notificationTitle, packageName)) {
+      confidence = (confidence - 0.2).clamp(0.0, 1.0);
+    }
     confidence = confidence.clamp(0.0, 1.0);
 
     return ParsedTransaction(
@@ -435,21 +459,82 @@ class TransactionParser {
     ),
   ];
 
-  // Currency tokens — PK/IN plus Google Wallet / global wallets (USD, EUR, …).
+  // Currency tokens — PK/IN plus global wallets (USD, EUR, …).
   static final _currencyUnits =
-      r'(?:Rs\.?|PKR|INR|₹|₨|USD|EUR|GBP|AED|SAR|CAD|AUD|\$|€|£)';
+      r'(?:Rs\.?|PKR|INR|₹|₨|Rupees?|USD|EUR|GBP|AED|SAR|CAD|AUD|\$|€|£)';
+
+  static final _plainAmountPattern = RegExp(
+    r'\b([1-9]\d{0,2}(?:,\d{3})+(?:\.\d{2})?|[1-9]\d{2,7}(?:\.\d{2})?)\b',
+  );
+
+  /// Primary PK wallet alert shape: "You sent Rs. 1,500.00 …"
+  static final _youSentRsPattern = RegExp(
+    r'you\s+sent\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  /// Mirror for inbound: "You received Rs. 500.00 …"
+  static final _youReceivedRsPattern = RegExp(
+    r'you\s+(?:have\s+)?(?:received|got)\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  static bool _isAmbiguousDirection(
+    String text,
+    String? notificationTitle,
+    String? packageName,
+  ) {
+    if (!MonitoredPackages.matches(packageName)) return false;
+    final combined = '${notificationTitle ?? ''} $text'.toLowerCase();
+    if (_youSentRsPattern.hasMatch(combined) ||
+        _youReceivedRsPattern.hasMatch(combined)) {
+      return false;
+    }
+    if (_walletTxnSignals.hasMatch(combined)) {
+      // Has some direction hint — only ambiguous if no clear credit/debit word.
+      const clear = [
+        'received', 'credited', 'deposited', 'sent', 'paid', 'debited',
+        'withdrawn', 'transferred',
+      ];
+      if (clear.any(combined.contains)) return false;
+    }
+    return _plainAmountPattern.hasMatch(text) &&
+        !RegExp(r'(?:received|credited|sent|paid|debited)', caseSensitive: false)
+            .hasMatch(combined);
+  }
 
   static bool _looksLikeTransaction(String text, {String? packageName}) {
     if (MonitoredPackages.isExcluded(packageName)) return false;
-    final amount = _peekAmount(text);
+    // Strongest PK wallet trigger — works even outside the finance-app list.
+    if (_youSentRsPattern.hasMatch(text) || _youReceivedRsPattern.hasMatch(text)) {
+      return true;
+    }
+    final amount = _peekAmount(text, packageName: packageName);
     if (amount == null || amount <= 0) return false;
     if (_walletTxnSignals.hasMatch(text)) return true;
-    // Bank / wallet / payment apps often post amount (+ name in title) only.
+    // Bank / wallet apps often post amount (+ name in title) only.
     if (MonitoredPackages.matches(packageName)) return true;
     return false;
   }
 
-  static double? _peekAmount(String text) {
+  static double? _peekAmount(String text, {String? packageName}) {
+    final sent = _youSentRsPattern.firstMatch(text);
+    if (sent != null) {
+      return double.tryParse(sent.group(1)!.replaceAll(',', ''));
+    }
+    final received = _youReceivedRsPattern.firstMatch(text);
+    if (received != null) {
+      return double.tryParse(received.group(1)!.replaceAll(',', ''));
+    }
+    final fromCurrency = _amountFromCurrencyLabel(text);
+    if (fromCurrency != null) return fromCurrency;
+    if (MonitoredPackages.matches(packageName)) {
+      return _amountPlainFinance(text);
+    }
+    return null;
+  }
+
+  static double? _amountFromCurrencyLabel(String text) {
     final patterns = [
       RegExp(
         '$_currencyUnits\\s*([\\d,]+(?:\\.\\d+)?)',
@@ -465,6 +550,15 @@ class TransactionParser {
       if (match != null) {
         return double.tryParse(match.group(1)!.replaceAll(',', ''));
       }
+    }
+    return null;
+  }
+
+  static double? _amountPlainFinance(String text) {
+    for (final match in _plainAmountPattern.allMatches(text)) {
+      final raw = match.group(1)!;
+      final value = double.tryParse(raw.replaceAll(',', ''));
+      if (value != null && value >= 10) return value;
     }
     return null;
   }
@@ -505,6 +599,16 @@ class TransactionParser {
   }) {
     final lower = text.toLowerCase();
     final titleLower = notificationTitle?.trim().toLowerCase() ?? '';
+    final combined = '$titleLower $lower';
+
+    // Primary PK wallet outbound trigger.
+    if (_youSentRsPattern.hasMatch(combined) ||
+        RegExp(r'you\s+sent\b', caseSensitive: false).hasMatch(combined)) {
+      return TransactionType.debit;
+    }
+    if (_youReceivedRsPattern.hasMatch(combined)) {
+      return TransactionType.credit;
+    }
 
     if (titleLower.isNotEmpty) {
       if (_creditTitlePattern.hasMatch(titleLower)) {
@@ -549,15 +653,33 @@ class TransactionParser {
       }
     }
 
-    // PK/IN wallets often post sender name in the title with amount-only body.
+    // Person-name title + amount-only: default to sent/debit (NayaPay, JazzCash).
+    // Received alerts usually include "received" / "Money Received" in title/body.
     if (MonitoredPackages.matches(packageName) &&
         titleLower.isNotEmpty &&
-        !_hasDebitSignal(lower, titleLower) &&
-        _isUsablePartyName(notificationTitle)) {
-      return TransactionType.credit;
+        _isUsablePartyName(notificationTitle) &&
+        !_hasCreditSignal(lower, titleLower)) {
+      return TransactionType.debit;
     }
 
     return TransactionType.debit;
+  }
+
+  bool _hasCreditSignal(String bodyLower, String titleLower) {
+    if (_creditTitlePattern.hasMatch(titleLower)) return true;
+    const creditWords = [
+      'credited',
+      'received',
+      'deposited',
+      'refund',
+      'cashback',
+      'added to',
+      'added',
+    ];
+    for (final w in creditWords) {
+      if (bodyLower.contains(w) || titleLower.contains(w)) return true;
+    }
+    return false;
   }
 
   bool _hasDebitSignal(String bodyLower, String titleLower) {
@@ -579,24 +701,8 @@ class TransactionParser {
     return false;
   }
 
-  double? _extractAmount(String text) {
-    final patterns = [
-      RegExp(
-        '${TransactionParser._currencyUnits}\\s*([\\d,]+(?:\\.\\d+)?)',
-        caseSensitive: false,
-      ),
-      RegExp(
-        '([\\d,]+(?:\\.\\d+)?)\\s*${TransactionParser._currencyUnits}',
-        caseSensitive: false,
-      ),
-    ];
-    for (final p in patterns) {
-      final match = p.firstMatch(text);
-      if (match != null) {
-        return double.tryParse(match.group(1)!.replaceAll(',', ''));
-      }
-    }
-    return null;
+  double? _extractAmount(String text, {String? packageName}) {
+    return TransactionParser._peekAmount(text, packageName: packageName);
   }
 
   String? _extractMerchant(String text, {TransactionType? type}) {
