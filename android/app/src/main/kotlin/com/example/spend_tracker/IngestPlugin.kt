@@ -41,14 +41,34 @@ class IngestPlugin(
             "com.android.systemui",
             "com.android.settings",
             "com.android.vending",
+            "com.android.chrome",
             "com.google.android.apps.messaging",
-            "com.google.android.gm",
             "com.google.android.youtube",
+            "com.google.android.dialer",
+            "com.google.android.apps.maps",
+            "com.google.android.calendar",
             "com.samsung.android.messaging",
+            "com.samsung.android.app.health",
             "com.facebook.",
             "com.instagram.",
             "com.twitter.",
             "com.zhiliaoapp.musically",
+            "com.spotify.",
+            "com.netflix.",
+            "com.discord",
+            "com.snapchat.",
+            "com.reddit.",
+            "com.linkedin.",
+            "com.careem.",
+            "in.swiggy.",
+            "com.application.zomato",
+            "com.foodpanda.",
+            "com.flipkart.",
+            "com.miui.home",
+        )
+
+        private val emailClientPrefixes = listOf(
+            "com.google.android.gm",
         )
 
         private val monitoredPackages = setOf(
@@ -136,7 +156,44 @@ class IngestPlugin(
             "brd", "jazzcash", "mobilink", "easypaisa", "sadapay", "nayapay",
             "alfalah", "hbl", "mcb", "meezan", "faysal", "chase", "wellsfargo",
             "citibank", "citi", "monzo", "starling", "raqami", "raqamidigital",
-            "telenor", "phoenix", "digital", ".pk",
+            "telenor", "phoenix", ".pk",
+            "fintech", "ewallet", "zelle", "wise", "mpesa", "momo",
+        )
+
+        /** Non-finance alerts that often contain numbers. */
+        private val noiseNotificationRegex = Regex(
+            "\\b(?:otp|one[\\s-]?time\\s+(?:password|pin|code)|verification\\s+code|" +
+                "confirm(?:ation)?\\s+code|security\\s+code|passcode)\\b|" +
+                "\\b(?:followers?|following|subscribers?|views?|likes?)\\b|" +
+                "\\b(?:steps|calories|heart\\s+rate|km\\s+walked|workout)\\b|" +
+                "\\b(?:battery|charging|charge\\s+complete)\\b|" +
+                "\\b(?:update\\s+available|new\\s+version|downloading|install(?:ing|ed))\\b|" +
+                "\\b(?:out\\s+for\\s+delivery|order\\s+confirmed|your\\s+order\\s+#|" +
+                "track(?:ing)?\\s+(?:your|order))\\b|" +
+                "\\b(?:flash\\s+sale|limited\\s+offer|promo\\s+code|coupon|\\d+\\s*%\\s*off)\\b|" +
+                "\\b(?:missed\\s+call|incoming\\s+call|voice\\s+mail)\\b|" +
+                "\\b(?:weather|forecast|rain\\s+alert)\\b|" +
+                "\\b(?:match\\s+score|full\\s+time)\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Strong money-movement wording — required for unknown apps (with currency). */
+        private val strongFinanceRegex = Regex(
+            "debited|credited|withdrawn|deducted|spent|transferred|purchase|" +
+                "money\\s+(?:received|sent)|payment\\s+(?:received|sent)|" +
+                "you\\s+(?:sent|paid|received|transferred)|" +
+                "(?:paid|sent|transferred)\\s+(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£)|" +
+                "(?:payment|transfer|transaction|remittance|payout)\\s+of\\s+" +
+                "(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£)|" +
+                "amount\\s+of\\s+(?:pkr|rs\\.?)|money\\s+transfer\\s+of|" +
+                "has\\s+been\\s+(?:debited|credited|sent|paid|transferred|received)|" +
+                "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+(?:has\\s+been|was)\\s+" +
+                "(?:debited|credited|sent|paid|transferred|received)|" +
+                "successfully\\s+sent\\s+to|transfer\\s*successful|successfully\\s*transferred|" +
+                "(?:outgoing|incoming)\\s+(?:payment|transfer|transaction|money)|" +
+                "a/c\\s*\\*+|account\\s*\\*+|trx\\s*id|trans(?:action)?\\s*id|" +
+                "raast|ibft|1link|\\bupi\\b|\\bimps\\b|\\bneft\\b|\\brtgs\\b",
+            RegexOption.IGNORE_CASE,
         )
 
         private val recentAmountAlerts = LinkedHashMap<String, Pair<Long, String>>()
@@ -194,7 +251,7 @@ class IngestPlugin(
 
         /** PK wallets (NayaPay, JazzCash, …) often omit the currency label. */
         private val plainAmountRegex = Regex(
-            "\\b([1-9]\\d{0,2}(?:,\\d{3})+(?:\\.\\d{2})?|[1-9]\\d{2,7}(?:\\.\\d{2})?)\\b",
+            "\\b([1-9]\\d{0,2}(?:,\\d{3})+(?:\\.\\d{1,2})?|[1-9]\\d{2,7}(?:\\.\\d{1,2})?)\\b",
         )
 
         fun hasFinanceAmount(text: String): Boolean {
@@ -215,6 +272,43 @@ class IngestPlugin(
             RegexOption.IGNORE_CASE,
         )
 
+        /** Easypaisa / Raast: "An amount of Rs. 1000.0 has been successfully sent…" */
+        private val amountOfRsRegex = Regex(
+            "(?:an\\s+)?amount\\s+of\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Gmail e-statement: "Money Transfer of Rs. 1000.0 … was successful" */
+        private val moneyTransferOfRsRegex = Regex(
+            "money\\s+transfer\\s+of\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** High-confidence payment phrasing — capture from any app (incl. Gmail). */
+        private val universalTxnRegex = Regex(
+            "(?:payment|transfer|transaction|remittance|payout)\\s+of\\s+" +
+                "(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£|usd|eur|gbp)\\.?\\s*[\\d,]+(?:\\.\\d+)?|" +
+                "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+has\\s+been\\s+" +
+                "(?:sent|debited|credited|deducted|withdrawn|paid|transferred|received)|" +
+                "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+was\\s+" +
+                "(?:successfully\\s+)?(?:sent|paid|transferred|debited|credited|received|processed)|" +
+                "you\\s+(?:have\\s+)?(?:paid|transferred|spent|withdrew)\\s+" +
+                "(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£)|" +
+                "(?:outgoing|incoming)\\s+(?:payment|transfer|transaction|money)",
+            RegexOption.IGNORE_CASE,
+        )
+
+        private val railsTxnRegex = Regex(
+            "\\b(?:upi|imps|neft|rtgs|ibft|1link|raast|p2p|swift|ach)\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
+        private val raastTxnRegex = Regex(
+            "raast|successfully\\s+sent\\s+to|transaction\\s+successful|" +
+                "money\\s+transfer\\s+via|ibft|1link",
+            RegexOption.IGNORE_CASE,
+        )
+
         /** Samsung / PK wallets sometimes post amount + trx id only — match Dart parser. */
         private val monitoredWalletFallbackRegex = Regex(
             "a/c|account|\\*\\*\\*|trx\\s*id|trans(?:action)?\\s*id",
@@ -226,13 +320,20 @@ class IngestPlugin(
             "debited|credited|spent|withdrawn|deducted|transferred|received|" +
                 "paid|sent|purchase|txn|transaction|debit|credit|refund|" +
                 "cashback|deposited|salary|transfer|withdrawal|" +
-                "payment|charged|bill|added|successful|" +
+                "payment|charged|bill|added|successful|completed|processed|" +
                 "money\\s+received|money\\s+sent|payment\\s+received|payment\\s+sent|" +
                 "transfer\\s*successful|successfully\\s*transferred|" +
-                "you\\s+sent|sent\\s+to|transfer\\s+to|transfer\\s+from|" +
+                "you\\s+sent|you\\s+paid|you\\s+transferred|sent\\s+to|paid\\s+to|" +
+                "transfer\\s+to|transfer\\s+from|received\\s+from|" +
+                "amount\\s+of\\s+(?:rs|pkr)|money\\s+transfer\\s+of|successfully\\s+sent|" +
+                "(?:payment|transfer|transaction|remittance|payout)\\s+of\\s+(?:rs|pkr|inr|\\$|€|£)|" +
+                "outgoing|incoming|remittance|payout|top-?up|cash\\s+(?:in|out)|" +
+                "raast|ibft|1link|\\bupi\\b|\\bimps\\b|\\bneft\\b|\\brtgs\\b|\\bp2p\\b|" +
+                "transaction\\s+successful|" +
                 "sent\\s*(?:rs|pkr)|received\\s*(?:rs|pkr)|" +
-                "a/c\\s*\\*+|account\\s*\\*+|trx\\s*id|trans(?:action)?\\s*id|t(?:xn|rxn)\\s*no|" +
-                "has\\s*been\\s*(?:debited|credited|deducted)",
+                "a/c\\s*\\*+|account\\s*\\*+|your\\s+account|trx\\s*id|trans(?:action)?\\s*id|t(?:xn|rxn)\\s*no|" +
+                "has\\s*been\\s*(?:debited|credited|deducted|sent|paid|transferred|received)|" +
+                "was\\s+(?:successfully\\s+)?(?:sent|paid|transferred|debited|credited|received|processed)",
             RegexOption.IGNORE_CASE,
         )
 
@@ -308,6 +409,22 @@ class IngestPlugin(
             }
         }
 
+        fun isEmailClient(packageName: String): Boolean {
+            val pkg = packageName.lowercase()
+            return emailClientPrefixes.any { prefix ->
+                pkg == prefix || pkg.startsWith(prefix)
+            }
+        }
+
+        /** Hard-blocked apps always skip; email clients skip unless txn-shaped. */
+        fun shouldSkipPackage(packageName: String, text: String): Boolean {
+            if (isExcludedPackage(packageName)) return true
+            if (isEmailClient(packageName)) {
+                return !looksLikeTransaction(text)
+            }
+            return false
+        }
+
         fun shouldMonitor(packageName: String): Boolean {
             if (isExcludedPackage(packageName)) return false
             val pkg = packageName.lowercase()
@@ -315,28 +432,50 @@ class IngestPlugin(
                 monitoredKeywords.any { pkg.contains(it) }
         }
 
-        fun looksLikeTransaction(text: String): Boolean {
+        fun hasCurrencyLabel(text: String): Boolean = amountRegex.containsMatchIn(text)
+
+        fun isNoiseNotification(text: String): Boolean =
+            noiseNotificationRegex.containsMatchIn(text)
+
+        fun isHighConfidenceTxn(text: String): Boolean {
             if (youSentRsRegex.containsMatchIn(text)) return true
             if (youReceivedRsRegex.containsMatchIn(text)) return true
+            if (amountOfRsRegex.containsMatchIn(text)) return true
+            if (moneyTransferOfRsRegex.containsMatchIn(text)) return true
+            return universalTxnRegex.containsMatchIn(text)
+        }
+
+        fun looksLikeTransaction(text: String): Boolean {
+            if (isNoiseNotification(text)) return false
+            if (isHighConfidenceTxn(text)) return true
             if (!hasFinanceAmount(text)) return false
-            if (walletTxnRegex.containsMatchIn(text)) return true
-            return monitoredWalletFallbackRegex.containsMatchIn(text)
+            return hasCurrencyLabel(text) && strongFinanceRegex.containsMatchIn(text)
         }
 
         fun shouldCapture(packageName: String, text: String): Boolean {
             if (isExcludedPackage(packageName)) return false
-            // Universal PK wallet phrase — capture from any app.
-            if (youSentRsRegex.containsMatchIn(text)) return true
-            if (youReceivedRsRegex.containsMatchIn(text)) return true
-            // Any app: capture when the text clearly looks like money movement.
-            if (looksLikeTransaction(text)) return true
-            // PK/IN wallet apps: amount-only bodies are very common (NayaPay, JazzCash).
-            if (shouldMonitor(packageName) && hasFinanceAmount(text)) return true
-            // Title-only credit/debit alerts before amount loads.
-            if (shouldMonitor(packageName) && walletTxnRegex.containsMatchIn(text)) {
-                return true
+            if (isNoiseNotification(text)) return false
+
+            // Tier 1 — explicit payment phrasing from any app (incl. Gmail).
+            if (isHighConfidenceTxn(text)) return true
+
+            if (isEmailClient(packageName)) {
+                return hasCurrencyLabel(text) && strongFinanceRegex.containsMatchIn(text)
             }
-            return false
+
+            if (shouldMonitor(packageName)) {
+                if (!hasFinanceAmount(text)) {
+                    return strongFinanceRegex.containsMatchIn(text)
+                }
+                if (strongFinanceRegex.containsMatchIn(text)) return true
+                if (monitoredWalletFallbackRegex.containsMatchIn(text)) return true
+                if (hasCurrencyLabel(text)) return true
+                // PK wallets: amount-only body (NayaPay, JazzCash).
+                return plainAmountRegex.containsMatchIn(text)
+            }
+
+            // Unknown apps: currency + strong finance wording only.
+            return hasCurrencyLabel(text) && strongFinanceRegex.containsMatchIn(text)
         }
 
         /** True when native SQLite / legacy queues hold unprocessed captures. */
@@ -375,12 +514,13 @@ class IngestPlugin(
         fun processNotification(context: Context, sbn: StatusBarNotification) {
             val pkg = sbn.packageName ?: return
             if (pkg == context.packageName) return
-            if (isExcludedPackage(pkg)) return
 
             val extras = sbn.notification.extras
             val text = extractNotificationText(extras)
             val title =
                 extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
+
+            if (shouldSkipPackage(pkg, text)) return
 
             if (text.isBlank()) {
                 if (shouldMonitor(pkg)) {
@@ -389,12 +529,12 @@ class IngestPlugin(
                 return
             }
 
-            if (shouldMonitor(pkg)) {
+            if (shouldMonitor(pkg) || isEmailClient(pkg)) {
                 Log.d(INGEST_TAG, "posted pkg=$pkg preview=${text.take(120)}")
             }
 
             if (!shouldCapture(pkg, text)) {
-                if (shouldMonitor(pkg)) {
+                if (shouldMonitor(pkg) || isEmailClient(pkg)) {
                     Log.w(
                         INGEST_TAG,
                         "skip pkg=$pkg len=${text.length} preview=${text.take(120)}",
@@ -404,7 +544,7 @@ class IngestPlugin(
             }
             if (!shouldDeliverNow(pkg, text)) return
 
-            Log.d(INGEST_TAG, "capture pkg=$pkg preview=${text.take(100)}")
+            Log.i(INGEST_TAG, "capture pkg=$pkg preview=${text.take(100)}")
 
             deliver(
                 context,
@@ -558,6 +698,10 @@ class IngestPlugin(
                         requestNotificationRebind(context)
                         result.success(null)
                     }
+                    "scanActiveNotifications" -> {
+                        NotificationCaptureService.rescanActiveNotifications(context)
+                        result.success(null)
+                    }
                     "startKeepAlive" -> {
                         IngestKeepAliveService.start(context)
                         result.success(null)
@@ -593,26 +737,54 @@ class IngestPlugin(
 }
 
 class NotificationCaptureService : NotificationListenerService() {
+    companion object {
+        @Volatile
+        private var connectedInstance: NotificationCaptureService? = null
+
+        /** Re-process alerts still visible in the notification shade. */
+        fun rescanActiveNotifications(context: Context) {
+            val service = connectedInstance
+            if (service != null) {
+                service.scanActiveNotifications()
+            } else {
+                IngestPlugin.requestNotificationRebind(context)
+            }
+        }
+    }
+
     override fun onListenerConnected() {
         super.onListenerConnected()
+        connectedInstance = this
         Log.d(INGEST_TAG, "NotificationListener CONNECTED")
-        // Catch wallet alerts already sitting in the shade when the listener binds.
+        scanActiveNotifications()
+    }
+
+    override fun onListenerDisconnected() {
+        connectedInstance = null
+        super.onListenerDisconnected()
+        Log.d(INGEST_TAG, "NotificationListener DISCONNECTED — requesting rebind")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            requestRebind(ComponentName(this, NotificationCaptureService::class.java))
+        }
+    }
+
+    override fun onDestroy() {
+        connectedInstance = null
+        super.onDestroy()
+    }
+
+    private fun scanActiveNotifications() {
         Handler(Looper.getMainLooper()).post {
             try {
-                activeNotifications?.forEach { sbn ->
+                val active = activeNotifications
+                if (active.isNullOrEmpty()) return@post
+                Log.d(INGEST_TAG, "scanning ${active.size} active notification(s)")
+                active.forEach { sbn ->
                     IngestPlugin.processNotification(applicationContext, sbn)
                 }
             } catch (e: Exception) {
                 Log.w(INGEST_TAG, "active notification scan failed", e)
             }
-        }
-    }
-
-    override fun onListenerDisconnected() {
-        super.onListenerDisconnected()
-        Log.d(INGEST_TAG, "NotificationListener DISCONNECTED — requesting rebind")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            requestRebind(ComponentName(this, NotificationCaptureService::class.java))
         }
     }
 

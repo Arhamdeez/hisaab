@@ -185,6 +185,16 @@ class IngestBridge {
     }
   }
 
+  /// Re-reads alerts still sitting in the notification shade (EasyPaisa, Gmail, …).
+  Future<void> scanActiveNotifications() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _methodChannel.invokeMethod<void>('scanActiveNotifications');
+    } catch (e) {
+      debugPrint('IngestBridge scan error: $e');
+    }
+  }
+
   Future<void> dispose() async {
     await _subscription?.cancel();
     await _controller.close();

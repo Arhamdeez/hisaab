@@ -41,23 +41,25 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   /// the real capture state (the bridge being initialized is not enough).
   bool get hasNotificationAccessGranted => _notificationAccess;
 
+  StreamSubscription<IngestEvent>? _ingestSubscription;
+
   Future<void> initialize() async {
-    final rules = await _repository.getParserRules();
-    if (rules.isNotEmpty) _parser.updateRules(rules);
+    // Attach before native EventChannel so live alerts are not dropped.
+    _ingestSubscription =
+        IngestBridge.instance.stream.listen(_handleIngestEvent);
 
     await NotificationService.instance.initialize();
     NotificationService.instance.onForegroundDecision = _applyDecision;
     await IngestBridge.instance.initialize();
     await _gmail.initialize(_database);
 
-    IngestBridge.instance.stream.listen(_handleIngestEvent);
     _listening = true;
 
     WidgetsBinding.instance.addObserver(this);
     _startForegroundSafetyTimer();
 
     // Pull in anything captured while the app was closed, then verify access.
-    await _drainPendingIfNeeded();
+    await _scanAndDrain();
     await _drainNotificationActionsIfQueued();
     await refreshNotificationAccess();
     await refreshBatteryOptimization();
@@ -65,8 +67,13 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  /// Drains the native capture queue and parses any pending alerts.
-  Future<void> syncCaptures() => _drainPendingIfNeeded();
+  /// Scans the notification shade and drains the native capture queue.
+  Future<void> syncCaptures() => _scanAndDrain();
+
+  Future<void> _scanAndDrain() async {
+    await IngestBridge.instance.scanActiveNotifications();
+    await _drainPendingIfNeeded();
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -87,7 +94,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     await refreshNotificationAccess();
     await refreshBatteryOptimization();
     await IngestBridge.instance.requestNotificationRebind();
-    await _drainPendingIfNeeded();
+    await _scanAndDrain();
     await _drainNotificationActionsIfQueued();
     notifyListeners();
   }
@@ -115,7 +122,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
         return;
       }
-      unawaited(_drainPendingIfNeeded());
+      unawaited(_scanAndDrain());
     });
   }
 
@@ -285,6 +292,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     _foregroundSafetyTimer?.cancel();
+    _ingestSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

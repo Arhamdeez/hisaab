@@ -380,4 +380,115 @@ void main() {
     );
     expect(result, isNull);
   });
+
+  test('parses payment of Rs from unknown wallet app', () {
+    final result = parser.parse(
+      'Payment of Rs. 2500 to Ahmed Khan was successful. Trx ID 998877.',
+      source: TransactionSource.notification,
+      packageName: 'com.newfintech.payapp',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 2500);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses amount has been debited wording', () {
+    final result = parser.parse(
+      'PKR 500.00 has been debited from your account for bill payment.',
+      source: TransactionSource.notification,
+      packageName: 'com.unknown.bank.mobile',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 500);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses incoming transfer received', () {
+    final result = parser.parse(
+      'Incoming transfer: Rs 3000.00 received from Ali Raza via Raast.',
+      source: TransactionSource.notification,
+      packageName: 'com.random.wallet',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 3000);
+    expect(result.type, TransactionType.credit);
+  });
+
+  test('parses you paid Rs from any wallet', () {
+    final result = parser.parse(
+      'You paid Rs. 750 to K-Electric. Reference 445566.',
+      source: TransactionSource.notification,
+      packageName: 'com.example.mypay',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 750);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses UPI payment from unknown Indian wallet', () {
+    final result = parser.parse(
+      'UPI payment of INR 1200.00 to Swiggy was successful.',
+      source: TransactionSource.notification,
+      packageName: 'com.unknown.upi.app',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 1200);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses outgoing payment completed', () {
+    final result = parser.parse(
+      'Outgoing payment Rs 1800 completed to HBL account.',
+      source: TransactionSource.notification,
+      packageName: 'com.digitalbank.neo',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 1800);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('rejects shopping order without finance wording', () {
+    final result = parser.parse(
+      'Order confirmed! Your total is 1250. Enjoy your meal.',
+      source: TransactionSource.notification,
+      packageName: 'com.example.shop',
+    );
+    expect(result, isNull);
+  });
+
+  test('rejects social notification with numbers', () {
+    final result = parser.parse(
+      'You have 500 new followers this week. Keep posting!',
+      source: TransactionSource.notification,
+      packageName: 'com.example.social',
+    );
+    expect(result, isNull);
+  });
+
+  test('rejects OTP message with amount-like digits', () {
+    final result = parser.parse(
+      'Your OTP is 500123. Do not share this code with anyone.',
+      source: TransactionSource.notification,
+      packageName: 'com.example.bank.sms',
+    );
+    expect(result, isNull);
+  });
+
+  test('rejects generic successful message without currency', () {
+    final result = parser.parse(
+      'Payment successful! Thank you for using our app.',
+      source: TransactionSource.notification,
+      packageName: 'com.random.app',
+    );
+    expect(result, isNull);
+  });
+
+  test('rejects delivery tracking from food app package', () {
+    final result = parser.parse(
+      'Out for delivery — Rs 850 order from Burger Lab arriving in 12 min.',
+      source: TransactionSource.notification,
+      packageName: 'com.foodpanda.android',
+    );
+    expect(result, isNull);
+  });
 }

@@ -2,19 +2,40 @@
 /// payment app should match via [keywords] or [ids]. Keep aligned with
 /// [IngestPlugin.kt] on Android.
 abstract final class MonitoredPackages {
-  /// Never treat these as finance apps (system / social noise).
+  /// System / social apps — never capture.
   static const excludedPrefixes = [
     'com.android.systemui',
     'com.android.settings',
     'com.android.vending',
+    'com.android.chrome',
     'com.google.android.apps.messaging',
-    'com.google.android.gm',
     'com.google.android.youtube',
+    'com.google.android.dialer',
+    'com.google.android.apps.maps',
+    'com.google.android.calendar',
     'com.samsung.android.messaging',
+    'com.samsung.android.app.health',
     'com.facebook.',
     'com.instagram.',
     'com.twitter.',
     'com.zhiliaoapp.musically', // TikTok
+    'com.spotify.',
+    'com.netflix.',
+    'com.discord',
+    'com.snapchat.',
+    'com.reddit.',
+    'com.linkedin.',
+    'com.careem.',
+    'in.swiggy.',
+    'com.application.zomato',
+    'com.foodpanda.',
+    'com.flipkart.',
+    'com.miui.home',
+  ];
+
+  /// Email clients — capture only when notification text looks like a txn.
+  static const emailClientPrefixes = [
+    'com.google.android.gm',
   ];
 
   /// Explicit package ids — Google Wallet, global wallets, major banks.
@@ -163,9 +184,14 @@ abstract final class MonitoredPackages {
     'telenor',
     'phoenix',
     'mobilink',
-    'digital',
     'pk.',
     '.pk',
+    'fintech',
+    'ewallet',
+    'zelle',
+    'wise',
+    'mpesa',
+    'momo',
   ];
 
   static bool isExcluded(String? packageName) {
@@ -177,10 +203,20 @@ abstract final class MonitoredPackages {
     return false;
   }
 
+  static bool isEmailClient(String? packageName) {
+    if (packageName == null || packageName.isEmpty) return false;
+    final pkg = packageName.toLowerCase();
+    for (final prefix in emailClientPrefixes) {
+      if (pkg == prefix || pkg.startsWith('$prefix')) return true;
+    }
+    return false;
+  }
+
   /// True for any bank, wallet, UPI, or payment app notification source.
   static bool matches(String? packageName) {
     if (packageName == null || packageName.isEmpty) return false;
     if (isExcluded(packageName)) return false;
+    if (isEmailClient(packageName)) return false;
     final pkg = packageName.toLowerCase();
     for (final id in ids) {
       if (pkg.contains(id.toLowerCase())) return true;

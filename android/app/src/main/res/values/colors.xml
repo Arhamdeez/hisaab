@@ -2,5 +2,5 @@
 <resources>
     <!-- Matches AppColors.background — seamless handoff to in-app splash. -->
     <color name="splash_background">#FF000000</color>
-    <color name="ic_launcher_background">#FF000000</color>
+    <color name="ic_launcher_background">#120808</color>
 </resources>
