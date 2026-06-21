@@ -5,7 +5,9 @@ import 'package:flutter/widgets.dart';
 import '../../core/database/app_database.dart';
 import '../../core/repositories/transaction_repository.dart';
 import '../../models/transaction.dart';
+import '../../providers/app_preferences.dart';
 import '../dedup/deduplicator.dart';
+import '../dedup/review_policy.dart';
 import '../notifications/notification_service.dart';
 import '../parser/transaction_parser.dart';
 import 'gmail_service.dart';
@@ -224,6 +226,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       source: event.source,
       rawText: event.text,
       messageTime: event.timestamp,
+      accountHolderName: await _accountHolderNameForReview(event.text),
     );
 
     // Short confirmation whenever a new payment is tracked.
@@ -256,6 +259,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
         source: TransactionSource.gmail,
         rawText: msg.body,
         messageTime: msg.receivedAt,
+        accountHolderName: await _accountHolderNameForReview(msg.body),
       );
       if (outcome.result == DedupResult.created) {
         count++;
@@ -288,6 +292,13 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<bool> hasNotificationAccess() =>
       IngestBridge.instance.isNotificationAccessEnabled();
+
+  Future<String> _accountHolderNameForReview(String rawText) async {
+    await AppPreferences.instance.learnAccountHolderName(
+      ReviewPolicy.extractAccountHolderName(rawText),
+    );
+    return AppPreferences.instance.accountHolderName;
+  }
 
   @override
   void dispose() {

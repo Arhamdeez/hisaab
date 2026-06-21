@@ -96,6 +96,75 @@ Future<void> _editMonthlyIncome(
   }
 }
 
+Future<void> _editAccountHolderName(
+  BuildContext context,
+  AppPreferences prefs,
+) async {
+  final controller = TextEditingController(text: prefs.accountHolderName);
+
+  final value = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: AppColors.backgroundElevated,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        title: const Text('Your name'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Transfers to or from this name go to Inbox for you to confirm '
+              'instead of auto-counting as spend or income.',
+              style: Theme.of(
+                dialogContext,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                hintText: 'Muhammad Arham Babar',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          if (prefs.hasAccountHolderName)
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, ''),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.textMuted,
+              ),
+              child: const Text('Clear'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.ui,
+              foregroundColor: AppColors.textOnPrimary,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (value != null) {
+    await prefs.setAccountHolderName(value);
+  }
+}
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -426,6 +495,22 @@ class _CashFlowSettingsGroup extends StatelessWidget {
                   value: trackInwardFlow,
                   onChanged:
                       context.read<AppPreferences>().setTrackInwardFlow,
+                );
+              },
+            ),
+            Selector<AppPreferences, String>(
+              selector: (_, prefs) => prefs.accountHolderName,
+              builder: (context, accountHolderName, _) {
+                return _SettingsTile(
+                  icon: Icons.person_outline_rounded,
+                  title: 'Your name',
+                  subtitle: accountHolderName.isNotEmpty
+                      ? accountHolderName
+                      : 'Self-transfers involving your name go to Inbox',
+                  onTap: () => _editAccountHolderName(
+                    context,
+                    context.read<AppPreferences>(),
+                  ),
                 );
               },
             ),

@@ -3,6 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/transaction.dart';
 
+import '../features/dedup/review_policy.dart';
+
 /// User-facing display preferences persisted locally.
 class AppPreferences extends ChangeNotifier {
   AppPreferences._(
@@ -12,17 +14,20 @@ class AppPreferences extends ChangeNotifier {
     bool trackInwardFlow = true,
     bool settingsTourSeen = false,
     bool homeTourSeen = false,
+    String accountHolderName = '',
   })  : _showIncome = showIncome,
         _monthlyIncome = monthlyIncome,
         _trackInwardFlow = trackInwardFlow,
         _settingsTourSeen = settingsTourSeen,
-        _homeTourSeen = homeTourSeen;
+        _homeTourSeen = homeTourSeen,
+        _accountHolderName = accountHolderName;
 
   static const _showIncomeKey = 'show_income';
   static const _monthlyIncomeKey = 'monthly_income';
   static const _trackInwardFlowKey = 'track_inward_flow';
   static const _settingsTourSeenKey = 'settings_tour_seen';
   static const _homeTourSeenKey = 'home_tour_seen';
+  static const _accountHolderNameKey = 'account_holder_name';
 
   static AppPreferences? _instance;
   static Future<void>? _hydrating;
@@ -48,6 +53,7 @@ class AppPreferences extends ChangeNotifier {
   bool? _trackInwardFlow;
   bool? _settingsTourSeen;
   bool? _homeTourSeen;
+  String? _accountHolderName;
 
   /// Off by default for new users — enable in Settings when you want a budget.
   bool get showIncome => _showIncome ?? false;
@@ -67,12 +73,18 @@ class AppPreferences extends ChangeNotifier {
 
   bool get hasMonthlyIncome => monthlyIncome > 0;
 
+  /// Legal/account name on bank & wallet alerts — used to detect self-transfers.
+  String get accountHolderName => _accountHolderName ?? '';
+
+  bool get hasAccountHolderName => accountHolderName.trim().isNotEmpty;
+
   void _repairAfterHotReload() {
     _showIncome ??= false;
     _monthlyIncome ??= 0;
     _trackInwardFlow ??= true;
     _settingsTourSeen ??= false;
     _homeTourSeen ??= false;
+    _accountHolderName ??= '';
   }
 
   static Future<AppPreferences> load() async {
@@ -82,6 +94,7 @@ class AppPreferences extends ChangeNotifier {
     final trackInwardFlow = prefs.getBool(_trackInwardFlowKey) ?? true;
     final settingsTourSeen = prefs.getBool(_settingsTourSeenKey) ?? false;
     final homeTourSeen = prefs.getBool(_homeTourSeenKey) ?? false;
+    final accountHolderName = prefs.getString(_accountHolderNameKey) ?? '';
 
     if (_instance != null) {
       _instance!._prefs = prefs;
@@ -90,6 +103,7 @@ class AppPreferences extends ChangeNotifier {
       _instance!._trackInwardFlow = trackInwardFlow;
       _instance!._settingsTourSeen = settingsTourSeen;
       _instance!._homeTourSeen = homeTourSeen;
+      _instance!._accountHolderName = accountHolderName;
       _instance!.notifyListeners();
     } else {
       _instance = AppPreferences._(
@@ -99,6 +113,7 @@ class AppPreferences extends ChangeNotifier {
         trackInwardFlow: trackInwardFlow,
         settingsTourSeen: settingsTourSeen,
         homeTourSeen: homeTourSeen,
+        accountHolderName: accountHolderName,
       );
     }
 
@@ -153,6 +168,40 @@ class AppPreferences extends ChangeNotifier {
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     _prefs = prefs;
     await prefs.setBool(_homeTourSeenKey, true);
+  }
+
+  Future<void> setAccountHolderName(String value) async {
+    final trimmed = value.trim();
+    if (ReviewPolicy.normalizeName(accountHolderName) ==
+        ReviewPolicy.normalizeName(trimmed)) {
+      return;
+    }
+    _accountHolderName = trimmed;
+    notifyListeners();
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    _prefs = prefs;
+    if (trimmed.isEmpty) {
+      await prefs.remove(_accountHolderNameKey);
+    } else {
+      await prefs.setString(_accountHolderNameKey, trimmed);
+    }
+  }
+
+  /// Learns the account holder from "Dear NAME," wallet/bank greetings.
+  Future<void> learnAccountHolderName(String? candidate) async {
+    final trimmed = candidate?.trim();
+    if (trimmed == null || trimmed.isEmpty) return;
+
+    final current = accountHolderName;
+    if (current.isEmpty) {
+      await setAccountHolderName(trimmed);
+      return;
+    }
+    if (ReviewPolicy.namesMatch(current, trimmed)) {
+      if (trimmed.length > current.length) {
+        await setAccountHolderName(trimmed);
+      }
+    }
   }
 
   /// Income baseline for the budget slider — only when [showIncome] is on.

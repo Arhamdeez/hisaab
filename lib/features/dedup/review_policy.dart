@@ -59,14 +59,57 @@ abstract final class ReviewPolicy {
     required String rawText,
     required DateTime messageTime,
     required Iterable<Transaction> recent,
+    String? accountHolderName,
   }) {
     return sameSenderAndReceiver(parsed: parsed, rawText: rawText) ||
         isBackToBackTransfer(
           incoming: parsed,
           messageTime: messageTime,
           recent: recent,
+        ) ||
+        involvesAccountHolder(
+          parsed: parsed,
+          rawText: rawText,
+          accountHolderName: accountHolderName,
         );
   }
+
+  /// "Dear MUHAMMAD ARHAM BABAR," — account holder greeting in PK bank/wallet SMS.
+  static String? extractAccountHolderName(String rawText) {
+    final match = RegExp(
+      r'dear\s+'
+      r"([A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF .'\-]{2,60}?)"
+      r'\s*,',
+      caseSensitive: false,
+    ).firstMatch(rawText);
+    return match?.group(1)?.trim();
+  }
+
+  /// True when money moved to/from the account holder's own name.
+  static bool involvesAccountHolder({
+    required ParsedTransaction parsed,
+    required String rawText,
+    String? accountHolderName,
+  }) {
+    final holders = <String>{};
+    final fromDear = extractAccountHolderName(rawText);
+    if (fromDear != null && fromDear.isNotEmpty) holders.add(fromDear);
+    final saved = accountHolderName?.trim();
+    if (saved != null && saved.isNotEmpty) holders.add(saved);
+    if (holders.isEmpty) return false;
+
+    final counterparty = parsed.type == TransactionType.credit
+        ? (parsed.senderName ?? parsed.merchant)
+        : (parsed.receiverName ?? parsed.merchant);
+
+    for (final holder in holders) {
+      if (_namesMatch(counterparty, holder)) return true;
+    }
+    return false;
+  }
+
+  /// Public alias for fuzzy name matching (e.g. "Arham" vs full legal name).
+  static bool namesMatch(String a, String b) => _namesMatch(a, b);
 
   /// Finds the opposite leg of a likely own-account transfer.
   static Transaction? matchingTransferLeg({
@@ -95,8 +138,8 @@ abstract final class ReviewPolicy {
   }
 
   static bool _namesMatch(String a, String b) {
-    final na = _normalizeName(a);
-    final nb = _normalizeName(b);
+    final na = normalizeName(a);
+    final nb = normalizeName(b);
     if (na.isEmpty || nb.isEmpty) return false;
     if (na == nb) return true;
 
@@ -107,11 +150,16 @@ abstract final class ReviewPolicy {
     return false;
   }
 
-  static String _normalizeName(String value) {
+  /// Case- and punctuation-insensitive name key for matching.
+  static String normalizeName(String value) {
     return value
+        .trim()
         .toLowerCase()
+        .replaceAll(RegExp(r"['\-.]"), ' ')
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
+
+  static String _normalizeName(String value) => normalizeName(value);
 }

@@ -290,6 +290,19 @@ class TransactionParser {
       ..addAll(rules);
   }
 
+  /// Merges title + body — UBL/JazzCash often put PKR amount in the title only.
+  static String normalizeIngestText(
+    String text, {
+    String? notificationTitle,
+  }) {
+    final body = text.replaceAll('\n', ' ').trim();
+    final title = notificationTitle?.replaceAll('\n', ' ').trim() ?? '';
+    if (title.isEmpty) return body;
+    if (body.isEmpty) return title;
+    if (body.toLowerCase().contains(title.toLowerCase())) return body;
+    return '$title — $body';
+  }
+
   /// Non-finance alerts that often contain numbers — never treat as cash.
   static final _noiseNotificationPattern = RegExp(
     r'\b(?:otp|one[\s-]?time\s+(?:password|pin|code)|verification\s+code|'
@@ -297,7 +310,9 @@ class TransactionParser {
     r'\b(?:followers?|following|subscribers?|views?|likes?)\b|'
     r'\b(?:steps|calories|heart\s+rate|km\s+walked|workout)\b|'
     r'\b(?:battery|charging|charge\s+complete)\b|'
-    r'\b(?:update\s+available|new\s+version|downloading|install(?:ing|ed))\b|'
+    r'\b(?:update\s+available|new\s+version|downloading|install(?:ing|ed)|updating|'
+    r'update\s+(?:in\s+progress|complete|failed|ready)|finishing\s+update)\b|'
+    r'\b(?:whatsapp\s+update|backup(?:ping)?|restoring\s+messages|chat\s+backup)\b|'
     r'\b(?:out\s+for\s+delivery|order\s+confirmed|your\s+order\s+#|track(?:ing)?\s+(?:your|order))\b|'
     r'\b(?:flash\s+sale|limited\s+offer|promo\s+code|coupon|\d+\s*%\s*off)\b|'
     r'\b(?:missed\s+call|incoming\s+call|voice\s+mail)\b|'
@@ -309,8 +324,12 @@ class TransactionParser {
   /// Strong money-movement wording — required for unknown apps (with currency).
   static final _strongFinanceSignals = RegExp(
     r'debited|credited|withdrawn|deducted|spent|transferred|purchase|'
+    r'(?:debited|deducted|withdrawn|credited)\s+by\s+(?:pkr|rs\.?)|'
+    r'fund\s+transfer|funds?\s+transfer|transfer\s+to|transfer\s+successful|'
+    r'mobile\s+wallet|wallet\s+a/c|'
     r'money\s+(?:received|sent)|payment\s+(?:received|sent)|'
     r'you\s+(?:sent|paid|received|transferred)|'
+    r'(?:paid|sent|transferred)\s+to\b|'
     r'(?:paid|sent|transferred)\s+(?:pkr|rs\.?|inr|₹|₨|\$|€|£)|'
     r'(?:payment|transfer|transaction|remittance|payout)\s+of\s+(?:pkr|rs\.?|inr|₹|₨|\$|€|£)|'
     r'amount\s+of\s+(?:pkr|rs\.?)|money\s+transfer\s+of|'
@@ -397,7 +416,7 @@ class TransactionParser {
     String? packageName,
     String? notificationTitle,
   }) {
-    final normalized = text.replaceAll('\n', ' ').trim();
+    final normalized = normalizeIngestText(text, notificationTitle: notificationTitle);
     if (normalized.isEmpty) return null;
 
     if (!_looksLikeTransaction(normalized, packageName: packageName)) {
@@ -626,6 +645,12 @@ class TransactionParser {
   static final _currencyUnits =
       r'(?:Rs\.?|PKR|INR|₹|₨|Rupees?|USD|EUR|GBP|AED|SAR|CAD|AUD|\$|€|£)';
 
+  static final _debitedByPattern = RegExp(
+    r'(?:debited|deducted|withdrawn|credited)\s+by\s+'
+    r'(?:PKR|Rs\.?)\.?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
   static final _plainAmountPattern = RegExp(
     r'\b([1-9]\d{0,2}(?:,\d{3})+(?:\.\d{1,2})?|[1-9]\d{2,7}(?:\.\d{1,2})?)\b',
   );
@@ -633,6 +658,12 @@ class TransactionParser {
   /// Primary PK wallet alert shape: "You sent Rs. 1,500.00 …"
   static final _youSentRsPattern = RegExp(
     r'you\s+sent\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  /// Easypaisa received: "You have received Rs.1 in your Easypaisa account…"
+  static final _receivedInAccountPattern = RegExp(
+    r'you\s+(?:have\s+)?received\s+(?:PKR|Rs\.?)\.?\s*([\d,]+(?:\.\d+)?)\s+in\s+your',
     caseSensitive: false,
   );
 
@@ -684,8 +715,10 @@ class TransactionParser {
   static bool _isUniversalTxnTrigger(String text) {
     return _youSentRsPattern.hasMatch(text) ||
         _youReceivedRsPattern.hasMatch(text) ||
+        _receivedInAccountPattern.hasMatch(text) ||
         _amountOfRsPattern.hasMatch(text) ||
         _moneyTransferOfRsPattern.hasMatch(text) ||
+        _debitedByPattern.hasMatch(text) ||
         _paymentOfPattern.hasMatch(text) ||
         _amountHasBeenPattern.hasMatch(text) ||
         _amountWasPattern.hasMatch(text) ||
@@ -722,7 +755,7 @@ class TransactionParser {
 
     if (isFinanceApp) {
       if (!_hasFinanceAmount(text, packageName: packageName)) {
-        return _strongFinanceSignals.hasMatch(text);
+        return false;
       }
       if (_strongFinanceSignals.hasMatch(text)) return true;
       if (_monitoredWalletFallback.hasMatch(text)) return true;
@@ -757,10 +790,12 @@ class TransactionParser {
       _moneyTransferOfRsPattern,
       _youSentRsPattern,
       _youReceivedRsPattern,
+      _receivedInAccountPattern,
       _paymentOfPattern,
       _amountHasBeenPattern,
       _amountWasPattern,
       _youPaidPattern,
+      _debitedByPattern,
     ]) {
       final amount = _amountFromPattern(pattern, text);
       if (amount != null && amount > 0) return amount;
@@ -776,11 +811,11 @@ class TransactionParser {
   static double? _amountFromCurrencyLabel(String text) {
     final patterns = [
       RegExp(
-        '$_currencyUnits\\s*([\\d,]+(?:\\.\\d+)?)',
+        '$_currencyUnits\\s*([\\d,]+(?:\\.\\d+)?)\\s*/?-?',
         caseSensitive: false,
       ),
       RegExp(
-        '([\\d,]+(?:\\.\\d+)?)\\s*$_currencyUnits',
+        '([\\d,]+(?:\\.\\d+)?)\\s*/?-?\\s*$_currencyUnits',
         caseSensitive: false,
       ),
     ];
@@ -797,7 +832,7 @@ class TransactionParser {
     for (final match in _plainAmountPattern.allMatches(text)) {
       final raw = match.group(1)!;
       final value = double.tryParse(raw.replaceAll(',', ''));
-      if (value != null && value >= 10) return value;
+      if (value != null && value >= 1) return value;
     }
     return null;
   }
@@ -1059,6 +1094,8 @@ class TransactionParser {
       caseSensitive: false,
     );
     v = v.replaceAll(boundary, '');
+    // Raast / IBAN tail glued to a person name — "NAME PK**UNILPKKARTG…" or "NAME PK"
+    v = v.replaceAll(RegExp(r'\s+PK(?:[\*A-Z0-9].*)?$', caseSensitive: false), '');
     // Strip a trailing standalone number/date fragment and punctuation.
     v = v.replaceAll(RegExp(r'\s+\d[\d/.\-]*$'), '');
     v = v.replaceAll(RegExp(r'[\s.,;:\-]+$'), '').trim();
@@ -1139,6 +1176,17 @@ class TransactionParser {
     ).firstMatch(text);
     if (receivedFrom != null) {
       final name = _trimMerchant(receivedFrom.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (name, null);
+    }
+
+    // Easypaisa / PK wallets: "received Rs.1 in your account … from NAME PK**…"
+    final inAccountFrom = RegExp(
+      r'in\s+your\s+(?:\w+\s+){0,2}account\b[^.]*?\s+from\s+' +
+          _partyCaptureLazy,
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (inAccountFrom != null) {
+      final name = _trimMerchant(inAccountFrom.group(1)!.trim());
       if (_isUsablePartyName(name)) return (name, null);
     }
 

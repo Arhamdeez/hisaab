@@ -50,7 +50,6 @@ abstract final class MonitoredPackages {
     'net.one97.paytm',
     'in.org.npci.upiapp',
     'com.dreamplug.androidapp',
-    'com.whatsapp',
     'com.amazon.mShop.android.shopping',
     // India banks
     'com.csam.icici.bank.imobile',

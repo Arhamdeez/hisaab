@@ -8,11 +8,12 @@ ParsedTransaction _parsed({
   TransactionType type = TransactionType.debit,
   String? senderName,
   String? receiverName,
+  String merchant = 'Test',
 }) {
   return ParsedTransaction(
     amount: amount,
     type: type,
-    merchant: 'Test',
+    merchant: merchant,
     category: SpendingCategory.other,
     confidence: 0.9,
     senderName: senderName,
@@ -76,6 +77,127 @@ void main() {
         rawText: 'Paid to Ali Khan',
       ),
       isFalse,
+    );
+  });
+
+  test('credit from account holder own name requires review', () {
+    const raw =
+        'Dear MUHAMMAD ARHAM BABAR, You have received Rs.1 in your Easypaisa account '
+        'from MUHAMMAD ARHAM BABAR PK**UNILPKKARTG via Raast Payment';
+    final parsed = _parsed(
+      type: TransactionType.credit,
+      amount: 1,
+      senderName: 'MUHAMMAD ARHAM BABAR',
+    );
+    expect(ReviewPolicy.extractAccountHolderName(raw), 'MUHAMMAD ARHAM BABAR');
+    expect(
+      ReviewPolicy.involvesAccountHolder(parsed: parsed, rawText: raw),
+      isTrue,
+    );
+    expect(
+      ReviewPolicy.requiresReview(
+        parsed: parsed,
+        rawText: raw,
+        messageTime: DateTime(2026, 6, 22),
+        recent: const [],
+      ),
+      isTrue,
+    );
+  });
+
+  test('saved account holder name flags self-transfer without Dear greeting', () {
+    const raw = 'PKR 8,000 paid to Muhammad Arham Babar via Raast';
+    final parsed = _parsed(
+      receiverName: 'Muhammad Arham Babar',
+      merchant: 'Muhammad Arham Babar',
+    );
+    expect(
+      ReviewPolicy.involvesAccountHolder(
+        parsed: parsed,
+        rawText: raw,
+        accountHolderName: 'Muhammad Arham Babar',
+      ),
+      isTrue,
+    );
+    expect(
+      ReviewPolicy.requiresReview(
+        parsed: parsed,
+        rawText: raw,
+        messageTime: DateTime(2026, 6, 22),
+        recent: const [],
+        accountHolderName: 'Muhammad Arham Babar',
+      ),
+      isTrue,
+    );
+  });
+
+  test('payment to someone else does not require review by holder name', () {
+    const raw =
+        'Dear MUHAMMAD ARHAM BABAR, An amount of Rs. 1000 has been sent to ZAIN UI ABIDEEN '
+        'via Raast Payment from your Easypaisa account';
+    final parsed = _parsed(
+      receiverName: 'ZAIN UI ABIDEEN',
+    );
+    expect(
+      ReviewPolicy.involvesAccountHolder(parsed: parsed, rawText: raw),
+      isFalse,
+    );
+  });
+
+  test('namesMatch ignores letter case', () {
+    expect(
+      ReviewPolicy.namesMatch(
+        'MUHAMMAD ARHAM BABAR',
+        'muhammad arham babar',
+      ),
+      isTrue,
+    );
+    expect(
+      ReviewPolicy.namesMatch(
+        'Muhammad Arham Babar',
+        'MUHAMMAD arham BABAR',
+      ),
+      isTrue,
+    );
+    expect(
+      ReviewPolicy.normalizeName('  Muhammad   Arham Babar  '),
+      'muhammad arham babar',
+    );
+  });
+
+  test('involvesAccountHolder matches saved name regardless of case', () {
+    const raw = 'You received Rs.500 from muhammad arham babar via Raast';
+    final parsed = _parsed(
+      type: TransactionType.credit,
+      amount: 500,
+      senderName: 'MUHAMMAD ARHAM BABAR',
+    );
+    expect(
+      ReviewPolicy.involvesAccountHolder(
+        parsed: parsed,
+        rawText: raw,
+        accountHolderName: 'muhammad arham babar',
+      ),
+      isTrue,
+    );
+    expect(
+      ReviewPolicy.involvesAccountHolder(
+        parsed: parsed,
+        rawText: raw,
+        accountHolderName: 'Muhammad Arham Babar',
+      ),
+      isTrue,
+    );
+  });
+
+  test('same sender and receiver names require review regardless of case', () {
+    final parsed = _parsed(
+      senderName: 'MUHAMMAD ARHAM BABAR',
+      receiverName: 'muhammad arham babar',
+    );
+    expect(
+      ReviewPolicy.sameSenderAndReceiver(parsed: parsed, rawText: 'transfer'),
+      isTrue,
     );
   });
 

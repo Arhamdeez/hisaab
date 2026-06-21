@@ -491,4 +491,102 @@ void main() {
     );
     expect(result, isNull);
   });
+
+  test('rejects WhatsApp updating notification', () {
+    final result = parser.parse(
+      'WhatsApp is updating',
+      source: TransactionSource.notification,
+      packageName: 'com.whatsapp',
+    );
+    expect(result, isNull);
+  });
+
+  test('rejects WhatsApp update with version numbers', () {
+    final result = parser.parse(
+      'Update complete — WhatsApp 2.24.12.78',
+      source: TransactionSource.notification,
+      packageName: 'com.whatsapp',
+    );
+    expect(result, isNull);
+  });
+
+  test('rejects WhatsApp downloading update progress', () {
+    final result = parser.parse(
+      'Downloading update… 45% complete',
+      source: TransactionSource.notification,
+      packageName: 'com.whatsapp',
+    );
+    expect(result, isNull);
+  });
+
+  test('parses WhatsApp Pay UPI received notification', () {
+    final result = parser.parse(
+      'You received Rs. 500 from Amit Sharma via UPI.',
+      source: TransactionSource.notification,
+      packageName: 'com.whatsapp',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 500);
+    expect(result.type, TransactionType.credit);
+  });
+
+  test('parses UBL IBFT transfer to EasyPaisa', () {
+    final result = parser.parse(
+      'Dear Customer, your account **1234 has been debited by PKR 8,000.00 '
+      'vide IBFT transfer to EASYPAISA Mobile Wallet on 18-JUN-2026.',
+      source: TransactionSource.notification,
+      packageName: 'app.com.brd',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 8000);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses UBL transfer when amount is in notification title only', () {
+    final result = parser.parse(
+      'Fund transfer to EasyPaisa wallet successful.',
+      source: TransactionSource.notification,
+      packageName: 'app.com.brd',
+      notificationTitle: 'PKR 8,000.00',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 8000);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses UBL Rs amount with slash dash suffix', () {
+    final result = parser.parse(
+      'Transaction Alert: Rs. 8,000/- debited from A/C ***5678 for FT.',
+      source: TransactionSource.notification,
+      packageName: 'app.com.brd',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 8000);
+    expect(result.type, TransactionType.debit);
+  });
+
+  test('parses easypaisa received Rs.1 in account via raast', () {
+    final result = parser.parse(
+      'Dear MUHAMMAD ARHAM BABAR, You have received Rs.1 in your Easypaisa account '
+      '***********0101 from MUHAMMAD ARHAM BABAR PK**UNILPKKARTG****7613 via Raast Payment '
+      'on 22-06-2026 at 04:18:31. Trx ID: 51649571871',
+      source: TransactionSource.notification,
+      packageName: 'pk.com.telenor.phoenix',
+      notificationTitle: 'easypaisa',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 1);
+    expect(result.type, TransactionType.credit);
+    expect(result.senderName, 'MUHAMMAD ARHAM BABAR');
+  });
+
+  test('rejects easypaisa title only without transaction body', () {
+    final result = parser.parse(
+      'easypaisa',
+      source: TransactionSource.notification,
+      packageName: 'pk.com.telenor.phoenix',
+      notificationTitle: 'easypaisa',
+    );
+    expect(result, isNull);
+  });
 }

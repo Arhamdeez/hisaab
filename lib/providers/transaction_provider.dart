@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 
 import '../core/repositories/transaction_repository.dart';
 import '../features/dedup/deduplicator.dart';
+import '../features/dedup/review_policy.dart';
 import '../features/parser/category_guesser.dart';
 import '../features/parser/transaction_parser.dart';
 import '../models/transaction.dart';
+import '../providers/app_preferences.dart';
 
 class TransactionProvider extends ChangeNotifier {
   TransactionProvider({
@@ -253,11 +255,16 @@ class TransactionProvider extends ChangeNotifier {
     );
     if (parsed == null) return;
 
+    await AppPreferences.instance.learnAccountHolderName(
+      ReviewPolicy.extractAccountHolderName(text),
+    );
+
     await _deduplicator.processIncoming(
       parsed: parsed,
       source: source,
       rawText: text,
       messageTime: timestamp ?? DateTime.now(),
+      accountHolderName: AppPreferences.instance.accountHolderName,
     );
     await load();
   }

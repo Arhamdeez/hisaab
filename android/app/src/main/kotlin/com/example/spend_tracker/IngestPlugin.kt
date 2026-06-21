@@ -82,7 +82,6 @@ class IngestPlugin(
             "net.one97.paytm",
             "in.org.npci.upiapp",
             "com.dreamplug.androidapp",
-            "com.whatsapp",
             "com.amazon.mShop.android.shopping",
             // India banks
             "com.csam.icici.bank.imobile",
@@ -167,7 +166,9 @@ class IngestPlugin(
                 "\\b(?:followers?|following|subscribers?|views?|likes?)\\b|" +
                 "\\b(?:steps|calories|heart\\s+rate|km\\s+walked|workout)\\b|" +
                 "\\b(?:battery|charging|charge\\s+complete)\\b|" +
-                "\\b(?:update\\s+available|new\\s+version|downloading|install(?:ing|ed))\\b|" +
+                "\\b(?:update\\s+available|new\\s+version|downloading|install(?:ing|ed)|updating|" +
+                "update\\s+(?:in\\s+progress|complete|failed|ready)|finishing\\s+update)\\b|" +
+                "\\b(?:whatsapp\\s+update|backup(?:ping)?|restoring\\s+messages|chat\\s+backup)\\b|" +
                 "\\b(?:out\\s+for\\s+delivery|order\\s+confirmed|your\\s+order\\s+#|" +
                 "track(?:ing)?\\s+(?:your|order))\\b|" +
                 "\\b(?:flash\\s+sale|limited\\s+offer|promo\\s+code|coupon|\\d+\\s*%\\s*off)\\b|" +
@@ -180,6 +181,9 @@ class IngestPlugin(
         /** Strong money-movement wording — required for unknown apps (with currency). */
         private val strongFinanceRegex = Regex(
             "debited|credited|withdrawn|deducted|spent|transferred|purchase|" +
+                "(?:debited|deducted|withdrawn|credited)\\s+by\\s+(?:pkr|rs\\.?)|" +
+                "fund\\s+transfer|funds?\\s+transfer|transfer\\s+to|transfer\\s+successful|" +
+                "mobile\\s+wallet|wallet\\s+a/c|" +
                 "money\\s+(?:received|sent)|payment\\s+(?:received|sent)|" +
                 "you\\s+(?:sent|paid|received|transferred)|" +
                 "(?:paid|sent|transferred)\\s+(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£)|" +
@@ -244,8 +248,8 @@ class IngestPlugin(
 
         private val amountRegex = Regex(
             "(?:rs\\.?|pkr|inr|₹|₨|rupees?|usd|eur|gbp|aed|sar|cad|aud|\\$|€|£)" +
-                "\\s*[\\d,]+(?:\\.\\d+)?|" +
-                "[\\d,]+(?:\\.\\d+)?\\s*(?:rs\\.?|pkr|inr|₹|₨|rupees?|usd|eur|gbp|aed|sar|cad|aud)",
+                "\\s*[\\d,]+(?:\\.\\d+)?\\s*/?-?|" +
+                "[\\d,]+(?:\\.\\d+)?\\s*/?-?\\s*(?:rs\\.?|pkr|inr|₹|₨|rupees?|usd|eur|gbp|aed|sar|cad|aud)",
             RegexOption.IGNORE_CASE,
         )
 
@@ -258,7 +262,7 @@ class IngestPlugin(
             if (amountRegex.containsMatchIn(text)) return true
             val match = plainAmountRegex.find(text)?.groupValues?.getOrNull(1) ?: return false
             val value = match.replace(",", "").toDoubleOrNull() ?: return false
-            return value >= 10.0
+            return value >= 1.0
         }
 
         /** Primary PK wallet triggers — "You sent Rs. 500" / "You received Rs. …" */
@@ -269,6 +273,12 @@ class IngestPlugin(
 
         private val youReceivedRsRegex = Regex(
             "you\\s+(?:have\\s+)?(?:received|got)\\s+(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Easypaisa: "You have received Rs.1 in your Easypaisa account…" */
+        private val receivedInAccountRegex = Regex(
+            "you\\s+(?:have\\s+)?received\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+in\\s+your",
             RegexOption.IGNORE_CASE,
         )
 
@@ -440,9 +450,27 @@ class IngestPlugin(
         fun isHighConfidenceTxn(text: String): Boolean {
             if (youSentRsRegex.containsMatchIn(text)) return true
             if (youReceivedRsRegex.containsMatchIn(text)) return true
+            if (receivedInAccountRegex.containsMatchIn(text)) return true
             if (amountOfRsRegex.containsMatchIn(text)) return true
             if (moneyTransferOfRsRegex.containsMatchIn(text)) return true
+            if (debitedByRegex.containsMatchIn(text)) return true
             return universalTxnRegex.containsMatchIn(text)
+        }
+
+        private val debitedByRegex = Regex(
+            "(?:debited|deducted|withdrawn|credited)\\s+by\\s+" +
+                "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Title + body — UBL often puts PKR amount in the title only. */
+        fun combineNotificationText(title: String, body: String): String {
+            val t = title.trim()
+            val b = body.trim()
+            if (t.isEmpty()) return b
+            if (b.isEmpty()) return t
+            if (b.contains(t, ignoreCase = true)) return b
+            return "$t — $b"
         }
 
         fun looksLikeTransaction(text: String): Boolean {
@@ -464,8 +492,9 @@ class IngestPlugin(
             }
 
             if (shouldMonitor(packageName)) {
+                if (isHighConfidenceTxn(text)) return true
                 if (!hasFinanceAmount(text)) {
-                    return strongFinanceRegex.containsMatchIn(text)
+                    return false
                 }
                 if (strongFinanceRegex.containsMatchIn(text)) return true
                 if (monitoredWalletFallbackRegex.containsMatchIn(text)) return true
@@ -516,9 +545,10 @@ class IngestPlugin(
             if (pkg == context.packageName) return
 
             val extras = sbn.notification.extras
-            val text = extractNotificationText(extras)
             val title =
                 extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
+            val body = extractNotificationText(extras)
+            val text = combineNotificationText(title, body)
 
             if (shouldSkipPackage(pkg, text)) return
 
@@ -600,8 +630,9 @@ class IngestPlugin(
             }
 
             add(extras.getCharSequence(Notification.EXTRA_TITLE))
-            add(extras.getCharSequence(Notification.EXTRA_TEXT))
+            // Prefer expanded body — wallet apps often put the txn in BIG_TEXT only.
             add(extras.getCharSequence(Notification.EXTRA_BIG_TEXT))
+            add(extras.getCharSequence(Notification.EXTRA_TEXT))
             add(extras.getCharSequence(Notification.EXTRA_SUB_TEXT))
             add(extras.getCharSequence(Notification.EXTRA_INFO_TEXT))
             add(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT))

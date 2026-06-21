@@ -27,6 +27,7 @@ void main() {
     required String text,
     required DateTime messageTime,
     TransactionSource source = TransactionSource.notification,
+    String accountHolderName = 'MUHAMMAD ARHAM BABAR',
   }) async {
     final parsed = parser.parse(
       text,
@@ -39,6 +40,7 @@ void main() {
       source: source,
       rawText: text,
       messageTime: messageTime,
+      accountHolderName: accountHolderName,
     );
   }
 
@@ -127,6 +129,65 @@ void main() {
 
     expect(second.result, DedupResult.merged);
     expect((await repository.getAll()).length, 1);
+  });
+
+  test('flags easypaisa self-received transfer for inbox review', () async {
+    const text =
+        'Dear MUHAMMAD ARHAM BABAR, You have received Rs.1 in your Easypaisa account '
+        '***********0101 from MUHAMMAD ARHAM BABAR PK**UNILPKKARTG****7613 via Raast Payment '
+        'on 22-06-2026 at 04:18:31. Trx ID: 51649571871';
+    final when = DateTime(2026, 6, 22, 4, 18);
+
+    final outcome = await ingest(text: text, messageTime: when);
+
+    expect(outcome.result, DedupResult.created);
+    expect(outcome.transaction?.status, TransactionStatus.pendingReview);
+    expect(outcome.transaction?.isPending, isTrue);
+  });
+
+  test('auto-confirms easypaisa payment to another person', () async {
+    const text =
+        'Dear MUHAMMAD ARHAM BABAR, An amount of Rs. 1000.0 has been successfully sent to '
+        'ZAIN UI ABIDEEN in *******0917 via Raast Payment from your Easypaisa account '
+        '*******0101 on 2026-06-20 at 04:37:57. Trx ID: 51560858320.';
+    final when = DateTime(2026, 6, 20, 4, 37);
+
+    final outcome = await ingest(
+      text: text,
+      messageTime: when,
+      accountHolderName: 'MUHAMMAD ARHAM BABAR',
+    );
+
+    expect(outcome.result, DedupResult.created);
+    expect(outcome.transaction?.status, TransactionStatus.confirmed);
+  });
+
+  test('flags transfer to saved account holder name for inbox review', () async {
+    const text =
+        'PKR 8,000.00 paid to Muhammad Arham Babar via Raast on 20-JUN-2026';
+    final when = DateTime(2026, 6, 20, 10, 0);
+
+    final outcome = await ingest(
+      text: text,
+      messageTime: when,
+      accountHolderName: 'Muhammad Arham Babar',
+    );
+
+    expect(outcome.transaction?.status, TransactionStatus.pendingReview);
+  });
+
+  test('flags self-transfer when saved name differs only by case', () async {
+    const text =
+        'PKR 8,000.00 paid to MUHAMMAD ARHAM BABAR via Raast on 20-JUN-2026';
+    final when = DateTime(2026, 6, 20, 10, 0);
+
+    final outcome = await ingest(
+      text: text,
+      messageTime: when,
+      accountHolderName: 'muhammad arham babar',
+    );
+
+    expect(outcome.transaction?.status, TransactionStatus.pendingReview);
   });
 
   test('merges repeated wallet alerts within a few seconds', () async {

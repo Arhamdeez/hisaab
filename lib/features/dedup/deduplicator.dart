@@ -26,6 +26,7 @@ class Deduplicator {
     required TransactionSource source,
     required String rawText,
     required DateTime messageTime,
+    String? accountHolderName,
   }) async {
     final occurredAt = parsed.occurredAt ?? messageTime;
     final fingerprint = TransactionParser.buildFingerprint(
@@ -98,10 +99,8 @@ class Deduplicator {
       rawText: rawText,
       messageTime: messageTime,
       recent: recent,
+      accountHolderName: accountHolderName,
     );
-    if (parsed.confidence < TransactionParser.confidenceThreshold) {
-      needsReview = true;
-    }
 
     if (needsReview) {
       final leg = ReviewPolicy.matchingTransferLeg(
