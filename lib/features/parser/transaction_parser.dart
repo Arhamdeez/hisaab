@@ -374,6 +374,8 @@ class TransactionParser {
     r'(?:debited|credited|sent|paid|transferred|received)|'
     r'successfully\s+sent\s+to|transfer\s*successful|successfully\s*transferred|'
     r'(?:outgoing|incoming)\s+(?:payment|transfer|transaction|money)|'
+    r'(?:pkr|rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+with\b|'
+    r'you\s+(?:have\s+)?paid\s+(?:pkr|rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+at\b|'
     r'a/c\s*\*+|account\s*\*+|trx\s*id|trans(?:action)?\s*id|'
     r'raast|ibft|1link|\bupi\b|\bimps\b|\bneft\b|\brtgs\b',
     caseSensitive: false,
@@ -627,7 +629,7 @@ class TransactionParser {
   }
 
   static final _genericFromTargets = RegExp(
-    r'^(?:your|my|the|a|an|wallet|account|customer|a/c|ac\b|bank)\b',
+    r'^(?:your|my|the|a|an|wallet|account|customer|a/c|ac|bank)$',
     caseSensitive: false,
   );
 
@@ -708,6 +710,18 @@ class TransactionParser {
     caseSensitive: false,
   );
 
+  /// Google Wallet / tap-to-pay: "PKR330.00 with EP Digital Card …"
+  static final _walletCardPaymentPattern = RegExp(
+    r'(?:PKR|Rs\.?)\.?\s*([\d,]+(?:\.\d+)?)\s+with\b',
+    caseSensitive: false,
+  );
+
+  /// EasyPaisa / card SMS: "You have paid Rs. 330.00 at MERCHANT"
+  static final _youPaidAtPattern = RegExp(
+    r'you\s+(?:have\s+)?paid\s+(?:PKR|Rs\.?)\.?\s*([\d,]+(?:\.\d+)?)\s+at\b',
+    caseSensitive: false,
+  );
+
   /// Primary PK wallet alert shape: "You sent Rs. 1,500.00 …"
   static final _youSentRsPattern = RegExp(
     r'you\s+sent\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
@@ -770,6 +784,8 @@ class TransactionParser {
         _youReceivedRsPattern.hasMatch(text) ||
         _receivedInAccountPattern.hasMatch(text) ||
         _rsSentToPattern.hasMatch(text) ||
+        _walletCardPaymentPattern.hasMatch(text) ||
+        _youPaidAtPattern.hasMatch(text) ||
         _amountOfRsPattern.hasMatch(text) ||
         _moneyTransferOfRsPattern.hasMatch(text) ||
         _debitedByPattern.hasMatch(text) ||
@@ -817,9 +833,10 @@ class TransactionParser {
       }
       if (_strongFinanceSignals.hasMatch(text)) return true;
       if (_monitoredWalletFallback.hasMatch(text)) return true;
-      if (_isWalletPersonTitleAmount(
+      if (_isTitleWithAmountBody(
         notificationTitle: notificationTitle,
         text: text,
+        packageName: packageName,
       )) {
         return true;
       }
@@ -830,20 +847,21 @@ class TransactionParser {
     return _hasCurrencyLabel(text) && _strongFinanceSignals.hasMatch(text);
   }
 
-  /// PK wallets: counterparty in title + amount in body (JazzCash / NayaPay).
-  static bool _isWalletPersonTitleAmount({
+  /// Merchant/person in title + amount in body (Google Wallet, JazzCash, NayaPay).
+  static bool _isTitleWithAmountBody({
     required String? notificationTitle,
     required String text,
+    String? packageName,
   }) {
     final title = notificationTitle?.trim();
-    if (title == null || title.isEmpty) return false;
+    if (title == null || title.isEmpty || title.length < 3) return false;
     if (_genericAlertTitlePattern.hasMatch(title)) return false;
     if (_amountOrAlertTitlePattern.hasMatch(title)) return false;
-    if (!_personTitlePattern.hasMatch(title)) return false;
-    if (!_hasCurrencyLabel(text) && !_walletTxnSignals.hasMatch(text)) {
-      return false;
-    }
-    return _plainAmountPattern.hasMatch(text) || _hasCurrencyLabel(text);
+    if (!_hasFinanceAmount(text, packageName: packageName)) return false;
+    return _walletCardPaymentPattern.hasMatch(text) ||
+        _walletTxnSignals.hasMatch(text) ||
+        _strongFinanceSignals.hasMatch(text) ||
+        _hasCurrencyLabel(text);
   }
 
   static final _genericAlertTitlePattern = RegExp(
@@ -896,6 +914,8 @@ class TransactionParser {
       _youReceivedRsPattern,
       _receivedInAccountPattern,
       _rsSentToPattern,
+      _walletCardPaymentPattern,
+      _youPaidAtPattern,
       _paymentOfPattern,
       _amountHasBeenPattern,
       _amountWasPattern,
@@ -1004,6 +1024,9 @@ class TransactionParser {
     // Primary wallet / Raast outbound triggers.
     if (_youSentRsPattern.hasMatch(combined) ||
         _rsSentToPattern.hasMatch(combined) ||
+        _walletCardPaymentPattern.hasMatch(combined) ||
+        _youPaidAtPattern.hasMatch(combined) ||
+        _youPaidPattern.hasMatch(combined) ||
         _amountOfRsPattern.hasMatch(combined) ||
         _paymentOfPattern.hasMatch(combined) ||
         _youPaidPattern.hasMatch(combined) ||
@@ -1134,9 +1157,45 @@ class TransactionParser {
   }
 
   String? _extractMerchant(String text, {TransactionType? type}) {
+    final patterns = [
+      RegExp(
+        r'you\s+(?:have\s+)?paid\s+(?:'
+        r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+)?'
+        r'at\s+' +
+            _partyCaptureLazy +
+            r'(?=\s+(?:on|via|at|for|from|ref|trx|txn|\d{4}-\d{2}-\d{2})|\s*[,.]|$)',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'(?:to|at|for)\s+' +
+            _partyCaptureLazy +
+            r'(?=\s+(?:on|via|at|for|from|ref|trx|txn|\d{4}-\d{2}-\d{2})|\s*[,.]|$)',
+        caseSensitive: false,
+      ),
+      RegExp(r'Info:\s*([A-Za-z0-9/.\-]+)', caseSensitive: false),
+    ];
+    for (final p in patterns) {
+      final match = p.firstMatch(text);
+      if (match != null) {
+        final value = _trimMerchant(match.group(1)!.trim());
+        if (value.length >= 2 &&
+            _isUsableMerchant(value) &&
+            !_isGenericFromTarget(value)) {
+          return value;
+        }
+      }
+    }
+
     // Wallet/bank notifications often lead with "Counterparty Name. …" in the title.
     for (final segment in text.split(RegExp(r'\s*[—\-|]\s*'))) {
-      final leading = _nameBeforeSentenceDot(segment.trim());
+      final trimmed = segment.trim();
+      if (RegExp(
+        r'^(?:txn|trx|debit\s+card|transaction\s+id|transaction)\b',
+        caseSensitive: false,
+      ).hasMatch(trimmed)) {
+        continue;
+      }
+      final leading = _nameBeforeSentenceDot(trimmed);
       if (leading != null && leading.length >= 2) return leading;
     }
 
@@ -1156,24 +1215,6 @@ class TransactionParser {
       }
     }
 
-    final patterns = [
-      RegExp(
-        r'(?:to|at|for)\s+' + _partyCapture,
-        caseSensitive: false,
-      ),
-      RegExp(r'Info:\s*([A-Za-z0-9/.\-]+)', caseSensitive: false),
-    ];
-    for (final p in patterns) {
-      final match = p.firstMatch(text);
-      if (match != null) {
-        final value = _trimMerchant(match.group(1)!.trim());
-        if (value.length >= 2 &&
-            _isUsableMerchant(value) &&
-            !_isGenericFromTarget(value)) {
-          return value;
-        }
-      }
-    }
     return null;
   }
 
@@ -1273,6 +1314,17 @@ class TransactionParser {
     ).firstMatch(text);
     if (sentTo != null) {
       final name = _trimMerchant(sentTo.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (null, name);
+    }
+
+    final paidAt = RegExp(
+      r'you\s+(?:have\s+)?paid\s+(?:'
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+)?'
+      r'at\s+' + _partyCaptureLazy + r'(?=\s+(?:on|via|at|for|from|ref|trx|txn|\d{4}-\d{2}-\d{2})|\s*[,.]|$)',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (paidAt != null) {
+      final name = _trimMerchant(paidAt.group(1)!.trim());
       if (_isUsablePartyName(name)) return (null, name);
     }
 

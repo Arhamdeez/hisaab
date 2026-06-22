@@ -231,16 +231,41 @@ void main() {
 
   test('parses NayaPay casual sent alert with Rs amount first', () {
     final result = parser.parse(
-      "Rs. 500 sent to Inayat Hussain. Your wallet's seen better days.",
+      "Rs. 190 sent to Inam Ullah. Your wallet's seen better days.",
       source: TransactionSource.notification,
       packageName: 'com.nayapay.app',
       notificationTitle: 'Off it goes 💸',
     );
     expect(result, isNotNull);
-    expect(result!.amount, 500);
+    expect(result!.amount, 190);
     expect(result.type, TransactionType.debit);
-    expect(result.merchant, 'Inayat Hussain');
-    expect(result.receiverName, 'Inayat Hussain');
+    expect(result.merchant, 'Inam Ullah');
+    expect(result.receiverName, 'Inam Ullah');
+  });
+
+  test('parses Google Wallet PKR tap payment with merchant title', () {
+    final result = parser.parse(
+      'PKR330.00 with EP Digital Card Google Wallet ••8421',
+      source: TransactionSource.notification,
+      packageName: 'com.google.android.apps.walletnfcrel',
+      notificationTitle: 'THE FAST MART',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 330);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant, 'THE FAST MART');
+  });
+
+  test('parses EasyPaisa debit card SMS from short code', () {
+    final result = parser.parse(
+      'Txn ID 51695745211. Debit Card No. ***8421. You have paid Rs. 330.00 at '
+      'THE FAST MART LAHORE PK on 2026-06-22. Transaction Fee: Rs. 0.00',
+      source: TransactionSource.sms,
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 330);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant.toUpperCase(), contains('FAST MART'));
   });
 
   test('parses NayaPay sent alert without PKR prefix', () {

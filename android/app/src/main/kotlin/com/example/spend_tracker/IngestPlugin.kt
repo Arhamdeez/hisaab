@@ -202,6 +202,8 @@ class IngestPlugin(
                 "(?:paid|sent|transferred)\\s+to\\b|" +
                 "(?:paid|sent|transferred)\\s+(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£)|" +
                 "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+sent\\s+to\\b|" +
+                "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+with\\b|" +
+                "you\\s+(?:have\\s+)?paid\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+at\\b|" +
                 "(?:payment|transfer|transaction|remittance|payout)\\s+of\\s+" +
                 "(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£)|" +
                 "amount\\s+of\\s+(?:pkr|rs\\.?)|money\\s+transfer\\s+of|" +
@@ -209,6 +211,8 @@ class IngestPlugin(
                 "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+(?:has\\s+been|was)\\s+" +
                 "(?:debited|credited|sent|paid|transferred|received)|" +
                 "successfully\\s+sent\\s+to|transfer\\s*successful|successfully\\s*transferred|" +
+                "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+with\\b|" +
+                "you\\s+(?:have\\s+)?paid\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+at\\b|" +
                 "(?:outgoing|incoming)\\s+(?:payment|transfer|transaction|money)|" +
                 "a/c\\s*\\*+|account\\s*\\*+|trx\\s*id|trans(?:action)?\\s*id|" +
                 "raast|ibft|1link|\\bupi\\b|\\bimps\\b|\\bneft\\b|\\brtgs\\b",
@@ -306,6 +310,24 @@ class IngestPlugin(
         /** NayaPay casual alerts: "Rs. 500 sent to Inayat Hussain." */
         private val rsSentToRegex = Regex(
             "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+sent\\s+to\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Google Wallet / tap-to-pay: "PKR330.00 with EP Digital Card …" */
+        private val walletCardPaymentRegex = Regex(
+            "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+with\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** EasyPaisa card SMS: "You have paid Rs. 330.00 at MERCHANT" */
+        private val youPaidAtRegex = Regex(
+            "you\\s+(?:have\\s+)?paid\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+at\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
+        private val txnSnippetRegex = Regex(
+            "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+(?:sent\\s+to|with\\b)|" +
+                "you\\s+(?:have\\s+)?paid\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?(?:\\s+at\\b)?",
             RegexOption.IGNORE_CASE,
         )
 
@@ -496,6 +518,8 @@ class IngestPlugin(
             if (youReceivedRsRegex.containsMatchIn(text)) return true
             if (receivedInAccountRegex.containsMatchIn(text)) return true
             if (rsSentToRegex.containsMatchIn(text)) return true
+            if (walletCardPaymentRegex.containsMatchIn(text)) return true
+            if (youPaidAtRegex.containsMatchIn(text)) return true
             if (amountOfRsRegex.containsMatchIn(text)) return true
             if (moneyTransferOfRsRegex.containsMatchIn(text)) return true
             if (debitedByRegex.containsMatchIn(text)) return true
@@ -525,7 +549,29 @@ class IngestPlugin(
             return hasCurrencyLabel(text) && strongFinanceRegex.containsMatchIn(text)
         }
 
-        fun shouldCapture(packageName: String, text: String): Boolean {
+        private val genericAlertTitleRegex = Regex(
+            "^(?:unknown|dear customer|customer|wallet|account|payment|money|" +
+                "jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|" +
+                "transaction alert|money received|money sent|payment received|" +
+                "transfer successful|successful transfer|transfer|backup|" +
+                "off it goes|money in|money out|cha[\\s-]?ching|payment sent|" +
+                "payment received|transfer complete|transfer sent)\$",
+            RegexOption.IGNORE_CASE,
+        )
+
+        private fun isTitleWithAmountBody(title: String, text: String): Boolean {
+            val t = title.trim()
+            if (t.length < 3) return false
+            if (genericAlertTitleRegex.matches(t)) return false
+            if (amountRegex.containsMatchIn(t)) return false
+            if (!hasFinanceAmount(text)) return false
+            return walletCardPaymentRegex.containsMatchIn(text) ||
+                walletTxnRegex.containsMatchIn(text) ||
+                strongFinanceRegex.containsMatchIn(text) ||
+                hasCurrencyLabel(text)
+        }
+
+        fun shouldCapture(packageName: String, text: String, title: String = ""): Boolean {
             if (isExcludedPackage(packageName)) return false
             if (isNoiseNotification(text)) return false
 
@@ -544,6 +590,7 @@ class IngestPlugin(
                 if (strongFinanceRegex.containsMatchIn(text)) return true
                 if (monitoredWalletFallbackRegex.containsMatchIn(text)) return true
                 if (walletTxnRegex.containsMatchIn(text)) return true
+                if (isTitleWithAmountBody(title, text)) return true
                 return false
             }
 
@@ -607,7 +654,7 @@ class IngestPlugin(
                 Log.d(INGEST_TAG, "posted pkg=$pkg preview=${text.take(120)}")
             }
 
-            if (!shouldCapture(pkg, text)) {
+            if (!shouldCapture(pkg, text, title)) {
                 if (shouldMonitor(pkg) || isEmailClient(pkg)) {
                     Log.w(
                         INGEST_TAG,
@@ -746,19 +793,50 @@ class IngestPlugin(
                 }
             }
 
-            if (parts.isEmpty()) return ""
+            if (parts.isEmpty()) {
+                scanExtrasForTxnSnippet(extras)?.let { return it }
+                return ""
+            }
 
             fun financeScore(text: String): Int {
                 var score = 0
                 if (amountRegex.containsMatchIn(text)) score += 20
                 if (walletTxnRegex.containsMatchIn(text)) score += 10
                 if (rsSentToRegex.containsMatchIn(text)) score += 15
+                if (walletCardPaymentRegex.containsMatchIn(text)) score += 15
+                if (youPaidAtRegex.containsMatchIn(text)) score += 15
                 return score + text.length / 40
             }
 
             val best = parts.maxByOrNull { financeScore(it) }
             if (best != null && financeScore(best) >= 20) return best
+
+            scanExtrasForTxnSnippet(extras)?.let { return it }
             return parts.joinToString(" — ")
+        }
+
+        private fun scanExtrasForTxnSnippet(extras: Bundle?): String? {
+            if (extras == null) return null
+            val found = LinkedHashSet<String>()
+
+            fun scan(value: CharSequence?) {
+                val t = value?.toString()?.trim() ?: return
+                txnSnippetRegex.find(t)?.value?.trim()?.let { found.add(it) }
+            }
+
+            for (key in extras.keySet()) {
+                when (val value = extras.get(key)) {
+                    is CharSequence -> scan(value)
+                    is Array<*> -> value.filterIsInstance<CharSequence>().forEach { scan(it) }
+                    is Bundle -> {
+                        scan(value.getCharSequence(Notification.EXTRA_TEXT))
+                        scan(value.getCharSequence(Notification.EXTRA_BIG_TEXT))
+                        scan(value.getCharSequence("text"))
+                    }
+                }
+            }
+
+            return found.maxByOrNull { it.length }
         }
     }
 
