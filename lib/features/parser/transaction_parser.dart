@@ -282,6 +282,14 @@ class TransactionParser {
       sourceHint: 'notification',
       enabled: true,
     ),
+    ParserRule(
+      id: 29,
+      name: 'Rs amount sent to counterparty',
+      pattern:
+          r'(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)\s+sent\s+to\s+',
+      sourceHint: 'notification',
+      enabled: true,
+    ),
   ];
 
   void updateRules(List<ParserRule> rules) {
@@ -295,13 +303,35 @@ class TransactionParser {
     String text, {
     String? notificationTitle,
   }) {
-    final body = text.replaceAll('\n', ' ').trim();
-    final title = notificationTitle?.replaceAll('\n', ' ').trim() ?? '';
+    final body = sanitizeIngestText(text).replaceAll('\n', ' ').trim();
+    final title =
+        sanitizeIngestText(notificationTitle ?? '').replaceAll('\n', ' ').trim();
     if (title.isEmpty) return body;
     if (body.isEmpty) return title;
     if (body.toLowerCase().contains(title.toLowerCase())) return body;
     return '$title — $body';
   }
+
+  /// Drops Java/FCM metadata and other non-human notification segments.
+  static String sanitizeIngestText(String text) {
+    if (text.trim().isEmpty) return '';
+    final segments = text.split(RegExp(r'\s*[—\-|]\s*'));
+    final kept = <String>[];
+    for (final segment in segments) {
+      final t = segment.trim();
+      if (t.isEmpty) continue;
+      if (_metadataSegmentPattern.hasMatch(t)) continue;
+      kept.add(t);
+    }
+    return kept.join(' — ');
+  }
+
+  static final _metadataSegmentPattern = RegExp(
+    r'(?:android\.(?:app|x)\.|androidx\.|Notification\$|NotificationCompat|'
+    r'FCM-Notification|BigTextStyle|MessagingStyle|InboxStyle|'
+    r'^com\.[a-z0-9_.]+\s*$)',
+    caseSensitive: false,
+  );
 
   /// Non-finance alerts that often contain numbers — never treat as cash.
   static final _noiseNotificationPattern = RegExp(
@@ -312,12 +342,18 @@ class TransactionParser {
     r'\b(?:battery|charging|charge\s+complete)\b|'
     r'\b(?:update\s+available|new\s+version|downloading|install(?:ing|ed)|updating|'
     r'update\s+(?:in\s+progress|complete|failed|ready)|finishing\s+update)\b|'
-    r'\b(?:whatsapp\s+update|backup(?:ping)?|restoring\s+messages|chat\s+backup)\b|'
+    r'\b(?:whatsapp\s+update|backup(?:ping)?|backup\s+in\s+progress|restoring\s+messages|'
+    r'chat\s+backup|uploading\s*:|download(?:ing)?\s*:)\b|'
     r'\b(?:out\s+for\s+delivery|order\s+confirmed|your\s+order\s+#|track(?:ing)?\s+(?:your|order))\b|'
     r'\b(?:flash\s+sale|limited\s+offer|promo\s+code|coupon|\d+\s*%\s*off)\b|'
     r'\b(?:missed\s+call|incoming\s+call|voice\s+mail)\b|'
     r'\b(?:weather|forecast|rain\s+alert)\b|'
-    r'\b(?:match\s+score|full\s+time)\b',
+    r'\b(?:match\s+score|full\s+time)\b|'
+    r'\b(?:get\s+a\s+chance|chance\s+to\s+win|win\s+(?:\d+|a\s+|1\s)|'
+    r'(?:\d+\s+)?crore|(?:\d+\s+)?lakh|(?:\d+\s+)?lac)\b|'
+    r'\bmaintain\s+(?:rs\.?|pkr)\b|'
+    r'\b(?:refer(?:ral)?|invite\s+(?:friends?|and\s+earn))\b|'
+    r'\b\d+\s*(?:mb|gb|kb|tb)\s+of\s+\d+\s*(?:mb|gb|kb|tb)\b',
     caseSensitive: false,
   );
 
@@ -419,7 +455,11 @@ class TransactionParser {
     final normalized = normalizeIngestText(text, notificationTitle: notificationTitle);
     if (normalized.isEmpty) return null;
 
-    if (!_looksLikeTransaction(normalized, packageName: packageName)) {
+    if (!_looksLikeTransaction(
+      normalized,
+      packageName: packageName,
+      notificationTitle: notificationTitle,
+    )) {
       return null;
     }
 
@@ -594,7 +634,14 @@ class TransactionParser {
   bool _isGenericFromTarget(String value) => _genericFromTargets.hasMatch(value);
 
   bool _isGenericAlertTitle(String value) {
-    return _genericMerchants.hasMatch(value.trim());
+    final v = value.trim();
+    if (_genericMerchants.hasMatch(v)) return true;
+    // NayaPay casual send/receive titles — not a counterparty name.
+    return RegExp(
+      r'^(?:off it goes|money in|money out|cha[\s-]?ching|payment sent|'
+      r'payment received|transfer complete|transfer sent)\b',
+      caseSensitive: false,
+    ).hasMatch(v);
   }
 
   bool _isPhoneLike(String value) {
@@ -653,6 +700,12 @@ class TransactionParser {
 
   static final _plainAmountPattern = RegExp(
     r'\b([1-9]\d{0,2}(?:,\d{3})+(?:\.\d{1,2})?|[1-9]\d{2,7}(?:\.\d{1,2})?)\b',
+  );
+
+  /// NayaPay casual alerts: "Rs. 500 sent to Inayat Hussain."
+  static final _rsSentToPattern = RegExp(
+    r'(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)\s+sent\s+to\b',
+    caseSensitive: false,
   );
 
   /// Primary PK wallet alert shape: "You sent Rs. 1,500.00 …"
@@ -716,6 +769,7 @@ class TransactionParser {
     return _youSentRsPattern.hasMatch(text) ||
         _youReceivedRsPattern.hasMatch(text) ||
         _receivedInAccountPattern.hasMatch(text) ||
+        _rsSentToPattern.hasMatch(text) ||
         _amountOfRsPattern.hasMatch(text) ||
         _moneyTransferOfRsPattern.hasMatch(text) ||
         _debitedByPattern.hasMatch(text) ||
@@ -739,7 +793,11 @@ class TransactionParser {
   static bool _hasCurrencyLabel(String text) =>
       _amountFromCurrencyLabel(text) != null;
 
-  static bool _looksLikeTransaction(String text, {String? packageName}) {
+  static bool _looksLikeTransaction(
+    String text, {
+    String? packageName,
+    String? notificationTitle,
+  }) {
     if (MonitoredPackages.isExcluded(packageName)) return false;
     if (_isNoiseNotification(text)) return false;
 
@@ -759,14 +817,56 @@ class TransactionParser {
       }
       if (_strongFinanceSignals.hasMatch(text)) return true;
       if (_monitoredWalletFallback.hasMatch(text)) return true;
-      if (_hasCurrencyLabel(text)) return true;
-      // PK wallets: amount-only body + person title (NayaPay, JazzCash).
-      return _plainAmountPattern.hasMatch(text);
+      if (_isWalletPersonTitleAmount(
+        notificationTitle: notificationTitle,
+        text: text,
+      )) {
+        return true;
+      }
+      return false;
     }
 
     // Unknown apps: currency label + strong finance wording only.
     return _hasCurrencyLabel(text) && _strongFinanceSignals.hasMatch(text);
   }
+
+  /// PK wallets: counterparty in title + amount in body (JazzCash / NayaPay).
+  static bool _isWalletPersonTitleAmount({
+    required String? notificationTitle,
+    required String text,
+  }) {
+    final title = notificationTitle?.trim();
+    if (title == null || title.isEmpty) return false;
+    if (_genericAlertTitlePattern.hasMatch(title)) return false;
+    if (_amountOrAlertTitlePattern.hasMatch(title)) return false;
+    if (!_personTitlePattern.hasMatch(title)) return false;
+    if (!_hasCurrencyLabel(text) && !_walletTxnSignals.hasMatch(text)) {
+      return false;
+    }
+    return _plainAmountPattern.hasMatch(text) || _hasCurrencyLabel(text);
+  }
+
+  static final _genericAlertTitlePattern = RegExp(
+    r'^(?:unknown|dear customer|customer|wallet|account|payment|money|'
+    r'jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|'
+    r'transaction alert|money received|money sent|payment received|'
+    r'transfer successful|successful transfer|transfer|backup|'
+    r'off it goes|money in|money out|cha[\s-]?ching|payment sent|'
+    r'payment received|transfer complete|transfer sent)$',
+    caseSensitive: false,
+  );
+
+  static final _amountOrAlertTitlePattern = RegExp(
+    r'(?:rs\.?|pkr|inr|₹|₨|usd|eur|gbp|\$|€|£)\s*[\d,]|'
+    r'[\d,]+(?:\.\d+)?\s*(?:rs\.?|pkr|inr|₹|₨|usd|eur|gbp|\$|€|£)|'
+    r'^(?:you\s+)?(?:have\s+)?(?:received|sent|paid|credited|debited|'
+    r'transferred|transfer)\b',
+    caseSensitive: false,
+  );
+
+  static final _personTitlePattern = RegExp(
+    r"^[A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF .'\-&]{1,48}$",
+  );
 
   static bool _hasFinanceAmount(String text, {String? packageName}) {
     return _peekAmount(text, packageName: packageName) != null;
@@ -780,7 +880,11 @@ class TransactionParser {
 
   static bool _hasFinanceContext(String text, {String? packageName}) {
     if (_isHighConfidenceTxn(text)) return true;
-    if (MonitoredPackages.matches(packageName)) return true;
+    if (MonitoredPackages.matches(packageName)) {
+      return _strongFinanceSignals.hasMatch(text) ||
+          _monitoredWalletFallback.hasMatch(text) ||
+          _walletTxnSignals.hasMatch(text);
+    }
     return _hasCurrencyLabel(text) && _strongFinanceSignals.hasMatch(text);
   }
 
@@ -791,6 +895,7 @@ class TransactionParser {
       _youSentRsPattern,
       _youReceivedRsPattern,
       _receivedInAccountPattern,
+      _rsSentToPattern,
       _paymentOfPattern,
       _amountHasBeenPattern,
       _amountWasPattern,
@@ -811,25 +916,46 @@ class TransactionParser {
   static double? _amountFromCurrencyLabel(String text) {
     final patterns = [
       RegExp(
-        '$_currencyUnits\\s*([\\d,]+(?:\\.\\d+)?)\\s*/?-?',
+        '$_currencyUnits\\s*([\\d,]+(?:\\.\\d+)?)(?![kmb](?:\\b|/))\\s*/?-?',
         caseSensitive: false,
       ),
       RegExp(
-        '([\\d,]+(?:\\.\\d+)?)\\s*/?-?\\s*$_currencyUnits',
+        '([\\d,]+(?:\\.\\d+)?)(?![kmb](?:\\b|/))\\s*/?-?\\s*$_currencyUnits',
         caseSensitive: false,
       ),
     ];
     for (final p in patterns) {
       final match = p.firstMatch(text);
       if (match != null) {
-        return double.tryParse(match.group(1)!.replaceAll(',', ''));
+        final start = match.start;
+        final end = match.end;
+        if (_isInvalidAmountContext(text, start, end)) continue;
+        final value = double.tryParse(match.group(1)!.replaceAll(',', ''));
+        if (value != null && value > 0) return value;
       }
     }
     return null;
   }
 
+  static bool _isInvalidAmountContext(String text, int start, int end) {
+    final tail = text.substring(end).trimLeft();
+    if (RegExp(r'^(?:mb|gb|kb|tb|%)\b', caseSensitive: false).hasMatch(tail)) {
+      return true;
+    }
+    final windowEnd = (end + 24).clamp(0, text.length);
+    final window = text.substring(start, windowEnd);
+    if (RegExp(r'\b(?:crore|lakh|lac|million|billion)\b', caseSensitive: false)
+        .hasMatch(window)) {
+      return true;
+    }
+    return false;
+  }
+
   static double? _amountPlainFinance(String text) {
     for (final match in _plainAmountPattern.allMatches(text)) {
+      final start = match.start;
+      final end = match.end;
+      if (_isInvalidAmountContext(text, start, end)) continue;
       final raw = match.group(1)!;
       final value = double.tryParse(raw.replaceAll(',', ''));
       if (value != null && value >= 1) return value;
@@ -877,6 +1003,7 @@ class TransactionParser {
 
     // Primary wallet / Raast outbound triggers.
     if (_youSentRsPattern.hasMatch(combined) ||
+        _rsSentToPattern.hasMatch(combined) ||
         _amountOfRsPattern.hasMatch(combined) ||
         _paymentOfPattern.hasMatch(combined) ||
         _youPaidPattern.hasMatch(combined) ||

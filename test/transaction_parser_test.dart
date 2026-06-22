@@ -229,6 +229,20 @@ void main() {
     expect(result.merchant, 'Fatima Noor');
   });
 
+  test('parses NayaPay casual sent alert with Rs amount first', () {
+    final result = parser.parse(
+      "Rs. 500 sent to Inayat Hussain. Your wallet's seen better days.",
+      source: TransactionSource.notification,
+      packageName: 'com.nayapay.app',
+      notificationTitle: 'Off it goes 💸',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 500);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant, 'Inayat Hussain');
+    expect(result.receiverName, 'Inayat Hussain');
+  });
+
   test('parses NayaPay sent alert without PKR prefix', () {
     final result = parser.parse(
       'You sent — 1,500.00 — Transaction successful',
@@ -445,6 +459,26 @@ void main() {
     expect(result, isNotNull);
     expect(result!.amount, 1800);
     expect(result.type, TransactionType.debit);
+  });
+
+  test('rejects JazzCash promotional maintain balance alert', () {
+    final result = parser.parse(
+      'Missed April & May? — Maintain Rs. 50K & Get a Chance to Win 1 CRORE! — '
+      'android.app.Notification\$BigTextStyle — androidx.core.app.NotificationCompat\$BigTextStyle — '
+      'com.techlogix.mobilinkcustomer — FCM-Notification:18884585',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNull);
+  });
+
+  test('rejects backup upload progress with MB amounts', () {
+    final result = parser.parse(
+      'Backup in progress — Uploading: 165 MB of 302 MB (54%)',
+      source: TransactionSource.notification,
+      notificationTitle: 'Backup',
+    );
+    expect(result, isNull);
   });
 
   test('rejects shopping order without finance wording', () {

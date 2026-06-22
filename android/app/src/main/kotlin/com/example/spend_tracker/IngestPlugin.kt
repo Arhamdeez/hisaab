@@ -168,13 +168,26 @@ class IngestPlugin(
                 "\\b(?:battery|charging|charge\\s+complete)\\b|" +
                 "\\b(?:update\\s+available|new\\s+version|downloading|install(?:ing|ed)|updating|" +
                 "update\\s+(?:in\\s+progress|complete|failed|ready)|finishing\\s+update)\\b|" +
-                "\\b(?:whatsapp\\s+update|backup(?:ping)?|restoring\\s+messages|chat\\s+backup)\\b|" +
+                "\\b(?:whatsapp\\s+update|backup(?:ping)?|backup\\s+in\\s+progress|restoring\\s+messages|" +
+                "chat\\s+backup|uploading\\s*:|download(?:ing)?\\s*:)\\b|" +
                 "\\b(?:out\\s+for\\s+delivery|order\\s+confirmed|your\\s+order\\s+#|" +
                 "track(?:ing)?\\s+(?:your|order))\\b|" +
                 "\\b(?:flash\\s+sale|limited\\s+offer|promo\\s+code|coupon|\\d+\\s*%\\s*off)\\b|" +
                 "\\b(?:missed\\s+call|incoming\\s+call|voice\\s+mail)\\b|" +
                 "\\b(?:weather|forecast|rain\\s+alert)\\b|" +
-                "\\b(?:match\\s+score|full\\s+time)\\b",
+                "\\b(?:match\\s+score|full\\s+time)\\b|" +
+                "\\b(?:get\\s+a\\s+chance|chance\\s+to\\s+win|win\\s+(?:\\d+|a\\s+|1\\s)|" +
+                "(?:\\d+\\s+)?crore|(?:\\d+\\s+)?lakh|(?:\\d+\\s+)?lac)\\b|" +
+                "\\bmaintain\\s+(?:rs\\.?|pkr)\\b|" +
+                "\\b(?:refer(?:ral)?|invite\\s+(?:friends?|and\\s+earn))\\b|" +
+                "\\b\\d+\\s*(?:mb|gb|kb|tb)\\s+of\\s+\\d+\\s*(?:mb|gb|kb|tb)\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
+        private val metadataSegmentRegex = Regex(
+            "(?:android\\.(?:app|x)\\.|androidx\\.|Notification\\\$|NotificationCompat|" +
+                "FCM-Notification|BigTextStyle|MessagingStyle|InboxStyle|" +
+                "^com\\.[a-z0-9_.]+\\s*\$)",
             RegexOption.IGNORE_CASE,
         )
 
@@ -186,7 +199,9 @@ class IngestPlugin(
                 "mobile\\s+wallet|wallet\\s+a/c|" +
                 "money\\s+(?:received|sent)|payment\\s+(?:received|sent)|" +
                 "you\\s+(?:sent|paid|received|transferred)|" +
+                "(?:paid|sent|transferred)\\s+to\\b|" +
                 "(?:paid|sent|transferred)\\s+(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£)|" +
+                "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+sent\\s+to\\b|" +
                 "(?:payment|transfer|transaction|remittance|payout)\\s+of\\s+" +
                 "(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£)|" +
                 "amount\\s+of\\s+(?:pkr|rs\\.?)|money\\s+transfer\\s+of|" +
@@ -248,8 +263,8 @@ class IngestPlugin(
 
         private val amountRegex = Regex(
             "(?:rs\\.?|pkr|inr|₹|₨|rupees?|usd|eur|gbp|aed|sar|cad|aud|\\$|€|£)" +
-                "\\s*[\\d,]+(?:\\.\\d+)?\\s*/?-?|" +
-                "[\\d,]+(?:\\.\\d+)?\\s*/?-?\\s*(?:rs\\.?|pkr|inr|₹|₨|rupees?|usd|eur|gbp|aed|sar|cad|aud)",
+                "\\s*[\\d,]+(?:\\.\\d+)?(?![kmb](?:\\b|/))\\s*/?-?|" +
+                "[\\d,]+(?:\\.\\d+)?(?![kmb](?:\\b|/))\\s*/?-?\\s*(?:rs\\.?|pkr|inr|₹|₨|rupees?|usd|eur|gbp|aed|sar|cad|aud)",
             RegexOption.IGNORE_CASE,
         )
 
@@ -259,11 +274,40 @@ class IngestPlugin(
         )
 
         fun hasFinanceAmount(text: String): Boolean {
+            if (isInvalidAmountContext(text)) return false
             if (amountRegex.containsMatchIn(text)) return true
             val match = plainAmountRegex.find(text)?.groupValues?.getOrNull(1) ?: return false
             val value = match.replace(",", "").toDoubleOrNull() ?: return false
             return value >= 1.0
         }
+
+        private fun isInvalidAmountContext(text: String): Boolean {
+            if (Regex("\\b\\d+\\s*(?:mb|gb|kb|tb)\\s+of\\s+\\d+\\s*(?:mb|gb|kb|tb)\\b", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(text)) {
+                return true
+            }
+            if (Regex("\\b(?:crore|lakh|lac|million|billion)\\b", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(text)) {
+                return true
+            }
+            return false
+        }
+
+        fun sanitizeNotificationText(text: String): String {
+            if (text.isBlank()) return ""
+            return text.split(Regex("\\s*[—\\-|]\\s*"))
+                .map { it.trim() }
+                .filter { segment ->
+                    segment.isNotEmpty() && !metadataSegmentRegex.containsMatchIn(segment)
+                }
+                .joinToString(" — ")
+        }
+
+        /** NayaPay casual alerts: "Rs. 500 sent to Inayat Hussain." */
+        private val rsSentToRegex = Regex(
+            "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+sent\\s+to\\b",
+            RegexOption.IGNORE_CASE,
+        )
 
         /** Primary PK wallet triggers — "You sent Rs. 500" / "You received Rs. …" */
         private val youSentRsRegex = Regex(
@@ -451,6 +495,7 @@ class IngestPlugin(
             if (youSentRsRegex.containsMatchIn(text)) return true
             if (youReceivedRsRegex.containsMatchIn(text)) return true
             if (receivedInAccountRegex.containsMatchIn(text)) return true
+            if (rsSentToRegex.containsMatchIn(text)) return true
             if (amountOfRsRegex.containsMatchIn(text)) return true
             if (moneyTransferOfRsRegex.containsMatchIn(text)) return true
             if (debitedByRegex.containsMatchIn(text)) return true
@@ -498,9 +543,8 @@ class IngestPlugin(
                 }
                 if (strongFinanceRegex.containsMatchIn(text)) return true
                 if (monitoredWalletFallbackRegex.containsMatchIn(text)) return true
-                if (hasCurrencyLabel(text)) return true
-                // PK wallets: amount-only body (NayaPay, JazzCash).
-                return plainAmountRegex.containsMatchIn(text)
+                if (walletTxnRegex.containsMatchIn(text)) return true
+                return false
             }
 
             // Unknown apps: currency + strong finance wording only.
@@ -548,7 +592,7 @@ class IngestPlugin(
             val title =
                 extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
             val body = extractNotificationText(extras)
-            val text = combineNotificationText(title, body)
+            val text = sanitizeNotificationText(combineNotificationText(title, body))
 
             if (shouldSkipPackage(pkg, text)) return
 
@@ -619,17 +663,22 @@ class IngestPlugin(
         /**
          * Pulls every human-readable line from a notification. Samsung and wallet
          * apps often stash the transaction body in non-standard extra keys.
+         * Title is handled separately in [processNotification].
          */
         fun extractNotificationText(extras: Bundle?): String {
             if (extras == null) return ""
+            val title =
+                extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
             val parts = LinkedHashSet<String>()
 
             fun add(cs: CharSequence?) {
                 val t = cs?.toString()?.trim()
-                if (!t.isNullOrBlank()) parts.add(t)
+                if (t.isNullOrBlank()) return
+                if (metadataSegmentRegex.containsMatchIn(t)) return
+                if (title.isNotEmpty() && t.equals(title, ignoreCase = true)) return
+                parts.add(t)
             }
 
-            add(extras.getCharSequence(Notification.EXTRA_TITLE))
             // Prefer expanded body — wallet apps often put the txn in BIG_TEXT only.
             add(extras.getCharSequence(Notification.EXTRA_BIG_TEXT))
             add(extras.getCharSequence(Notification.EXTRA_TEXT))
@@ -639,8 +688,7 @@ class IngestPlugin(
 
             for (key in listOf(
                     "message", "body", "content", "description", "alert",
-                    "text", "subtext", "android.text", "android.title",
-                    "android.bigText", "android.infoText",
+                    "text", "subtext", "android.bigText", "android.infoText",
                 )) {
                 add(extras.getCharSequence(key))
                 extras.getString(key)?.let { add(it) }
@@ -660,6 +708,7 @@ class IngestPlugin(
 
             // Wallet apps often stash the body under custom or extra android.* keys.
             val skipKeys = setOf(
+                "android.title",
                 "android.icon",
                 "android.largeIcon",
                 "android.picture",
@@ -693,11 +742,22 @@ class IngestPlugin(
                         add(value.getCharSequence("text"))
                         add(value.getCharSequence(Notification.EXTRA_TEXT))
                         add(value.getCharSequence(Notification.EXTRA_BIG_TEXT))
-                        add(value.getCharSequence(Notification.EXTRA_TITLE))
                     }
                 }
             }
 
+            if (parts.isEmpty()) return ""
+
+            fun financeScore(text: String): Int {
+                var score = 0
+                if (amountRegex.containsMatchIn(text)) score += 20
+                if (walletTxnRegex.containsMatchIn(text)) score += 10
+                if (rsSentToRegex.containsMatchIn(text)) score += 15
+                return score + text.length / 40
+            }
+
+            val best = parts.maxByOrNull { financeScore(it) }
+            if (best != null && financeScore(best) >= 20) return best
             return parts.joinToString(" — ")
         }
     }
