@@ -374,6 +374,8 @@ class TransactionParser {
     r'(?:debited|credited|sent|paid|transferred|received)|'
     r'successfully\s+sent\s+to|transfer\s*successful|successfully\s*transferred|'
     r'(?:outgoing|incoming)\s+(?:payment|transfer|transaction|money)|'
+    r'(?:pkr|rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+sent\s+to\b|'
+    r'(?:pkr|rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+received\s+from\b|'
     r'(?:pkr|rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+with\b|'
     r'you\s+(?:have\s+)?paid\s+(?:pkr|rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+at\b|'
     r'a/c\s*\*+|account\s*\*+|trx\s*id|trans(?:action)?\s*id|'
@@ -710,6 +712,12 @@ class TransactionParser {
     caseSensitive: false,
   );
 
+  /// JazzCash Raast: "Rs 100.0 received from MUHAMMAD ARHAM BABAR AC …"
+  static final _rsReceivedFromPattern = RegExp(
+    r'(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)\s+received\s+from\b',
+    caseSensitive: false,
+  );
+
   /// Google Wallet / tap-to-pay: "PKR330.00 with EP Digital Card …"
   static final _walletCardPaymentPattern = RegExp(
     r'(?:PKR|Rs\.?)\.?\s*([\d,]+(?:\.\d+)?)\s+with\b',
@@ -784,6 +792,7 @@ class TransactionParser {
         _youReceivedRsPattern.hasMatch(text) ||
         _receivedInAccountPattern.hasMatch(text) ||
         _rsSentToPattern.hasMatch(text) ||
+        _rsReceivedFromPattern.hasMatch(text) ||
         _walletCardPaymentPattern.hasMatch(text) ||
         _youPaidAtPattern.hasMatch(text) ||
         _amountOfRsPattern.hasMatch(text) ||
@@ -914,6 +923,7 @@ class TransactionParser {
       _youReceivedRsPattern,
       _receivedInAccountPattern,
       _rsSentToPattern,
+      _rsReceivedFromPattern,
       _walletCardPaymentPattern,
       _youPaidAtPattern,
       _paymentOfPattern,
@@ -1000,6 +1010,7 @@ class TransactionParser {
 
   static final _creditTitlePattern = RegExp(
     r'money\s+received|payment\s+received|cash\s+received|'
+    r'raast\s+incoming\s+payment|incoming\s+payment|'
     r'received\s+(?:rs\.?|pkr|inr|₹|₨|\$|€|£|usd|eur|gbp|money|payment|cash)|'
     r'(?:rs\.?|pkr|inr|₹|₨|\$|€|£|usd|eur|gbp)\s*[\d,]+(?:\.\d+)?\s+received',
     caseSensitive: false,
@@ -1038,6 +1049,8 @@ class TransactionParser {
       return TransactionType.debit;
     }
     if (_youReceivedRsPattern.hasMatch(combined) ||
+        _rsReceivedFromPattern.hasMatch(combined) ||
+        _receivedInAccountPattern.hasMatch(combined) ||
         (_directionTransferPattern.hasMatch(combined) &&
             combined.contains('incoming'))) {
       return TransactionType.credit;
@@ -1264,6 +1277,8 @@ class TransactionParser {
     v = v.replaceAll(boundary, '');
     // Raast / IBAN tail glued to a person name — "NAME PK**UNILPKKARTG…" or "NAME PK"
     v = v.replaceAll(RegExp(r'\s+PK(?:[\*A-Z0-9].*)?$', caseSensitive: false), '');
+    // JazzCash: "MUHAMMAD ARHAM BABAR AC ********244200101"
+    v = v.replaceAll(RegExp(r'\s+AC\b.*$', caseSensitive: false), '');
     // Strip a trailing standalone number/date fragment and punctuation.
     v = v.replaceAll(RegExp(r'\s+\d[\d/.\-]*$'), '');
     v = v.replaceAll(RegExp(r'[\s.,;:\-]+$'), '').trim();
@@ -1345,6 +1360,18 @@ class TransactionParser {
     if (transferredTo != null) {
       final name = _trimMerchant(transferredTo.group(1)!.trim());
       if (_isUsablePartyName(name)) return (null, name);
+    }
+
+    final amountReceivedFrom = RegExp(
+      r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+'
+      r'received\s+from\s+' +
+          _partyCaptureLazy +
+          r'(?=\s+(?:AC\b|PK\b|in\s+your|via\b|on\b|trx|tid|\d{4}-\d{2}-\d{2})|\s*[,.]|$)',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (amountReceivedFrom != null) {
+      final name = _trimMerchant(amountReceivedFrom.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (name, null);
     }
 
     final receivedFrom = RegExp(

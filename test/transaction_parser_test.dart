@@ -243,6 +243,45 @@ void main() {
     expect(result.receiverName, 'Inam Ullah');
   });
 
+  test('parses JazzCash Raast incoming received-from alert', () {
+    final result = parser.parse(
+      'Rs 100.0 received from MUHAMMAD ARHAM BABAR AC ********244200101 in your '
+      'JazzCash Mobile Account:03244200101 via Raast. TID: 715577471335',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+      notificationTitle: 'Raast Incoming Payment',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 100);
+    expect(result.type, TransactionType.credit);
+    expect(result.senderName, 'MUHAMMAD ARHAM BABAR');
+  });
+
+  test('parses NayaPay Rs 100 sent to account holder from screenshot', () {
+    final result = parser.parse(
+      "Rs. 100 sent to Muhammad Arham Babar. Your wallet's seen better days.",
+      source: TransactionSource.notification,
+      packageName: 'com.nayapay.app',
+      notificationTitle: 'Off it goes 💸',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 100);
+    expect(result.type, TransactionType.debit);
+    expect(result.receiverName, 'Muhammad Arham Babar');
+  });
+
+  test('parses truncated NayaPay body when title carries alert wording', () {
+    final result = parser.parse(
+      'Off it goes — Rs. 100 sent to',
+      source: TransactionSource.notification,
+      packageName: 'com.nayapay.app',
+      notificationTitle: 'Off it goes 💸',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 100);
+    expect(result.type, TransactionType.debit);
+  });
+
   test('parses Google Wallet PKR tap payment with merchant title', () {
     final result = parser.parse(
       'PKR330.00 with EP Digital Card Google Wallet ••8421',

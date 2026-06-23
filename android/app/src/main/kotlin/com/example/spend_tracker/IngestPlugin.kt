@@ -202,6 +202,7 @@ class IngestPlugin(
                 "(?:paid|sent|transferred)\\s+to\\b|" +
                 "(?:paid|sent|transferred)\\s+(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£)|" +
                 "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+sent\\s+to\\b|" +
+                "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+received\\s+from\\b|" +
                 "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+with\\b|" +
                 "you\\s+(?:have\\s+)?paid\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+at\\b|" +
                 "(?:payment|transfer|transaction|remittance|payout)\\s+of\\s+" +
@@ -325,9 +326,21 @@ class IngestPlugin(
             RegexOption.IGNORE_CASE,
         )
 
+        /** JazzCash Raast: "Rs 100.0 received from NAME AC …" */
+        private val rsReceivedFromRegex = Regex(
+            "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+received\\s+from\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
         private val txnSnippetRegex = Regex(
-            "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+(?:sent\\s+to|with\\b)|" +
+            "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+(?:sent\\s+to|received\\s+from|with\\b)|" +
                 "you\\s+(?:have\\s+)?paid\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?(?:\\s+at\\b)?",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Full wallet txn line — includes counterparty name when extras only yield a prefix. */
+        private val txnLineRegex = Regex(
+            "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+(?:sent\\s+to|received\\s+from)\\s+[^.\\n—|]{3,120}",
             RegexOption.IGNORE_CASE,
         )
 
@@ -518,6 +531,7 @@ class IngestPlugin(
             if (youReceivedRsRegex.containsMatchIn(text)) return true
             if (receivedInAccountRegex.containsMatchIn(text)) return true
             if (rsSentToRegex.containsMatchIn(text)) return true
+            if (rsReceivedFromRegex.containsMatchIn(text)) return true
             if (walletCardPaymentRegex.containsMatchIn(text)) return true
             if (youPaidAtRegex.containsMatchIn(text)) return true
             if (amountOfRsRegex.containsMatchIn(text)) return true
@@ -639,7 +653,7 @@ class IngestPlugin(
             val title =
                 extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
             val body = extractNotificationText(extras)
-            val text = sanitizeNotificationText(combineNotificationText(title, body))
+            var text = sanitizeNotificationText(combineNotificationText(title, body))
 
             if (shouldSkipPackage(pkg, text)) return
 
@@ -648,6 +662,14 @@ class IngestPlugin(
                     Log.w(INGEST_TAG, "empty text pkg=$pkg title=${title.take(60)}")
                 }
                 return
+            }
+
+            // Samsung / PK wallets sometimes post title-only first — recover txn line from extras.
+            if (shouldMonitor(pkg) && !shouldCapture(pkg, text, title)) {
+                val recovered = scanExtrasForTxnSnippet(extras)
+                if (recovered != null) {
+                    text = sanitizeNotificationText(combineNotificationText(title, recovered))
+                }
             }
 
             if (shouldMonitor(pkg) || isEmailClient(pkg)) {
@@ -803,6 +825,7 @@ class IngestPlugin(
                 if (amountRegex.containsMatchIn(text)) score += 20
                 if (walletTxnRegex.containsMatchIn(text)) score += 10
                 if (rsSentToRegex.containsMatchIn(text)) score += 15
+                if (rsReceivedFromRegex.containsMatchIn(text)) score += 15
                 if (walletCardPaymentRegex.containsMatchIn(text)) score += 15
                 if (youPaidAtRegex.containsMatchIn(text)) score += 15
                 return score + text.length / 40
@@ -821,6 +844,7 @@ class IngestPlugin(
 
             fun scan(value: CharSequence?) {
                 val t = value?.toString()?.trim() ?: return
+                txnLineRegex.find(t)?.value?.trim()?.let { found.add(it) }
                 txnSnippetRegex.find(t)?.value?.trim()?.let { found.add(it) }
             }
 
