@@ -4,16 +4,20 @@ import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.Manifest
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.content.pm.PackageManager
 import android.provider.Settings
+import android.provider.Telephony
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -180,7 +184,19 @@ class IngestPlugin(
                 "(?:\\d+\\s+)?crore|(?:\\d+\\s+)?lakh|(?:\\d+\\s+)?lac)\\b|" +
                 "\\bmaintain\\s+(?:rs\\.?|pkr)\\b|" +
                 "\\b(?:refer(?:ral)?|invite\\s+(?:friends?|and\\s+earn))\\b|" +
-                "\\b\\d+\\s*(?:mb|gb|kb|tb)\\s+of\\s+\\d+\\s*(?:mb|gb|kb|tb)\\b",
+                "\\b\\d+\\s*(?:mb|gb|kb|tb)\\s+of\\s+\\d+\\s*(?:mb|gb|kb|tb)\\b|" +
+                // Platform payout notices — not local wallet/bank alerts.
+                "\\bupwork\\b|" +
+                "withdrawal\\s+of\\s+your\\s+upwork\\s+balance|" +
+                "amount\\s+you\\s+should\\s+receive\\b|" +
+                // Campus / university announcements — not payments.
+                "international\\s+(?:education\\s+)?office\\b|" +
+                "three\\s+global\\s+opportunities\\b|" +
+                "semester\\s+exchange\\b|" +
+                "gebze\\s+technical\\s+university\\b|" +
+                "fast\\s*[—–\\-]\\s*nuc(?:es)?\\b|" +
+                "(?:tuition\\s*zero|zero\\s+tuition)\\b|" +
+                "\\bcgpa\\s*[≥>=]\\s*[\\d.]+\\b",
             RegexOption.IGNORE_CASE,
         )
 
@@ -284,6 +300,86 @@ class IngestPlugin(
             val match = plainAmountRegex.find(text)?.groupValues?.getOrNull(1) ?: return false
             val value = match.replace(",", "").toDoubleOrNull() ?: return false
             return value >= 1.0
+        }
+
+        /** True for wallet/bank SMS — used by [SmsReceiver] and inbox rescan. */
+        fun isLikelySmsTransaction(sender: String, body: String): Boolean {
+            if (looksLikeTransaction(body)) return true
+            if (isHighConfidenceTxn(body)) return true
+            if (!hasFinanceAmount(body)) return false
+
+            val senderLower = sender.lowercase()
+            val bodyLower = body.lowercase()
+            val txnHints = listOf(
+                "rs", "inr", "pkr", "usd", "eur", "gbp", "debited", "credited",
+                "received", "spent", "paid", "upi", "transferred", "withdrawn",
+                "deducted", "added", "\$", "€", "£", "txn id", "debit card",
+            )
+            val bankHints = listOf(
+                "hdfc", "icici", "sbi", "axis", "kotak", "yes", "paytm", "phonepe",
+                "gpay", "upi", "bank", "vm-", "jd-", "ax-", "bp-",
+                "ubl", "hbl", "mcb", "alfalah", "jazz", "telenor", "easypaisa",
+                "jazzcash", "sadapay", "nayapay", "meezan", "faysal", "brd",
+                "chase", "wellsfargo", "citi", "paypal", "venmo", "wallet",
+                "3737", "8623", "9080",
+            )
+            val senderMatch = bankHints.any { senderLower.contains(it) } ||
+                isNumericSmsShortCode(sender)
+            val bodyMatch = txnHints.any { bodyLower.contains(it) }
+            return senderMatch && bodyMatch
+        }
+
+        private fun isNumericSmsShortCode(sender: String): Boolean {
+            val compact = sender.filter { !it.isWhitespace() }
+            if (compact.length !in 4..6) return false
+            return compact.all { it.isDigit() }
+        }
+
+        /** Re-read recent inbox SMS when the app opens — catches alerts missed live. */
+        fun scanRecentTransactionSms(context: Context) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                return
+            }
+
+            val sinceMs = System.currentTimeMillis() - 14L * 24 * 60 * 60 * 1000
+            val cursor = context.contentResolver.query(
+                Telephony.Sms.Inbox.CONTENT_URI,
+                arrayOf(
+                    Telephony.Sms._ID,
+                    Telephony.Sms.ADDRESS,
+                    Telephony.Sms.BODY,
+                    Telephony.Sms.DATE,
+                ),
+                "${Telephony.Sms.DATE} >= ?",
+                arrayOf(sinceMs.toString()),
+                "${Telephony.Sms.DATE} DESC",
+            ) ?: return
+
+            var queued = 0
+            cursor.use {
+                while (it.moveToNext() && queued < 300) {
+                    val address = it.getString(1)?.trim().orEmpty()
+                    val body = it.getString(2)?.trim().orEmpty()
+                    if (address.isEmpty() || body.isEmpty()) continue
+                    val date = it.getLong(3)
+                    if (!isLikelySmsTransaction(address, body)) continue
+                    queued++
+                    deliver(
+                        context,
+                        mapOf(
+                            "source" to "sms",
+                            "text" to body,
+                            "sender" to address,
+                            "timestamp" to date,
+                        ),
+                    )
+                }
+            }
+            if (queued > 0) {
+                Log.i(INGEST_TAG, "sms inbox rescan queued=$queued")
+            }
         }
 
         private fun isInvalidAmountContext(text: String): Boolean {
@@ -893,6 +989,10 @@ class IngestPlugin(
                     }
                     "scanActiveNotifications" -> {
                         NotificationCaptureService.rescanActiveNotifications(context)
+                        result.success(null)
+                    }
+                    "scanRecentSms" -> {
+                        scanRecentTransactionSms(context)
                         result.success(null)
                     }
                     "startKeepAlive" -> {

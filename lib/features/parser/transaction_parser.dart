@@ -353,7 +353,19 @@ class TransactionParser {
     r'(?:\d+\s+)?crore|(?:\d+\s+)?lakh|(?:\d+\s+)?lac)\b|'
     r'\bmaintain\s+(?:rs\.?|pkr)\b|'
     r'\b(?:refer(?:ral)?|invite\s+(?:friends?|and\s+earn))\b|'
-    r'\b\d+\s*(?:mb|gb|kb|tb)\s+of\s+\d+\s*(?:mb|gb|kb|tb)\b',
+    r'\b\d+\s*(?:mb|gb|kb|tb)\s+of\s+\d+\s*(?:mb|gb|kb|tb)\b|'
+    // Platform payout notices — not local wallet/bank alerts.
+    r'\bupwork\b|'
+    r'withdrawal\s+of\s+your\s+upwork\s+balance|'
+    r'amount\s+you\s+should\s+receive\b|'
+    // Campus / university announcements — not payments.
+    r'international\s+(?:education\s+)?office\b|'
+    r'three\s+global\s+opportunities\b|'
+    r'semester\s+exchange\b|'
+    r'gebze\s+technical\s+university\b|'
+    r'fast\s*[—–\-]\s*nuc(?:es)?\b|'
+    r'(?:tuition\s*zero|zero\s+tuition)\b|'
+    r'\bcgpa\s*[≥>=]\s*[\d.]+\b',
     caseSensitive: false,
   );
 

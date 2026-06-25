@@ -1,9 +1,16 @@
 package com.example.spend_tracker
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.provider.Telephony
+import androidx.core.content.ContextCompat
+import java.util.concurrent.ConcurrentHashMap
 
 class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
@@ -11,51 +18,76 @@ class SmsReceiver : BroadcastReceiver() {
         if (intent?.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-        for (sms in messages) {
-            val sender = sms.originatingAddress ?: continue
-            val body = sms.messageBody ?: continue
-            if (!isLikelyTransaction(sender, body)) continue
+        if (messages.isEmpty()) return
 
-            IngestPlugin.deliver(
-                context.applicationContext,
-                mapOf(
-                    "source" to "sms",
-                    "text" to body,
-                    "sender" to sender,
-                    "timestamp" to sms.timestampMillis,
-                ),
-            )
+        // Concatenate multipart segments delivered in the same intent.
+        val grouped = linkedMapOf<String, StringBuilder>()
+        val timestamps = mutableMapOf<String, Long>()
+        for (sms in messages) {
+            val sender = sms.originatingAddress?.trim() ?: continue
+            val segment = sms.messageBody ?: continue
+            grouped.getOrPut(sender) { StringBuilder() }.append(segment)
+            val ts = sms.timestampMillis
+            val prev = timestamps[sender]
+            if (prev == null || ts > prev) timestamps[sender] = ts
+        }
+
+        for ((sender, bodyBuilder) in grouped) {
+            val segment = bodyBuilder.toString()
+            if (segment.isBlank()) continue
+            val timestamp = timestamps[sender] ?: System.currentTimeMillis()
+            SmsAssemblyBuffer.append(context.applicationContext, sender, segment, timestamp)
         }
     }
 
-    private fun isLikelyTransaction(sender: String, body: String): Boolean {
-        if (IngestPlugin.looksLikeTransaction(body)) return true
-        if (IngestPlugin.isHighConfidenceTxn(body)) return true
+    /** Buffers rapid back-to-back segments from the same short code into one SMS body. */
+    private object SmsAssemblyBuffer {
+        private const val ASSEMBLE_DELAY_MS = 900L
+        private const val STALE_BUFFER_MS = 4000L
 
-        val senderLower = sender.lowercase()
-        val bodyLower = body.lowercase()
-        val txnHints = listOf(
-            "rs", "inr", "pkr", "usd", "eur", "gbp", "debited", "credited",
-            "received", "spent", "paid", "upi", "transferred", "withdrawn",
-            "deducted", "added", "\$", "€", "£", "txn id", "debit card",
+        private data class PendingSms(
+            val parts: StringBuilder = StringBuilder(),
+            var timestamp: Long = 0L,
+            var lastUpdate: Long = 0L,
         )
-        val bankHints = listOf(
-            "hdfc", "icici", "sbi", "axis", "kotak", "yes", "paytm", "phonepe",
-            "gpay", "upi", "bank", "vm-", "jd-", "ax-", "bp-",
-            "ubl", "hbl", "mcb", "alfalah", "jazz", "telenor", "easypaisa",
-            "jazzcash", "sadapay", "nayapay", "meezan", "faysal", "brd",
-            "chase", "wellsfargo", "citi", "paypal", "venmo", "wallet",
-            "3737", "8623", "9080",
-        )
-        val senderMatch = bankHints.any { senderLower.contains(it) } ||
-            isNumericShortCode(sender)
-        val bodyMatch = txnHints.any { bodyLower.contains(it) }
-        return senderMatch && bodyMatch
-    }
 
-    private fun isNumericShortCode(sender: String): Boolean {
-        val compact = sender.filter { !it.isWhitespace() }
-        if (compact.length !in 4..6) return false
-        return compact.all { it.isDigit() }
+        private val pending = ConcurrentHashMap<String, PendingSms>()
+        private val flushTokens = ConcurrentHashMap<String, Runnable>()
+        private val handler = Handler(Looper.getMainLooper())
+
+        fun append(context: Context, sender: String, segment: String, timestamp: Long) {
+            val now = SystemClock.elapsedRealtime()
+            pending.compute(sender) { _, existing ->
+                if (existing != null && now - existing.lastUpdate > STALE_BUFFER_MS) {
+                    PendingSms(StringBuilder(segment), timestamp, now)
+                } else {
+                    (existing ?: PendingSms(timestamp = timestamp, lastUpdate = now)).apply {
+                        parts.append(segment)
+                        this.timestamp = timestamp
+                        lastUpdate = now
+                    }
+                }
+            }
+
+            flushTokens.remove(sender)?.let { handler.removeCallbacks(it) }
+            val runnable = Runnable {
+                flushTokens.remove(sender)
+                val assembled = pending.remove(sender) ?: return@Runnable
+                val body = assembled.parts.toString()
+                if (body.isBlank()) return@Runnable
+                if (!IngestPlugin.isLikelySmsTransaction(sender, body)) return@Runnable
+                IngestPlugin.deliver(
+                    context,
+                    mapOf(
+                        "source" to "sms",
+                        "text" to body,
+                        "sender" to sender,
+                        "timestamp" to assembled.timestamp,
+                    ),
+                )
+            }
+            flushTokens[sender] = runnable
+            handler.postDelayed(runnable, ASSEMBLE_DELAY_MS)
+        }
     }
 }

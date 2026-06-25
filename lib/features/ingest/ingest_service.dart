@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/widgets.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/repositories/transaction_repository.dart';
@@ -74,6 +76,12 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _scanAndDrain() async {
     await IngestBridge.instance.scanActiveNotifications();
+    if (Platform.isAndroid) {
+      final sms = await Permission.sms.status;
+      if (sms.isGranted || sms.isLimited) {
+        await IngestBridge.instance.scanRecentSms();
+      }
+    }
     await _drainPendingIfNeeded();
   }
 

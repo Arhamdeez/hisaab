@@ -307,6 +307,18 @@ void main() {
     expect(result.merchant.toUpperCase(), contains('FAST MART'));
   });
 
+  test('parses EasyPaisa debit card SMS for Jubilee Fuels', () {
+    final result = parser.parse(
+      'Txn ID 51789594757. Debit Card No. ***8421. You have paid Rs. 301.68 at '
+      'JUBILEE FUELS        Lahore      PK on 2026-06-25. Transaction Fee: Rs. 0.00',
+      source: TransactionSource.sms,
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 301.68);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant.toUpperCase(), contains('JUBILEE'));
+  });
+
   test('parses NayaPay sent alert without PKR prefix', () {
     final result = parser.parse(
       'You sent — 1,500.00 — Transaction successful',
@@ -532,6 +544,48 @@ void main() {
       'com.techlogix.mobilinkcustomer — FCM-Notification:18884585',
       source: TransactionSource.notification,
       packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNull);
+  });
+
+  test('rejects Upwork withdrawal initiation email', () {
+    final result = parser.parse(
+      "Upwork Notification — We've initiated withdrawal of your Upwork balance — "
+      'Your balance will be automatically sent to your Direct to Local Bank transfer '
+      'account ending in 7613. Hi Muhammad, You requested withdrawal of \$234.81 '
+      'from Upwork to your Direct to Local Bank transfer account ending in 7613.',
+      source: TransactionSource.notification,
+      packageName: 'com.google.android.gm',
+      notificationTitle: "Upwork Notification — We've initiated withdrawal of your Upwork balance",
+    );
+    expect(result, isNull);
+  });
+
+  test('rejects Upwork payment processed payout email', () {
+    final result = parser.parse(
+      'Upwork Notification — Your payment has been processed — Dear Muhammad, '
+      'We have processed your withdrawal request submitted on 24 — Jun — 2026. '
+      'Amount paid: \$234.81 USD Amount you should receive: 62,924.25 PKR '
+      'Bank account: UNITED BANK LIMITED account ending in 7613 '
+      'Upwork Transaction ID: 930383512',
+      source: TransactionSource.notification,
+      packageName: 'com.google.android.gm',
+      notificationTitle: 'Upwork Notification — Your payment has been processed',
+    );
+    expect(result, isNull);
+  });
+
+  test('rejects FAST NUCES international office announcement', () {
+    final result = parser.parse(
+      'International Office FA. — Three Global Opportunities — Summer-Fall 2026 '
+      '(Turkey & Malaysia) — FAST — NUCES International Education Office '
+      'Three Global Opportunities — Summer-Fall 2026 Dear FAST — NUCES Students, '
+      'Gebze Technical University — Türkiye Fall 2026 Semester Exchange — Zero Tuition '
+      'Eligibility BS students — Semesters 3, 5, or 7 — CGPA ≥ 2.50',
+      source: TransactionSource.notification,
+      packageName: 'com.google.android.gm',
+      notificationTitle:
+          'International Office FA. — Three Global Opportunities — Summer-Fall 2026',
     );
     expect(result, isNull);
   });

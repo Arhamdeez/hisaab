@@ -195,6 +195,16 @@ class IngestBridge {
     }
   }
 
+  /// Re-reads recent wallet/bank SMS from the inbox (EasyPaisa 3737, …).
+  Future<void> scanRecentSms() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _methodChannel.invokeMethod<void>('scanRecentSms');
+    } catch (e) {
+      debugPrint('IngestBridge scanRecentSms error: $e');
+    }
+  }
+
   Future<void> dispose() async {
     await _subscription?.cancel();
     await _controller.close();
