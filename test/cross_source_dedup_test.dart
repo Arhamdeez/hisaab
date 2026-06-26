@@ -43,6 +43,7 @@ void main() {
       amount: 1500,
       type: TransactionType.debit,
       messageTime: emailTime,
+      occurredAt: DateTime(2026, 6, 16),
       merchant: 'Easypaisa',
     );
 
@@ -66,7 +67,58 @@ void main() {
       amount: 1500,
       type: TransactionType.debit,
       messageTime: emailTime,
+      occurredAt: DateTime(2026, 6, 16),
       merchant: 'Ali Khan Store',
+    );
+
+    expect(match?.id, existing.id);
+  });
+
+  test('merges same payment across channels even with unrelated labels', () {
+    // App push shows the counterparty name; the bank SMS shows a masked
+    // account number. Same exact transaction minute -> same payment.
+    final occurred = DateTime(2026, 6, 26, 6, 24);
+    final existing = _txn(
+      id: '${occurred.millisecondsSinceEpoch}_notification',
+      source: TransactionSource.notification,
+      type: TransactionType.debit,
+      amount: 1,
+      occurredAt: occurred,
+      merchant: 'Mohammad Haris Imran',
+    );
+
+    final match = CrossSourceDedup.findMatch(
+      candidates: [existing],
+      incomingSource: TransactionSource.sms,
+      amount: 1,
+      type: TransactionType.debit,
+      messageTime: occurred.add(const Duration(seconds: 40)),
+      occurredAt: occurred.add(const Duration(minutes: 1)),
+      merchant: '8558',
+    );
+
+    expect(match?.id, existing.id);
+  });
+
+  test('merges notification with gmail for same payment minute', () {
+    final occurred = DateTime(2026, 6, 26, 6, 24);
+    final existing = _txn(
+      id: '${occurred.millisecondsSinceEpoch}_notification',
+      source: TransactionSource.notification,
+      type: TransactionType.debit,
+      amount: 1,
+      occurredAt: occurred,
+      merchant: 'Mohammad Haris Imran',
+    );
+
+    final match = CrossSourceDedup.findMatch(
+      candidates: [existing],
+      incomingSource: TransactionSource.gmail,
+      amount: 1,
+      type: TransactionType.debit,
+      messageTime: occurred.add(const Duration(minutes: 5)),
+      occurredAt: occurred,
+      merchant: 'NayaPay',
     );
 
     expect(match?.id, existing.id);
@@ -87,6 +139,7 @@ void main() {
       amount: 1500,
       type: TransactionType.debit,
       messageTime: DateTime(2026, 6, 16, 20),
+      occurredAt: DateTime(2026, 6, 16, 20),
       merchant: 'Careem',
     );
 
@@ -107,7 +160,34 @@ void main() {
       amount: 1500,
       type: TransactionType.debit,
       messageTime: DateTime(2026, 6, 16, 14, 5),
+      occurredAt: DateTime(2026, 6, 16),
       merchant: 'Ali Khan',
+    );
+
+    expect(match, isNull);
+  });
+
+  test('does not merge distinct payments same amount different minutes', () {
+    final first = DateTime(2026, 6, 26, 6, 24);
+    final existing = _txn(
+      id: '${first.millisecondsSinceEpoch}_notification',
+      source: TransactionSource.notification,
+      type: TransactionType.debit,
+      amount: 1,
+      occurredAt: first,
+      merchant: 'Ali Khan',
+    );
+
+    // Second, genuinely separate payment to a different person an hour later,
+    // reported only by email -> must not collapse into the first.
+    final match = CrossSourceDedup.findMatch(
+      candidates: [existing],
+      incomingSource: TransactionSource.gmail,
+      amount: 1,
+      type: TransactionType.debit,
+      messageTime: first.add(const Duration(hours: 1)),
+      occurredAt: first.add(const Duration(hours: 1)),
+      merchant: 'Fareed Motors',
     );
 
     expect(match, isNull);

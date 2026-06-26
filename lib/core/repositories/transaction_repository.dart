@@ -53,6 +53,7 @@ class TransactionRepository {
     required DateTime messageTime,
     required domain.TransactionSource incomingSource,
     required String merchant,
+    String? referenceId,
   }) async {
     final candidates = await _sameDayAmountCandidates(
       amount: amount,
@@ -66,7 +67,9 @@ class TransactionRepository {
       amount: amount,
       type: type,
       messageTime: messageTime,
+      occurredAt: occurredAt,
       merchant: merchant,
+      referenceId: referenceId,
     );
   }
 
@@ -77,6 +80,7 @@ class TransactionRepository {
     required DateTime occurredAt,
     required DateTime messageTime,
     required String merchant,
+    String? referenceId,
   }) async {
     final candidates = await _sameDayAmountCandidates(
       amount: amount,
@@ -90,6 +94,7 @@ class TransactionRepository {
       type: type,
       messageTime: messageTime,
       merchant: merchant,
+      referenceId: referenceId,
     );
   }
 
@@ -126,6 +131,7 @@ class TransactionRepository {
     required domain.TransactionSource source,
     required DateTime messageTime,
     required String merchant,
+    String? referenceId,
   }) async {
     final recent = await getLatestTransactions(limit: 30);
     for (final existing in recent) {
@@ -136,6 +142,7 @@ class TransactionRepository {
         source: source,
         messageTime: messageTime,
         merchant: merchant,
+        referenceId: referenceId,
       )) {
         return existing;
       }

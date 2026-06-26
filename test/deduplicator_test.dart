@@ -81,7 +81,7 @@ void main() {
     expect(outcome.transaction?.isPending, isTrue);
   });
 
-  test('flags back-to-back opposite legs and upgrades the first leg', () async {
+  test('back-to-back opposite legs auto-confirm without review', () async {
     final firstTime = DateTime(2026, 6, 16, 16, 0);
     final secondTime = firstTime.add(const Duration(seconds: 40));
 
@@ -95,10 +95,10 @@ void main() {
       text: 'PKR 10,000 debited from A/c **5678 on 16-JUN-2026',
       messageTime: secondTime,
     );
-    expect(second.transaction?.status, TransactionStatus.pendingReview);
+    expect(second.transaction?.status, TransactionStatus.confirmed);
 
     final all = await repository.getAll();
-    expect(all.where((t) => t.status == TransactionStatus.pendingReview).length, 2);
+    expect(all.where((t) => t.status == TransactionStatus.pendingReview).length, 0);
   });
 
   test('does not flag unrelated payments with different amounts', () async {
@@ -174,7 +174,53 @@ void main() {
     expect((await repository.getAll()).length, 1);
   });
 
-  test('flags easypaisa self-received transfer for inbox review', () async {
+  test('keeps two distinct payments with different trx ids', () async {
+    final first = await ingest(
+      text:
+          'Rs. 1.0 sent to MISBAH BABAR with easypaisa account 03101464378. '
+          'Fee: Rs. 0.0. Trx ID 51830190523.',
+      messageTime: DateTime(2026, 6, 26, 6, 24),
+      source: TransactionSource.notification,
+    );
+    expect(first.result, DedupResult.created);
+
+    // Same person, same amount, same day, same channel — but a NEW payment with
+    // a different Trx ID. It must register as its own transaction.
+    final second = await ingest(
+      text:
+          'Rs. 1.0 sent to MISBAH BABAR with easypaisa account 03101464378. '
+          'Fee: Rs. 0.0. Trx ID 51830777111.',
+      messageTime: DateTime(2026, 6, 26, 6, 40),
+      source: TransactionSource.notification,
+    );
+
+    expect(second.result, DedupResult.created);
+    expect((await repository.getAll()).length, 2);
+  });
+
+  test('merges same payment across channels sharing a trx id', () async {
+    final first = await ingest(
+      text:
+          'Rs. 1.0 sent to MISBAH BABAR with easypaisa account 03101464378. '
+          'Fee: Rs. 0.0. Trx ID 51830190523.',
+      messageTime: DateTime(2026, 6, 26, 6, 24),
+      source: TransactionSource.notification,
+    );
+    expect(first.result, DedupResult.created);
+
+    // The bank SMS for the very same payment carries the same Trx ID.
+    final second = await ingest(
+      text:
+          'Dear Customer, an amount of Rs.1 has been debited. Trx ID: 51830190523.',
+      messageTime: DateTime(2026, 6, 26, 6, 25),
+      source: TransactionSource.sms,
+    );
+
+    expect(second.result, DedupResult.merged);
+    expect((await repository.getAll()).length, 1);
+  });
+
+  test('auto-confirms easypaisa self-received transfer', () async {
     const text =
         'Dear MUHAMMAD ARHAM BABAR, You have received Rs.1 in your Easypaisa account '
         '***********0101 from MUHAMMAD ARHAM BABAR PK**UNILPKKARTG****7613 via Raast Payment '
@@ -184,8 +230,8 @@ void main() {
     final outcome = await ingest(text: text, messageTime: when);
 
     expect(outcome.result, DedupResult.created);
-    expect(outcome.transaction?.status, TransactionStatus.pendingReview);
-    expect(outcome.transaction?.isPending, isTrue);
+    expect(outcome.transaction?.status, TransactionStatus.confirmed);
+    expect(outcome.transaction?.isPending, isFalse);
   });
 
   test('auto-confirms easypaisa payment to another person', () async {

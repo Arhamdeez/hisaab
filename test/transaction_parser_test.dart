@@ -356,6 +356,31 @@ void main() {
     expect(result.type, TransactionType.debit);
   });
 
+  test('parses JazzCash person-title with amount-only body', () {
+    final result = parser.parse(
+      '2,000.00',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+      notificationTitle: 'Hassan Shah',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 2000);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant, 'Hassan Shah');
+  });
+
+  test('parses JazzCash successfully transferred notification', () {
+    final result = parser.parse(
+      'PKR 1,000.00 has been successfully transferred to 03331234567',
+      source: TransactionSource.notification,
+      packageName: 'com.techlogix.mobilinkcustomer',
+      notificationTitle: 'Ali Raza',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 1000);
+    expect(result.merchant, 'Ali Raza');
+  });
+
   test('parses Raqami plain amount notification', () {
     final result = parser.parse(
       'Money Sent — 2,000.00',

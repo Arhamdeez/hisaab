@@ -61,8 +61,12 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _startForegroundSafetyTimer();
 
-    // Cold start: read the shade once, then drain the queue (SMS backfill on pull-to-refresh).
-    await _scanAndDrain(includeSmsRescan: false, rescanShade: true);
+    // Cold start: shade scan + recent wallet SMS (8558, 3737, …), then drain queue.
+    await _scanAndDrain(
+      includeSmsRescan: true,
+      walletSmsOnly: true,
+      rescanShade: true,
+    );
     await _drainNotificationActionsIfQueued();
     await refreshNotificationAccess();
     await refreshBatteryOptimization();
@@ -70,13 +74,18 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Scans the notification shade and drains the native capture queue.
-  Future<void> syncCaptures() =>
-      _scanAndDrain(rescanShade: true, includeSmsRescan: true);
+  Future<void> syncCaptures() => _scanAndDrain(
+        rescanShade: true,
+        includeSmsRescan: true,
+        walletSmsOnly: false,
+      );
 
   /// [rescanShade] — re-read the notification panel (expensive; not every resume).
-  /// [includeSmsRescan] — SMS inbox backfill once per cold start only.
+  /// [includeSmsRescan] — SMS inbox backfill.
+  /// [walletSmsOnly] — when true, only scan known wallet short codes (3737, 8558, …).
   Future<void> _scanAndDrain({
     bool includeSmsRescan = false,
+    bool walletSmsOnly = true,
     bool rescanShade = false,
   }) async {
     if (rescanShade) {
@@ -85,7 +94,9 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     if (includeSmsRescan && Platform.isAndroid) {
       final sms = await Permission.sms.status;
       if (sms.isGranted || sms.isLimited) {
-        await IngestBridge.instance.scanRecentSms();
+        await IngestBridge.instance.scanRecentSms(
+          walletShortCodesOnly: walletSmsOnly,
+        );
       }
     }
     await _processor.processPendingQueue();
@@ -111,8 +122,12 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     await refreshNotificationAccess();
     await refreshBatteryOptimization();
     await IngestBridge.instance.requestNotificationRebind();
-    // Only drain what arrived while backgrounded — do not re-read the whole shade.
-    await _scanAndDrain(includeSmsRescan: false, rescanShade: false);
+    // Drain queue + check wallet SMS that arrived while backgrounded.
+    await _scanAndDrain(
+      includeSmsRescan: true,
+      walletSmsOnly: true,
+      rescanShade: false,
+    );
     await _drainNotificationActionsIfQueued();
     notifyListeners();
   }

@@ -49,9 +49,7 @@ Future<void> main() async {
     deduplicator: deduplicator,
   );
 
-  // Drain background captures into SQLite before the first frame so the inbox
-  // is complete even if OS notifications already expired.
-  await ingestService.initialize();
+  // Load existing rows fast so the UI paints immediately with real data.
   await transactionProvider.load();
 
   runApp(
@@ -62,6 +60,13 @@ Future<void> main() async {
       backupService: backupService,
       transactionProvider: transactionProvider,
     ),
+  );
+
+  // Drain captures off the critical path so a heavy shade scan / queue drain
+  // never freezes the first frame. New rows surface via the ingest listener and
+  // this reload when the drain finishes.
+  unawaited(
+    ingestService.initialize().then((_) => transactionProvider.reload()),
   );
 
   unawaited(_warmFontsAndPrefs(repository));

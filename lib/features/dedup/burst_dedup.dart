@@ -1,10 +1,23 @@
 import '../../models/transaction.dart';
+import '../parser/transaction_parser.dart';
 
 /// Collapses repeated wallet/bank alerts for the same payment within a short
 /// window (same app channel, amount, type, and counterparty).
 abstract final class BurstDedup {
   static const window = Duration(seconds: 30);
   static const amountTolerance = 0.01;
+
+  /// True when the incoming alert and an existing transaction both carry a
+  /// transaction reference id and they differ — a decisive signal that they are
+  /// *different* payments, so they must never be merged regardless of how alike
+  /// their amount, merchant, and timing look.
+  static bool referencesConflict(String? incomingRef, Transaction existing) {
+    if (incomingRef == null || incomingRef.isEmpty) return false;
+    final existingRef =
+        TransactionParser.extractReferenceId(existing.rawText ?? '');
+    if (existingRef == null || existingRef.isEmpty) return false;
+    return existingRef != incomingRef;
+  }
 
   static const _unknownMerchants = {
     'unknown',
@@ -33,10 +46,12 @@ abstract final class BurstDedup {
     required TransactionSource source,
     required DateTime messageTime,
     required String merchant,
+    String? referenceId,
   }) {
     if (existing.source != source) return false;
     if (existing.type != type) return false;
     if ((existing.amount - amount).abs() > amountTolerance) return false;
+    if (referencesConflict(referenceId, existing)) return false;
 
     final gap = messageTime.difference(existing.capturedAt).abs();
     if (gap > window) return false;

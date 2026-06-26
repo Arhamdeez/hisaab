@@ -79,7 +79,7 @@ class InboxScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Only self-transfers and between-account moves',
+                          'Only self-transfers need review',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: AppColors.textMuted,
                               ),

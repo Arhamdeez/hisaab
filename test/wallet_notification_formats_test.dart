@@ -19,6 +19,30 @@ void main() {
       expect(result.merchant, 'ALI IBRAHIM MUHAMMAD');
     });
 
+    test('Easypaisa SMS 3737: Raast amount sent', () {
+      final result = parser.parse(
+        'Dear MUHAMMAD ARHAM BABAR, An amount of Rs. 1.0 has been successfully sent to '
+        'ALI IBRAHIM MUHAMMAD in ********1541 via Raast Payment from your Easypaisa account '
+        '*******0101 on 2026-06-26 at 05:53:41. Trx ID: 51829532776.',
+        source: TransactionSource.sms,
+      );
+      expect(result, isNotNull, reason: '3737 Easypaisa Raast SMS');
+      expect(result!.amount, 1.0);
+      expect(result.type, TransactionType.debit);
+      expect(result.merchant, 'ALI IBRAHIM MUHAMMAD');
+    });
+
+    test('Easypaisa SMS 3737: debit card payment', () {
+      final result = parser.parse(
+        'Txn ID 51695745211. Debit Card No. ***8421. You have paid Rs. 330.00 at '
+        'THE FAST MART LAHORE PK on 2026-06-22. Transaction Fee: Rs. 0.00',
+        source: TransactionSource.sms,
+      );
+      expect(result, isNotNull, reason: '3737 debit card SMS');
+      expect(result!.amount, 330);
+      expect(result.type, TransactionType.debit);
+    });
+
     test('Raast SMS 8558: amount sent to NAME of IBAN', () {
       final result = parser.parse(
         'Dear MUHAMMAD ARHAM BABAR, an amount of Rs. 1 has been successfully sent to '

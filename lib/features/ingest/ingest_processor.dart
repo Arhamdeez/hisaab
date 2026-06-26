@@ -35,7 +35,7 @@ class IngestProcessor {
       await IngestBridge.instance.scanActiveNotifications();
       final sms = await Permission.sms.status;
       if (sms.isGranted || sms.isLimited) {
-        await IngestBridge.instance.scanRecentSms();
+        await IngestBridge.instance.scanRecentSms(walletShortCodesOnly: false);
       }
     }
 

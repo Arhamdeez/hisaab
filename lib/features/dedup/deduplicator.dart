@@ -29,11 +29,13 @@ class Deduplicator {
     String? accountHolderName,
   }) async {
     final occurredAt = parsed.occurredAt ?? messageTime;
+    final referenceId = parsed.referenceId;
     final fingerprint = TransactionParser.buildFingerprint(
       amount: parsed.amount,
       occurredAt: occurredAt,
       merchant: parsed.merchant,
       accountRef: parsed.accountRef,
+      referenceId: referenceId,
     );
 
     final existingInWindow = await _repository.getInDedupWindow(
@@ -64,6 +66,7 @@ class Deduplicator {
       messageTime: messageTime,
       incomingSource: source,
       merchant: parsed.merchant,
+      referenceId: referenceId,
     );
     if (crossSource != null) {
       final linked = {
@@ -81,6 +84,7 @@ class Deduplicator {
       occurredAt: occurredAt,
       messageTime: messageTime,
       merchant: parsed.merchant,
+      referenceId: referenceId,
     );
     if (paymentAlert != null) {
       final linked = {
@@ -98,6 +102,7 @@ class Deduplicator {
       source: source,
       messageTime: messageTime,
       merchant: parsed.merchant,
+      referenceId: referenceId,
     );
     if (burstDuplicate != null) {
       final betterMerchant = BurstDedup.pickBetterMerchant(

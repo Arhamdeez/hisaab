@@ -195,11 +195,17 @@ class IngestBridge {
     }
   }
 
-  /// Re-reads recent wallet/bank SMS from the inbox (EasyPaisa 3737, …).
-  Future<void> scanRecentSms() async {
+  /// Re-reads recent wallet/bank SMS from the inbox (Easypaisa 3737, Raast 8558, …).
+  ///
+  /// [walletShortCodesOnly] — when true, only known wallet senders (fast path for
+  /// app open / resume). Pull-to-refresh uses the full 2-day scan.
+  Future<void> scanRecentSms({bool walletShortCodesOnly = false}) async {
     if (!Platform.isAndroid) return;
     try {
-      await _methodChannel.invokeMethod<void>('scanRecentSms');
+      await _methodChannel.invokeMethod<void>(
+        'scanRecentSms',
+        {'walletShortCodesOnly': walletShortCodesOnly},
+      );
     } catch (e) {
       debugPrint('IngestBridge scanRecentSms error: $e');
     }

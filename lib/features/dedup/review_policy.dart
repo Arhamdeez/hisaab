@@ -61,17 +61,19 @@ abstract final class ReviewPolicy {
     required Iterable<Transaction> recent,
     String? accountHolderName,
   }) {
-    return sameSenderAndReceiver(parsed: parsed, rawText: rawText) ||
-        isBackToBackTransfer(
-          incoming: parsed,
-          messageTime: messageTime,
-          recent: recent,
-        ) ||
-        involvesAccountHolder(
-          parsed: parsed,
-          rawText: rawText,
-          accountHolderName: accountHolderName,
-        );
+    // Only outgoing self-transfers need inbox approval — everything else
+    // (payments to others, incoming money, between-account moves) auto-confirms.
+    if (parsed.type != TransactionType.debit) return false;
+
+    if (_selfTransferPhrases.hasMatch(rawText)) return true;
+
+    if (sameSenderAndReceiver(parsed: parsed, rawText: rawText)) return true;
+
+    return involvesAccountHolder(
+      parsed: parsed,
+      rawText: rawText,
+      accountHolderName: accountHolderName,
+    );
   }
 
   /// "Dear MUHAMMAD ARHAM BABAR," — account holder greeting in PK bank/wallet SMS.

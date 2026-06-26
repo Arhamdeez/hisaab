@@ -30,6 +30,7 @@ class ParsedTransaction {
     required this.category,
     required this.confidence,
     this.accountRef,
+    this.referenceId,
     this.occurredAt,
     this.senderName,
     this.receiverName,
@@ -41,6 +42,11 @@ class ParsedTransaction {
   final SpendingCategory category;
   final double confidence;
   final String? accountRef;
+
+  /// Unique transaction/reference number (e.g. "Trx ID 51830190523"). The same
+  /// payment shares this across channels; distinct payments never collide.
+  final String? referenceId;
+
   final DateTime? occurredAt;
 
   /// Counterparty sending money (credit alerts). May be null when unknown.
@@ -401,7 +407,8 @@ class TransactionParser {
   );
 
   static final _monitoredWalletFallback = RegExp(
-    r'a/c\s*\*+|account\s*\*+|trx\s*id|trans(?:action)?\s*id|t(?:xn|rxn)\s*no',
+    r'a/c\s*\*+|account\s*\*+|trx\s*id|trans(?:action)?\s*id|t(?:xn|rxn)\s*no|'
+    r'\bTID:\s*\d{5,}',
     caseSensitive: false,
   );
 
@@ -489,7 +496,11 @@ class TransactionParser {
       notificationTitle: notificationTitle,
       packageName: packageName,
     );
-    final amount = _extractAmount(normalized, packageName: packageName);
+    final amount = _extractAmount(
+      normalized,
+      packageName: packageName,
+      notificationTitle: notificationTitle,
+    );
     if (amount == null || amount <= 0) return null;
 
     final parties = _extractTransferParties(normalized, type);
@@ -513,7 +524,11 @@ class TransactionParser {
     }
 
     final accountRef = _extractAccountRef(normalized);
-    final occurredAt = _extractDate(normalized) ?? fallbackTime;
+    final referenceId = extractReferenceId(text);
+    // Read the date from the raw text first: sanitization splits on hyphens and
+    // would turn "16-06-26" into "16 — 06 — 26", hiding the real date.
+    final occurredAt =
+        _extractDate(text) ?? _extractDate(normalized) ?? fallbackTime;
     final category = CategoryGuesser.guess('$merchant $normalized');
 
     var confidence = 0.55;
@@ -547,10 +562,29 @@ class TransactionParser {
       category: category,
       confidence: confidence,
       accountRef: accountRef,
+      referenceId: referenceId,
       occurredAt: occurredAt,
       senderName: senderName,
       receiverName: receiverName,
     );
+  }
+
+  /// Pulls a transaction/reference number out of an alert. The same payment
+  /// carries the same id across the wallet app, email, and bank SMS, so it is
+  /// the strongest signal that two alerts describe one payment — and, just as
+  /// importantly, that two same-amount alerts are *different* payments.
+  static String? extractReferenceId(String text) {
+    final match = RegExp(
+      r'(?:trx|txn|trxn|trans(?:action)?|tid|ref(?:erence)?(?:\s*(?:no|id|#))?|'
+      r'rrn|stan|auth(?:orization)?\s*(?:code|id)?)'
+      r'\s*(?:id|no|number|#|:)?\s*[:#-]?\s*([a-z0-9]{5,})',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (match == null) return null;
+    final raw = match.group(1)!;
+    // Ignore masked account fragments like "****1541" matched as a ref.
+    if (RegExp(r'^[*x]+\d*$', caseSensitive: false).hasMatch(raw)) return null;
+    return raw.toLowerCase();
   }
 
   static const _partyCapture =
@@ -808,6 +842,18 @@ class TransactionParser {
     caseSensitive: false,
   );
 
+  /// JazzCash: "PKR 1,000.00 has been successfully transferred to …"
+  static final _successfullyTransferredPattern = RegExp(
+    r'(?:PKR|Rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+has\s+been\s+successfully\s+transferred',
+    caseSensitive: false,
+  );
+
+  /// JazzCash / wallets: "You have successfully sent PKR 100.00 to …"
+  static final _successfullySentPattern = RegExp(
+    r'you\s+have\s+successfully\s+sent\s+(?:PKR|Rs\.?)\.?\s*[\d,]+(?:\.\d+)?',
+    caseSensitive: false,
+  );
+
   static bool _isUniversalTxnTrigger(String text) {
     return _youSentRsPattern.hasMatch(text) ||
         _youJustSentToPattern.hasMatch(text) ||
@@ -819,6 +865,8 @@ class TransactionParser {
         _youPaidAtPattern.hasMatch(text) ||
         _amountOfRsPattern.hasMatch(text) ||
         _moneyTransferOfRsPattern.hasMatch(text) ||
+        _successfullyTransferredPattern.hasMatch(text) ||
+        _successfullySentPattern.hasMatch(text) ||
         _debitedByPattern.hasMatch(text) ||
         _paymentOfPattern.hasMatch(text) ||
         _amountHasBeenPattern.hasMatch(text) ||
@@ -859,9 +907,16 @@ class TransactionParser {
     }
 
     if (isFinanceApp) {
-      if (!_hasFinanceAmount(text, packageName: packageName)) {
+      if (!_hasFinanceAmount(
+        text,
+        packageName: packageName,
+        notificationTitle: notificationTitle,
+      )) {
         return false;
       }
+      // JazzCash / NayaPay often post the counterparty as the title and only
+      // the amount in the body — e.g. title "Ahmed Khan", body "2,000.00".
+      if (_isPersonNameTitle(notificationTitle)) return true;
       if (_strongFinanceSignals.hasMatch(text)) return true;
       if (_monitoredWalletFallback.hasMatch(text)) return true;
       if (_isTitleWithAmountBody(
@@ -889,7 +944,13 @@ class TransactionParser {
     if (_isGenericNotificationTitle(title)) return false;
     if (_genericAlertTitlePattern.hasMatch(title)) return false;
     if (_amountOrAlertTitlePattern.hasMatch(title)) return false;
-    if (!_hasFinanceAmount(text, packageName: packageName)) return false;
+    if (!_hasFinanceAmount(
+      text,
+      packageName: packageName,
+      notificationTitle: notificationTitle,
+    )) {
+      return false;
+    }
     return _walletCardPaymentPattern.hasMatch(text) ||
         _walletTxnSignals.hasMatch(text) ||
         _strongFinanceSignals.hasMatch(text) ||
@@ -921,6 +982,20 @@ class TransactionParser {
         lower.startsWith('transfer successful');
   }
 
+  /// Person-name notification title (JazzCash, NayaPay, Raqami).
+  static bool _isPersonNameTitle(String? title) {
+    final t = title?.trim();
+    if (t == null || t.length < 3) return false;
+    if (_isGenericNotificationTitle(t)) return false;
+    if (_genericAlertTitlePattern.hasMatch(t)) return false;
+    if (_amountOrAlertTitlePattern.hasMatch(t)) return false;
+    return _partyNamePattern.hasMatch(t);
+  }
+
+  static final _partyNamePattern = RegExp(
+    r"^[A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF .'\-&]{1,48}$",
+  );
+
   static final _amountOrAlertTitlePattern = RegExp(
     r'(?:rs\.?|pkr|inr|₹|₨|usd|eur|gbp|\$|€|£)\s*[\d,]|'
     r'[\d,]+(?:\.\d+)?\s*(?:rs\.?|pkr|inr|₹|₨|usd|eur|gbp|\$|€|£)|'
@@ -933,8 +1008,17 @@ class TransactionParser {
     r"^[A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF .'\-&]{1,48}$",
   );
 
-  static bool _hasFinanceAmount(String text, {String? packageName}) {
-    return _peekAmount(text, packageName: packageName) != null;
+  static bool _hasFinanceAmount(
+    String text, {
+    String? packageName,
+    String? notificationTitle,
+  }) {
+    return _peekAmount(
+          text,
+          packageName: packageName,
+          notificationTitle: notificationTitle,
+        ) !=
+        null;
   }
 
   static double? _amountFromPattern(RegExp pattern, String text) {
@@ -953,7 +1037,11 @@ class TransactionParser {
     return _hasCurrencyLabel(text) && _strongFinanceSignals.hasMatch(text);
   }
 
-  static double? _peekAmount(String text, {String? packageName}) {
+  static double? _peekAmount(
+    String text, {
+    String? packageName,
+    String? notificationTitle,
+  }) {
     for (final pattern in [
       _amountOfRsPattern,
       _moneyTransferOfRsPattern,
@@ -975,6 +1063,11 @@ class TransactionParser {
     }
     final fromCurrency = _amountFromCurrencyLabel(text);
     if (fromCurrency != null) return fromCurrency;
+    if (_isPersonNameTitle(notificationTitle) &&
+        MonitoredPackages.matches(packageName)) {
+      final plain = _amountPlainFinance(text);
+      if (plain != null) return plain;
+    }
     if (_hasFinanceContext(text, packageName: packageName)) {
       return _amountPlainFinance(text);
     }
@@ -1036,7 +1129,15 @@ class TransactionParser {
     required DateTime occurredAt,
     required String merchant,
     String? accountRef,
+    String? referenceId,
   }) {
+    // A unique reference id alone identifies the payment — keep the fingerprint
+    // stable across channels (which label merchant/account differently) yet
+    // distinct for separate payments that happen to share amount + day.
+    if (referenceId != null && referenceId.isNotEmpty) {
+      final payload = '${amount.toStringAsFixed(2)}|ref:$referenceId';
+      return sha256.convert(utf8.encode(payload)).toString();
+    }
     final day = '${occurredAt.year}-${occurredAt.month}-${occurredAt.day}';
     final cleaned = merchant.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
     final normalizedMerchant =
@@ -1203,8 +1304,16 @@ class TransactionParser {
     return false;
   }
 
-  double? _extractAmount(String text, {String? packageName}) {
-    return TransactionParser._peekAmount(text, packageName: packageName);
+  double? _extractAmount(
+    String text, {
+    String? packageName,
+    String? notificationTitle,
+  }) {
+    return TransactionParser._peekAmount(
+      text,
+      packageName: packageName,
+      notificationTitle: notificationTitle,
+    );
   }
 
   String? _extractMerchant(String text, {TransactionType? type}) {
@@ -1479,6 +1588,34 @@ class TransactionParser {
   }
 
   DateTime? _extractDate(String text) {
+    final date = _extractDatePart(text);
+    if (date == null) return null;
+    final time = _extractTimeOfDay(text);
+    if (time == null) return date;
+    return DateTime(date.year, date.month, date.day, time.$1, time.$2);
+  }
+
+  /// Extracts an HH:MM (24h or AM/PM) clock time. Seconds are intentionally
+  /// dropped so the same payment reported by two channels lands on the same
+  /// minute. Returns null when no plausible time is present.
+  (int, int)? _extractTimeOfDay(String text) {
+    final match = RegExp(
+      r'\b(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(am|pm)?',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (match == null) return null;
+    var hour = int.tryParse(match.group(1)!);
+    final minute = int.tryParse(match.group(2)!);
+    if (hour == null || minute == null) return null;
+    if (minute > 59) return null;
+    final meridiem = match.group(3)?.toLowerCase();
+    if (meridiem == 'pm' && hour < 12) hour += 12;
+    if (meridiem == 'am' && hour == 12) hour = 0;
+    if (hour > 23) return null;
+    return (hour, minute);
+  }
+
+  DateTime? _extractDatePart(String text) {
     final monthNames = {
       'jan': 1,
       'feb': 2,

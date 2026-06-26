@@ -111,6 +111,12 @@ abstract final class MonitoredPackages {
     // Digital Islamic / newer PK banks
     'com.raqamidigital.cbt',
     'com.bopdigital.bop',
+    'com.ibm.jazzcashmerchant',
+    'com.finja.business',
+    'com.finja.pk',
+    'com.keenu.wallet',
+    'com.upaisa',
+    'com.paymax',
   };
 
   /// Substrings in package names that indicate a bank / wallet / payment app.
@@ -183,6 +189,11 @@ abstract final class MonitoredPackages {
     'telenor',
     'phoenix',
     'mobilink',
+    'finja',
+    'keenu',
+    'upaisa',
+    'paymax',
+    'payoneer',
     'pk.',
     '.pk',
     'fintech',

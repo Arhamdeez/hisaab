@@ -13,6 +13,7 @@ abstract final class PaymentAlertDedup {
     required TransactionType type,
     required DateTime messageTime,
     required String merchant,
+    String? referenceId,
   }) {
     for (final existing in candidates) {
       if (!_isDuplicateOf(
@@ -21,6 +22,7 @@ abstract final class PaymentAlertDedup {
         type: type,
         messageTime: messageTime,
         merchant: merchant,
+        referenceId: referenceId,
       )) {
         continue;
       }
@@ -35,9 +37,12 @@ abstract final class PaymentAlertDedup {
     required TransactionType type,
     required DateTime messageTime,
     required String merchant,
+    String? referenceId,
   }) {
     if (existing.type != type) return false;
     if ((existing.amount - amount).abs() > amountTolerance) return false;
+    // Different transaction ids -> genuinely different payments.
+    if (BurstDedup.referencesConflict(referenceId, existing)) return false;
     if (!BurstDedup.paymentAlertsLikelySame(existing.merchant, merchant)) {
       return false;
     }

@@ -147,6 +147,12 @@ class IngestPlugin(
             "com.bop.mobilebanking",
             "com.raqamidigital.cbt",
             "com.bopdigital.bop",
+            "com.ibm.jazzcashmerchant",
+            "com.finja.business",
+            "com.finja.pk",
+            "com.keenu.wallet",
+            "com.upaisa",
+            "com.paymax",
         )
 
         private val monitoredKeywords = listOf(
@@ -162,6 +168,7 @@ class IngestPlugin(
             "citibank", "citi", "monzo", "starling", "raqami", "raqamidigital",
             "telenor", "phoenix", ".pk",
             "fintech", "ewallet", "zelle", "wise", "mpesa", "momo",
+            "finja", "keenu", "upaisa", "paymax", "payoneer",
         )
 
         /** Non-finance alerts that often contain numbers. */
@@ -300,42 +307,96 @@ class IngestPlugin(
             return value >= 1.0
         }
 
-        /** True for live SMS capture (3737, etc.) — strict, no carrier promos. */
+        /** PK bank/wallet SMS senders — Raast, Easypaisa, JazzCash, card alerts, etc. */
+        private val walletSmsShortCodes = setOf(
+            "3737",   // Easypaisa
+            "8558",   // Raast / bank transfer alerts
+            "18258",  // Jazz / wallet alerts
+            "80040",  // Bank / wallet alerts
+            "4255",   // UBL
+            "8067",   // HBL
+            "9080",   // MCB
+            "8484",   // Bank Alfalah
+            "9878",   // Meezan
+            "6969",   // Jazz (legacy)
+            "8623",   // SadaPay
+        )
+
+        private val walletSmsTxnKeywords = listOf(
+            "paid", "debited", "credited", "transferred", "withdrawn",
+            "txn id", "trx id", "tid:", "tid ", "debit card",
+            "received from", "sent to", "successfully sent", "you just sent",
+            "amount of rs", "amount of pkr", "has been sent", "has been debited",
+            "has been credited", "via raast", "raast payment", "via ibft",
+            "money transfer", "you have paid", "you have received",
+            "transaction fee", "debited by", "credited by",
+        )
+
+        private fun normalizeSmsSender(sender: String): String {
+            var compact = sender.filter { !it.isWhitespace() }
+            if (compact.startsWith("+")) compact = compact.drop(1)
+            if (compact.startsWith("92") && compact.length > 6) {
+                compact = compact.removePrefix("92")
+            }
+            return compact
+        }
+
+        fun isKnownWalletShortCode(sender: String): Boolean {
+            val norm = normalizeSmsSender(sender)
+            if (walletSmsShortCodes.contains(norm)) return true
+            return walletSmsShortCodes.any { norm.endsWith(it) && norm.length <= it.length + 2 }
+        }
+
+        /** True for live SMS capture and inbox rescan (3737, 8558, …). */
         fun isLikelySmsTransaction(sender: String, body: String): Boolean {
             if (isNoiseNotification(body)) return false
             if (looksLikeTransaction(body)) return true
             if (isHighConfidenceTxn(body)) return true
-            // Only accept ambiguous bodies from wallet short codes, with txn wording.
-            if (!isNumericSmsShortCode(sender)) return false
+
+            val fromWalletSender =
+                isKnownWalletShortCode(sender) || isNumericSmsShortCode(sender)
+            if (!fromWalletSender) return false
             if (!hasFinanceAmount(body)) return false
+
             val bodyLower = body.lowercase()
-            return listOf(
-                "paid", "debited", "credited", "transferred", "withdrawn",
-                "txn id", "debit card", "received from", "sent to",
-            ).any { bodyLower.contains(it) }
+            if (walletSmsTxnKeywords.any { bodyLower.contains(it) }) return true
+
+            // Known wallet short codes: accept any body with amount + txn id / raast.
+            if (isKnownWalletShortCode(sender)) {
+                return monitoredWalletFallbackRegex.containsMatchIn(body) ||
+                    raastTxnRegex.containsMatchIn(body) ||
+                    strongFinanceRegex.containsMatchIn(body)
+            }
+            return false
         }
 
-        /** Inbox backfill — only high-confidence payment shapes. */
-        fun isSmsRescanCandidate(body: String): Boolean {
-            if (isNoiseNotification(body)) return false
-            return looksLikeTransaction(body) || isHighConfidenceTxn(body)
-        }
+        /** Inbox backfill — same rules as live SMS capture. */
+        fun isSmsRescanCandidate(sender: String, body: String): Boolean =
+            isLikelySmsTransaction(sender, body)
 
         private fun isNumericSmsShortCode(sender: String): Boolean {
-            val compact = sender.filter { !it.isWhitespace() }
+            val compact = normalizeSmsSender(sender)
             if (compact.length !in 4..6) return false
             return compact.all { it.isDigit() }
         }
 
-        /** Re-read recent inbox SMS when the app opens — catches alerts missed live. */
-        fun scanRecentTransactionSms(context: Context) {
+        /**
+         * Re-read recent inbox SMS when the app opens — catches alerts missed live.
+         * [walletShortCodesOnly] — when true, only scans known wallet senders (fast).
+         */
+        fun scanRecentTransactionSms(
+            context: Context,
+            walletShortCodesOnly: Boolean = false,
+        ) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) !=
                 PackageManager.PERMISSION_GRANTED
             ) {
                 return
             }
 
-            val sinceMs = System.currentTimeMillis() - 2L * 24 * 60 * 60 * 1000
+            val sinceMs = System.currentTimeMillis() -
+                if (walletShortCodesOnly) 24L * 60 * 60 * 1000 else 2L * 24 * 60 * 60 * 1000
+            val maxRows = if (walletShortCodesOnly) 20 else 40
             val cursor = context.contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI,
                 arrayOf(
@@ -351,13 +412,15 @@ class IngestPlugin(
 
             var queued = 0
             cursor.use {
-                while (it.moveToNext() && queued < 40) {
+                while (it.moveToNext() && queued < maxRows) {
                     val address = it.getString(1)?.trim().orEmpty()
                     val body = it.getString(2)?.trim().orEmpty()
                     if (address.isEmpty() || body.isEmpty()) continue
+                    if (walletShortCodesOnly && !isKnownWalletShortCode(address)) continue
                     val date = it.getLong(3)
-                    if (!isSmsRescanCandidate(body)) continue
+                    if (!isSmsRescanCandidate(address, body)) continue
                     queued++
+                    Log.d(INGEST_TAG, "sms rescan from $address: ${body.take(80)}")
                     CapturedEventStore.enqueue(
                         context,
                         mapOf(
@@ -467,6 +530,18 @@ class IngestPlugin(
             RegexOption.IGNORE_CASE,
         )
 
+        /** JazzCash: "PKR 1,000.00 has been successfully transferred to …" */
+        private val successfullyTransferredRegex = Regex(
+            "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+has\\s+been\\s+successfully\\s+transferred",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** JazzCash: "You have successfully sent PKR 100.00 to …" */
+        private val successfullySentRegex = Regex(
+            "you\\s+have\\s+successfully\\s+sent\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?",
+            RegexOption.IGNORE_CASE,
+        )
+
         /** High-confidence payment phrasing — capture from any app (incl. Gmail). */
         private val universalTxnRegex = Regex(
             "(?:payment|transfer|transaction|remittance|payout)\\s+of\\s+" +
@@ -494,9 +569,21 @@ class IngestPlugin(
 
         /** Samsung / PK wallets sometimes post amount + trx id only — match Dart parser. */
         private val monitoredWalletFallbackRegex = Regex(
-            "a/c|account|\\*\\*\\*|trx\\s*id|trans(?:action)?\\s*id",
+            "a/c|account|\\*\\*\\*|trx\\s*id|trans(?:action)?\\s*id|\\bTID:\\s*\\d{5,}",
             RegexOption.IGNORE_CASE,
         )
+
+        private val personNameTitleRegex = Regex(
+            "^[A-Za-z\\u0600-\\u06FF][A-Za-z0-9\\u0600-\\u06FF .'\\-&]{1,48}$",
+        )
+
+        private fun isPersonNameTitle(title: String): Boolean {
+            val t = title.trim()
+            if (t.length < 3) return false
+            if (isGenericAlertTitle(t)) return false
+            if (amountRegex.containsMatchIn(t)) return false
+            return personNameTitleRegex.matches(t)
+        }
 
         /** Signals real money movement — aligned with Dart [TransactionParser]. */
         private val walletTxnRegex = Regex(
@@ -520,9 +607,22 @@ class IngestPlugin(
             RegexOption.IGNORE_CASE,
         )
 
-        fun deliver(context: Context, event: Map<String, Any?>) {
+        fun deliver(
+            context: Context,
+            event: Map<String, Any?>,
+            suppressLive: Boolean = false,
+        ) {
             // Queue synchronously so a scan + immediate drain cannot miss the row.
+            // This is the safety net: a capture is NEVER dropped at the native
+            // layer — the next drain processes it and Flutter dedups.
             CapturedEventStore.enqueue(context, event)
+
+            // Skip only the live push for a back-to-back identical alert; the
+            // queued copy above still guarantees the capture is processed.
+            if (suppressLive) {
+                Log.d(INGEST_TAG, "deliver -> queue only (deduped live push)")
+                return
+            }
 
             // NotificationListener callbacks are not always on the main thread;
             // EventChannel requires the UI thread or events are silently dropped.
@@ -632,6 +732,8 @@ class IngestPlugin(
             if (youPaidAtRegex.containsMatchIn(text)) return true
             if (amountOfRsRegex.containsMatchIn(text)) return true
             if (moneyTransferOfRsRegex.containsMatchIn(text)) return true
+            if (successfullyTransferredRegex.containsMatchIn(text)) return true
+            if (successfullySentRegex.containsMatchIn(text)) return true
             if (debitedByRegex.containsMatchIn(text)) return true
             return universalTxnRegex.containsMatchIn(text)
         }
@@ -709,6 +811,8 @@ class IngestPlugin(
                 if (!hasFinanceAmount(text)) {
                     return false
                 }
+                // JazzCash / NayaPay: counterparty in title, amount-only body.
+                if (isPersonNameTitle(title)) return true
                 if (strongFinanceRegex.containsMatchIn(text)) return true
                 if (monitoredWalletFallbackRegex.containsMatchIn(text)) return true
                 if (walletTxnRegex.containsMatchIn(text)) return true
@@ -818,13 +922,18 @@ class IngestPlugin(
                 }
                 return
             }
-            if (!fromActiveScan && !shouldDeliverNow(pkg, text)) return
+            // Never drop at the native layer — always enqueue so a capture is
+            // never lost. The Flutter side dedups intelligently (Trx ID +
+            // fingerprint). [suppressLive] only avoids pushing the exact same
+            // text to the live sink twice in a row; the queued copy remains.
+            val suppressLive = !fromActiveScan && !shouldDeliverNow(pkg, text)
 
             Log.i(INGEST_TAG, "capture pkg=$pkg preview=${text.take(100)}")
 
             deliver(
                 context,
-                mapOf(
+                suppressLive = suppressLive,
+                event = mapOf(
                     "source" to "notification",
                     "text" to text,
                     "package" to pkg,
@@ -1028,7 +1137,9 @@ class IngestPlugin(
                             result.success(null)
                         }
                         "scanRecentSms" -> {
-                            scanRecentTransactionSms(context)
+                            val walletOnly =
+                                call.argument<Boolean>("walletShortCodesOnly") ?: false
+                            scanRecentTransactionSms(context, walletShortCodesOnly = walletOnly)
                             result.success(null)
                         }
                         "startKeepAlive" -> {
