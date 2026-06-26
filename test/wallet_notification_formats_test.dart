@@ -1,0 +1,63 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:spend_tracker/features/parser/transaction_parser.dart';
+import 'package:spend_tracker/models/transaction.dart';
+
+void main() {
+  final parser = TransactionParser();
+
+  group('wallet notification formats from user screenshots', () {
+    test('Raqami: You just sent PKR X to NAME', () {
+      final result = parser.parse(
+        'You just sent PKR 1.00 to ALI IBRAHIM MUHAMMAD',
+        source: TransactionSource.notification,
+        packageName: 'com.raqamidigital.cbt',
+        notificationTitle: 'Transfer Successful! ✅',
+      );
+      expect(result, isNotNull, reason: 'Raqami transfer alert');
+      expect(result!.amount, 1.0);
+      expect(result.type, TransactionType.debit);
+      expect(result.merchant, 'ALI IBRAHIM MUHAMMAD');
+    });
+
+    test('Raast SMS 8558: amount sent to NAME of IBAN', () {
+      final result = parser.parse(
+        'Dear MUHAMMAD ARHAM BABAR, an amount of Rs. 1 has been successfully sent to '
+        'ALI IBRAHIM MUHAMMAD of IBAN No: ****1541 on 2026-06-26 at 05:52:16. '
+        'TID:715814224891 via RAAST',
+        source: TransactionSource.sms,
+      );
+      expect(result, isNotNull, reason: '8558 Raast SMS');
+      expect(result!.amount, 1.0);
+      expect(result.type, TransactionType.debit);
+      expect(result.merchant, 'ALI IBRAHIM MUHAMMAD');
+    });
+
+    test('Easypaisa: amount successfully sent via Raast', () {
+      final result = parser.parse(
+        'Dear MUHAMMAD ARHAM BABAR, An amount of Rs. 1.0 has been successfully sent to '
+        'ALI IBRAHIM MUHAMMAD in ********1541 via Raast Payment from your Easypaisa account '
+        '*******0101 on 2026-06-26 at 05:53:41.564641778. Trx ID: 51829532776.',
+        source: TransactionSource.notification,
+        packageName: 'pk.com.telenor.phoenix',
+        notificationTitle: 'easypaisa',
+      );
+      expect(result, isNotNull, reason: 'Easypaisa Raast');
+      expect(result!.amount, 1.0);
+      expect(result.type, TransactionType.debit);
+      expect(result.merchant, 'ALI IBRAHIM MUHAMMAD');
+    });
+
+    test('NayaPay: Rs X sent to NAME with Off it goes title', () {
+      final result = parser.parse(
+        "Rs. 1 sent to Mohammad Haris Imran. Your wallet's seen better days.",
+        source: TransactionSource.notification,
+        packageName: 'com.nayapay.app',
+        notificationTitle: 'Off it goes 💸',
+      );
+      expect(result, isNotNull, reason: 'NayaPay casual sent');
+      expect(result!.amount, 1.0);
+      expect(result.type, TransactionType.debit);
+      expect(result.merchant, 'Mohammad Haris Imran');
+    });
+  });
+}

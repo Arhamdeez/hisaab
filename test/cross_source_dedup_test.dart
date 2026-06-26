@@ -26,6 +26,29 @@ Transaction _txn({
 }
 
 void main() {
+  test('merges notification with gmail when email shows wallet name only', () {
+    final notifyTime = DateTime(2026, 6, 16, 14, 0);
+    final emailTime = notifyTime.add(const Duration(minutes: 20));
+    final existing = _txn(
+      id: '${notifyTime.millisecondsSinceEpoch}_notification',
+      source: TransactionSource.notification,
+      type: TransactionType.debit,
+      occurredAt: DateTime(2026, 6, 16),
+      merchant: 'ZAIN UI ABIDEEN',
+    );
+
+    final match = CrossSourceDedup.findMatch(
+      candidates: [existing],
+      incomingSource: TransactionSource.gmail,
+      amount: 1500,
+      type: TransactionType.debit,
+      messageTime: emailTime,
+      merchant: 'Easypaisa',
+    );
+
+    expect(match?.id, existing.id);
+  });
+
   test('merges notification with later gmail for same payment', () {
     final notifyTime = DateTime(2026, 6, 16, 14, 0);
     final emailTime = notifyTime.add(const Duration(minutes: 20));

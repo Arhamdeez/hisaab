@@ -8,7 +8,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 
 /**
@@ -16,6 +18,17 @@ import androidx.core.app.NotificationCompat
  * aggressive OEM builds (Samsung, Xiaomi, Oppo, etc.).
  */
 class IngestKeepAliveService : Service() {
+    private val periodicHandler = Handler(Looper.getMainLooper())
+    private val periodicProcess: Runnable = object : Runnable {
+        override fun run() {
+            // Light battery check — only wake Flutter when something is actually queued.
+            if (IngestPlugin.hasPendingCaptures(applicationContext)) {
+                BackgroundIngestRunner.runNow(applicationContext, rescan = false)
+            }
+            periodicHandler.postDelayed(this, PERIODIC_MS)
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -31,16 +44,28 @@ class IngestKeepAliveService : Service() {
         }
 
         startForeground(NOTIFICATION_ID, buildNotification(this))
+        periodicHandler.removeCallbacks(periodicProcess)
+        // First safety pass after 20 min, then every 2 hours — queue-only, no heavy rescan.
+        periodicHandler.postDelayed(periodicProcess, FIRST_PERIODIC_MS)
         return START_STICKY
+    }
+
+    override fun onDestroy() {
+        periodicHandler.removeCallbacks(periodicProcess)
+        super.onDestroy()
     }
 
     companion object {
         const val ACTION_STOP = "com.example.spend_tracker.STOP_KEEPALIVE"
         private const val NOTIFICATION_ID = 7001
         private const val CHANNEL_ID = "hisaab_capture_monitor"
+        /** First background queue check — not immediate, to save boot battery. */
+        private const val FIRST_PERIODIC_MS = 20L * 60L * 1000L
+        /** Repeat queue check interval while the monitor service is alive. */
+        private const val PERIODIC_MS = 2L * 60L * 60L * 1000L
 
         fun start(context: Context) {
-            if (!IngestPlugin.isNotificationAccessEnabled(context)) return
+            if (!IngestPlugin.shouldRunKeepAlive(context)) return
             val intent = Intent(context, IngestKeepAliveService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

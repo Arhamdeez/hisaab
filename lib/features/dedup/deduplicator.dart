@@ -75,6 +75,23 @@ class Deduplicator {
       return const IngestOutcome(DedupResult.merged);
     }
 
+    final paymentAlert = await _repository.findPaymentAlertDuplicate(
+      amount: parsed.amount,
+      type: parsed.type,
+      occurredAt: occurredAt,
+      messageTime: messageTime,
+      merchant: parsed.merchant,
+    );
+    if (paymentAlert != null) {
+      final linked = {
+        ...paymentAlert.linkedSources,
+        paymentAlert.source,
+        source,
+      }.toList();
+      await _repository.updateLinkedSources(paymentAlert.id, linked);
+      return const IngestOutcome(DedupResult.merged);
+    }
+
     final burstDuplicate = await _repository.findBurstDuplicate(
       amount: parsed.amount,
       type: parsed.type,

@@ -73,10 +73,16 @@ class TransactionProvider extends ChangeNotifier {
     });
   }
 
-  /// Newest confirmed transactions for [month], for home "latest activity".
+  /// Newest transactions for [month] on home — includes inbox-pending rows.
   List<Transaction> recentForMonth(DateTime month, {int limit = 5}) {
-    final sorted = List<Transaction>.from(transactionsForMonth(month))
-      ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+    final sorted = List<Transaction>.from(
+      _transactions.where(
+        (t) =>
+            t.status != TransactionStatus.ignored &&
+            t.occurredAt.year == month.year &&
+            t.occurredAt.month == month.month,
+      ),
+    )..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
     if (sorted.length <= limit) return sorted;
     return sorted.sublist(0, limit);
   }

@@ -1,16 +1,14 @@
 import '../../models/transaction.dart';
 import 'burst_dedup.dart';
 
-/// Detects when a new alert describes the same payment already captured from
-/// another channel (e.g. wallet push notification + email receipt).
-abstract final class CrossSourceDedup {
+/// Merges the same payment when it arrives twice through similar channels
+/// (e.g. wallet app push + Gmail app notification — both [notification] source).
+abstract final class PaymentAlertDedup {
   static const amountTolerance = 0.01;
-  static const tightWindow = Duration(hours: 6);
-  static const looseWindow = Duration(hours: 72);
+  static const window = Duration(hours: 3);
 
   static Transaction? findMatch({
     required Iterable<Transaction> candidates,
-    required TransactionSource incomingSource,
     required double amount,
     required TransactionType type,
     required DateTime messageTime,
@@ -19,7 +17,6 @@ abstract final class CrossSourceDedup {
     for (final existing in candidates) {
       if (!_isDuplicateOf(
         existing: existing,
-        incomingSource: incomingSource,
         amount: amount,
         type: type,
         messageTime: messageTime,
@@ -34,27 +31,18 @@ abstract final class CrossSourceDedup {
 
   static bool _isDuplicateOf({
     required Transaction existing,
-    required TransactionSource incomingSource,
     required double amount,
     required TransactionType type,
     required DateTime messageTime,
     required String merchant,
   }) {
-    if (existing.source == incomingSource) return false;
     if (existing.type != type) return false;
     if ((existing.amount - amount).abs() > amountTolerance) return false;
-
     if (!BurstDedup.paymentAlertsLikelySame(existing.merchant, merchant)) {
       return false;
     }
 
     final gap = messageTime.difference(existing.capturedAt).abs();
-    final window = BurstDedup.merchantsCompatible(existing.merchant, merchant)
-        ? looseWindow
-        : (BurstDedup.isGenericInstitution(existing.merchant) ||
-                BurstDedup.isGenericInstitution(merchant))
-            ? const Duration(hours: 24)
-            : tightWindow;
     return gap <= window;
   }
 }

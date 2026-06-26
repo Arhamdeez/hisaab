@@ -19,6 +19,7 @@ import android.service.notification.StatusBarNotification
 import android.util.Log
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
@@ -196,7 +197,12 @@ class IngestPlugin(
                 "gebze\\s+technical\\s+university\\b|" +
                 "fast\\s*[—–\\-]\\s*nuc(?:es)?\\b|" +
                 "(?:tuition\\s*zero|zero\\s+tuition)\\b|" +
-                "\\bcgpa\\s*[≥>=]\\s*[\\d.]+\\b",
+                "\\bcgpa\\s*[≥>=]\\s*[\\d.]+\\b|" +
+                // Telecom / carrier promos that mention Rs amounts.
+                "\\b(?:weekly|monthly|daily)\\s+(?:freedom|x\\s+plus|package|bundle)\\b|" +
+                "\\b(?:simosa|full\\s+balance\\s+offer|jazz\\s*advance|readycash|jazztune|jazz\\s*caller)\\b|" +
+                "\\b(?:subscribe\\s+now|dial\\s*\\*|code\\s*\\*|bit\\.ly/|onelink\\.to/)\\b|" +
+                "\\b(?:gb|mb)\\s*,\\s*\\d+\\s+(?:other\\s+)?(?:network\\s+)?min",
             RegexOption.IGNORE_CASE,
         )
 
@@ -236,7 +242,14 @@ class IngestPlugin(
             RegexOption.IGNORE_CASE,
         )
 
-        private val recentAmountAlerts = LinkedHashMap<String, Pair<Long, String>>()
+        private val recentDeliveries = LinkedHashMap<String, Long>()
+
+        private fun deliveryKey(pkg: String, text: String): String {
+            val normalized = text.replace("\\s+".toRegex(), " ").trim().lowercase()
+            return "$pkg|${normalized.hashCode()}"
+        }
+
+        fun amountKeyForQueue(pkg: String, text: String): String? = amountKey(pkg, text)
 
         private fun amountKey(pkg: String, text: String): String? {
             val amountMatch = amountRegex.find(text)?.value
@@ -246,41 +259,26 @@ class IngestPlugin(
             return "$pkg:$normalized"
         }
 
+        /** Live listener only — shade re-scans bypass this (see [processNotification]). */
         fun shouldDeliverNow(pkg: String, text: String): Boolean {
             val now = System.currentTimeMillis()
-            val aKey = amountKey(pkg, text) ?: return true
-            val normalized = text.replace("\\s+".toRegex(), " ").trim().lowercase()
-            synchronized(recentAmountAlerts) {
-                val prev = recentAmountAlerts[aKey]
-                if (prev != null && now - prev.first < DEDUP_MS) {
-                    val prevNorm =
-                        prev.second.replace("\\s+".toRegex(), " ").trim().lowercase()
-                    when {
-                        normalized == prevNorm -> {
-                            Log.d(INGEST_TAG, "  deduped identical alert for $aKey")
-                            return false
-                        }
-                        normalized.length < prevNorm.length &&
-                            prevNorm.contains(normalized) -> {
-                            Log.d(
-                                INGEST_TAG,
-                                "  deduped shorter subset alert for $aKey",
-                            )
-                            return false
-                        }
-                    }
-                    // Richer or materially different text for the same amount — deliver.
+            val key = deliveryKey(pkg, text)
+            synchronized(recentDeliveries) {
+                val prev = recentDeliveries[key]
+                if (prev != null && now - prev < LIVE_DEDUP_MS) {
+                    Log.d(INGEST_TAG, "  deduped identical alert for $key")
+                    return false
                 }
-                recentAmountAlerts[aKey] = now to text
-                while (recentAmountAlerts.size > 200) {
-                    val oldest = recentAmountAlerts.keys.first()
-                    recentAmountAlerts.remove(oldest)
+                recentDeliveries[key] = now
+                while (recentDeliveries.size > 200) {
+                    val oldest = recentDeliveries.keys.first()
+                    recentDeliveries.remove(oldest)
                 }
             }
             return true
         }
 
-        private const val DEDUP_MS = 15000L
+        private const val LIVE_DEDUP_MS = 30_000L
 
         private val amountRegex = Regex(
             "(?:rs\\.?|pkr|inr|₹|₨|rupees?|usd|eur|gbp|aed|sar|cad|aud|\\$|€|£)" +
@@ -302,31 +300,25 @@ class IngestPlugin(
             return value >= 1.0
         }
 
-        /** True for wallet/bank SMS — used by [SmsReceiver] and inbox rescan. */
+        /** True for live SMS capture (3737, etc.) — strict, no carrier promos. */
         fun isLikelySmsTransaction(sender: String, body: String): Boolean {
+            if (isNoiseNotification(body)) return false
             if (looksLikeTransaction(body)) return true
             if (isHighConfidenceTxn(body)) return true
+            // Only accept ambiguous bodies from wallet short codes, with txn wording.
+            if (!isNumericSmsShortCode(sender)) return false
             if (!hasFinanceAmount(body)) return false
-
-            val senderLower = sender.lowercase()
             val bodyLower = body.lowercase()
-            val txnHints = listOf(
-                "rs", "inr", "pkr", "usd", "eur", "gbp", "debited", "credited",
-                "received", "spent", "paid", "upi", "transferred", "withdrawn",
-                "deducted", "added", "\$", "€", "£", "txn id", "debit card",
-            )
-            val bankHints = listOf(
-                "hdfc", "icici", "sbi", "axis", "kotak", "yes", "paytm", "phonepe",
-                "gpay", "upi", "bank", "vm-", "jd-", "ax-", "bp-",
-                "ubl", "hbl", "mcb", "alfalah", "jazz", "telenor", "easypaisa",
-                "jazzcash", "sadapay", "nayapay", "meezan", "faysal", "brd",
-                "chase", "wellsfargo", "citi", "paypal", "venmo", "wallet",
-                "3737", "8623", "9080",
-            )
-            val senderMatch = bankHints.any { senderLower.contains(it) } ||
-                isNumericSmsShortCode(sender)
-            val bodyMatch = txnHints.any { bodyLower.contains(it) }
-            return senderMatch && bodyMatch
+            return listOf(
+                "paid", "debited", "credited", "transferred", "withdrawn",
+                "txn id", "debit card", "received from", "sent to",
+            ).any { bodyLower.contains(it) }
+        }
+
+        /** Inbox backfill — only high-confidence payment shapes. */
+        fun isSmsRescanCandidate(body: String): Boolean {
+            if (isNoiseNotification(body)) return false
+            return looksLikeTransaction(body) || isHighConfidenceTxn(body)
         }
 
         private fun isNumericSmsShortCode(sender: String): Boolean {
@@ -343,7 +335,7 @@ class IngestPlugin(
                 return
             }
 
-            val sinceMs = System.currentTimeMillis() - 14L * 24 * 60 * 60 * 1000
+            val sinceMs = System.currentTimeMillis() - 2L * 24 * 60 * 60 * 1000
             val cursor = context.contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI,
                 arrayOf(
@@ -359,14 +351,14 @@ class IngestPlugin(
 
             var queued = 0
             cursor.use {
-                while (it.moveToNext() && queued < 300) {
+                while (it.moveToNext() && queued < 40) {
                     val address = it.getString(1)?.trim().orEmpty()
                     val body = it.getString(2)?.trim().orEmpty()
                     if (address.isEmpty() || body.isEmpty()) continue
                     val date = it.getLong(3)
-                    if (!isLikelySmsTransaction(address, body)) continue
+                    if (!isSmsRescanCandidate(body)) continue
                     queued++
-                    deliver(
+                    CapturedEventStore.enqueue(
                         context,
                         mapOf(
                             "source" to "sms",
@@ -440,9 +432,15 @@ class IngestPlugin(
             RegexOption.IGNORE_CASE,
         )
 
-        /** Primary PK wallet triggers — "You sent Rs. 500" / "You received Rs. …" */
+        /** Primary PK wallet triggers — "You sent Rs. 500" / Raqami "You just sent PKR …" */
         private val youSentRsRegex = Regex(
-            "you\\s+sent\\s+(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+",
+            "you\\s+(?:just\\s+)?sent\\s+(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Raqami: "You just sent PKR 1.00 to NAME" */
+        private val youJustSentToRegex = Regex(
+            "you\\s+just\\s+sent\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+to\\b",
             RegexOption.IGNORE_CASE,
         )
 
@@ -523,6 +521,9 @@ class IngestPlugin(
         )
 
         fun deliver(context: Context, event: Map<String, Any?>) {
+            // Queue synchronously so a scan + immediate drain cannot miss the row.
+            CapturedEventStore.enqueue(context, event)
+
             // NotificationListener callbacks are not always on the main thread;
             // EventChannel requires the UI thread or events are silently dropped.
             mainHandler.post {
@@ -535,12 +536,10 @@ class IngestPlugin(
                         )
                         sink.success(event)
                     } catch (e: Exception) {
-                        Log.w(INGEST_TAG, "live sink failed, queueing", e)
-                        CapturedEventStore.enqueue(context, event)
+                        Log.w(INGEST_TAG, "live sink failed (queued copy kept)", e)
                     }
                 } else {
-                    Log.d(INGEST_TAG, "deliver -> durable queue (app not running)")
-                    CapturedEventStore.enqueue(context, event)
+                    Log.d(INGEST_TAG, "deliver -> queue only (no live sink)")
                 }
             }
         }
@@ -624,6 +623,7 @@ class IngestPlugin(
 
         fun isHighConfidenceTxn(text: String): Boolean {
             if (youSentRsRegex.containsMatchIn(text)) return true
+            if (youJustSentToRegex.containsMatchIn(text)) return true
             if (youReceivedRsRegex.containsMatchIn(text)) return true
             if (receivedInAccountRegex.containsMatchIn(text)) return true
             if (rsSentToRegex.containsMatchIn(text)) return true
@@ -669,10 +669,22 @@ class IngestPlugin(
             RegexOption.IGNORE_CASE,
         )
 
+        private fun isGenericAlertTitle(title: String): Boolean {
+            val t = title.trim()
+            if (genericAlertTitleRegex.matches(t)) return true
+            val lower = t.lowercase()
+            // NayaPay / wallet casual titles with trailing emoji — "Off it goes 💸"
+            return lower.startsWith("off it goes") ||
+                lower.startsWith("money in") ||
+                lower.startsWith("money out") ||
+                lower.startsWith("transfer successful") ||
+                (lower.startsWith("cha") && lower.contains("ching"))
+        }
+
         private fun isTitleWithAmountBody(title: String, text: String): Boolean {
             val t = title.trim()
             if (t.length < 3) return false
-            if (genericAlertTitleRegex.matches(t)) return false
+            if (isGenericAlertTitle(t)) return false
             if (amountRegex.containsMatchIn(t)) return false
             if (!hasFinanceAmount(text)) return false
             return walletCardPaymentRegex.containsMatchIn(text) ||
@@ -738,10 +750,35 @@ class IngestPlugin(
             }
         }
 
+        fun hasSmsPermission(context: Context): Boolean {
+            return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
+                PackageManager.PERMISSION_GRANTED
+        }
+
+        /** Keep the capture monitor running when either ingest path is enabled. */
+        fun shouldRunCaptureMonitor(context: Context): Boolean {
+            return isNotificationAccessEnabled(context) || hasSmsPermission(context)
+        }
+
+        /** Foreground service only needed for notification listener (not SMS). */
+        fun shouldRunKeepAlive(context: Context): Boolean {
+            return isNotificationAccessEnabled(context)
+        }
+
+        /** True when the Flutter UI isolate is listening on the ingest EventChannel. */
+        fun isLiveIngestAttached(): Boolean = eventSink != null
+
         /**
          * Shared capture path for live posts and the active-notification scan on connect.
+         *
+         * [fromActiveScan] — re-reads of the notification shade skip the short native
+         * dedup window so opening the app can recover alerts the live path missed.
          */
-        fun processNotification(context: Context, sbn: StatusBarNotification) {
+        fun processNotification(
+            context: Context,
+            sbn: StatusBarNotification,
+            fromActiveScan: Boolean = false,
+        ) {
             val pkg = sbn.packageName ?: return
             if (pkg == context.packageName) return
 
@@ -781,7 +818,7 @@ class IngestPlugin(
                 }
                 return
             }
-            if (!shouldDeliverNow(pkg, text)) return
+            if (!fromActiveScan && !shouldDeliverNow(pkg, text)) return
 
             Log.i(INGEST_TAG, "capture pkg=$pkg preview=${text.take(100)}")
 
@@ -856,7 +893,6 @@ class IngestPlugin(
                     "text", "subtext", "android.bigText", "android.infoText",
                 )) {
                 add(extras.getCharSequence(key))
-                extras.getString(key)?.let { add(it) }
             }
 
             extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.forEach { add(it) }
@@ -958,61 +994,66 @@ class IngestPlugin(
 
             return found.maxByOrNull { it.length }
         }
+
+        /** Method channel only — safe for the headless background Flutter engine. */
+        fun registerMethodChannel(context: Context, messenger: BinaryMessenger) {
+            MethodChannel(messenger, METHOD_CHANNEL)
+                .setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "isNotificationAccessEnabled" -> {
+                            result.success(isNotificationAccessEnabled(context))
+                        }
+                        "openNotificationAccessSettings" -> {
+                            context.startActivity(
+                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                },
+                            )
+                            result.success(null)
+                        }
+                        "drainPending" -> {
+                            val legacy = drainLegacyPending(context)
+                            val queued = CapturedEventStore.drain(context)
+                            result.success(dedupeEvents(legacy + queued))
+                        }
+                        "hasPendingCaptures" -> {
+                            result.success(hasPendingCaptures(context))
+                        }
+                        "requestNotificationRebind" -> {
+                            requestNotificationRebind(context)
+                            result.success(null)
+                        }
+                        "scanActiveNotifications" -> {
+                            NotificationCaptureService.rescanActiveNotifications(context)
+                            result.success(null)
+                        }
+                        "scanRecentSms" -> {
+                            scanRecentTransactionSms(context)
+                            result.success(null)
+                        }
+                        "startKeepAlive" -> {
+                            IngestKeepAliveService.start(context)
+                            result.success(null)
+                        }
+                        "stopKeepAlive" -> {
+                            IngestKeepAliveService.stop(context)
+                            result.success(null)
+                        }
+                        "isIgnoringBatteryOptimizations" -> {
+                            result.success(isIgnoringBatteryOptimizations(context))
+                        }
+                        "requestIgnoreBatteryOptimizations" -> {
+                            requestIgnoreBatteryOptimizations(context)
+                            result.success(null)
+                        }
+                        else -> result.notImplemented()
+                    }
+                }
+        }
     }
 
     init {
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "isNotificationAccessEnabled" -> {
-                        result.success(isNotificationAccessEnabled(context))
-                    }
-                    "openNotificationAccessSettings" -> {
-                        context.startActivity(
-                            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            },
-                        )
-                        result.success(null)
-                    }
-                    "drainPending" -> {
-                        val legacy = drainLegacyPending(context)
-                        val queued = CapturedEventStore.drain(context)
-                        result.success(dedupeEvents(legacy + queued))
-                    }
-                    "hasPendingCaptures" -> {
-                        result.success(hasPendingCaptures(context))
-                    }
-                    "requestNotificationRebind" -> {
-                        requestNotificationRebind(context)
-                        result.success(null)
-                    }
-                    "scanActiveNotifications" -> {
-                        NotificationCaptureService.rescanActiveNotifications(context)
-                        result.success(null)
-                    }
-                    "scanRecentSms" -> {
-                        scanRecentTransactionSms(context)
-                        result.success(null)
-                    }
-                    "startKeepAlive" -> {
-                        IngestKeepAliveService.start(context)
-                        result.success(null)
-                    }
-                    "stopKeepAlive" -> {
-                        IngestKeepAliveService.stop(context)
-                        result.success(null)
-                    }
-                    "isIgnoringBatteryOptimizations" -> {
-                        result.success(isIgnoringBatteryOptimizations(context))
-                    }
-                    "requestIgnoreBatteryOptimizations" -> {
-                        requestIgnoreBatteryOptimizations(context)
-                        result.success(null)
-                    }
-                    else -> result.notImplemented()
-                }
-            }
+        registerMethodChannel(context, flutterEngine.dartExecutor.binaryMessenger)
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
@@ -1073,7 +1114,11 @@ class NotificationCaptureService : NotificationListenerService() {
                 if (active.isNullOrEmpty()) return@post
                 Log.d(INGEST_TAG, "scanning ${active.size} active notification(s)")
                 active.forEach { sbn ->
-                    IngestPlugin.processNotification(applicationContext, sbn)
+                    IngestPlugin.processNotification(
+                        applicationContext,
+                        sbn,
+                        fromActiveScan = true,
+                    )
                 }
             } catch (e: Exception) {
                 Log.w(INGEST_TAG, "active notification scan failed", e)

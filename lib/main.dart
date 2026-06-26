@@ -44,10 +44,15 @@ Future<void> main() async {
     gmailService: gmailService,
   );
   final backupService = BackupService(repository);
+  final transactionProvider = TransactionProvider(
+    repository: repository,
+    deduplicator: deduplicator,
+  );
 
   // Drain background captures into SQLite before the first frame so the inbox
   // is complete even if OS notifications already expired.
   await ingestService.initialize();
+  await transactionProvider.load();
 
   runApp(
     SpendTrackerApp(
@@ -55,6 +60,7 @@ Future<void> main() async {
       deduplicator: deduplicator,
       ingestService: ingestService,
       backupService: backupService,
+      transactionProvider: transactionProvider,
     ),
   );
 
@@ -78,23 +84,20 @@ class SpendTrackerApp extends StatelessWidget {
     required this.deduplicator,
     required this.ingestService,
     required this.backupService,
+    required this.transactionProvider,
   });
 
   final TransactionRepository repository;
   final Deduplicator deduplicator;
   final IngestService ingestService;
   final BackupService backupService;
+  final TransactionProvider transactionProvider;
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(
-          create: (_) => TransactionProvider(
-            repository: repository,
-            deduplicator: deduplicator,
-          )..load(),
-        ),
+        ChangeNotifierProvider.value(value: transactionProvider),
         ChangeNotifierProvider.value(value: ingestService),
         Provider.value(value: backupService),
         ChangeNotifierProvider.value(value: AppPreferences.instance),
@@ -125,7 +128,6 @@ class _IngestSync extends StatefulWidget {
 
 class _IngestSyncState extends State<_IngestSync> {
   IngestService? _ingest;
-  Timer? _reloadDebounce;
 
   @override
   void didChangeDependencies() {
@@ -135,21 +137,22 @@ class _IngestSyncState extends State<_IngestSync> {
     _ingest?.removeListener(_onIngest);
     _ingest = ingest;
     _ingest!.addListener(_onIngest);
+    // Captures during initialize() finish before this listener exists — reload once.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<TransactionProvider>().reload();
+    });
   }
 
   @override
   void dispose() {
-    _reloadDebounce?.cancel();
     _ingest?.removeListener(_onIngest);
     super.dispose();
   }
 
   void _onIngest() {
-    _reloadDebounce?.cancel();
-    _reloadDebounce = Timer(const Duration(milliseconds: 450), () {
-      if (!mounted) return;
-      context.read<TransactionProvider>().reload();
-    });
+    if (!mounted) return;
+    context.read<TransactionProvider>().reload();
   }
 
   @override

@@ -44,6 +44,20 @@ void main() {
     );
   }
 
+  test('auto-confirms easypaisa rs 1 raast payment from notification shade', () async {
+    const text =
+        'Dear MUHAMMAD ARHAM BABAR, An amount of Rs. 1.0 has been successfully sent to '
+        'ALI IBRAHIM MUHAMMAD in *******1541 via Raast Payment from your Easypaisa account '
+        '*******0101 on 2026-06-20 at 04:37:57. Trx ID: 51560858320.';
+    final when = DateTime(2026, 6, 20, 4, 37);
+
+    final outcome = await ingest(text: text, messageTime: when);
+
+    expect(outcome.result, DedupResult.created);
+    expect(outcome.transaction?.amount, 1.0);
+    expect((await repository.getAll()).length, 1);
+  });
+
   test('auto-confirms a normal merchant payment', () async {
     final when = DateTime(2026, 6, 16, 14, 30);
     final outcome = await ingest(
@@ -124,6 +138,35 @@ void main() {
       parsed: parsed!,
       source: TransactionSource.gmail,
       rawText: 'Transaction Alert: PKR 2,000.00 paid to Ali Khan',
+      messageTime: emailTime,
+    );
+
+    expect(second.result, DedupResult.merged);
+    expect((await repository.getAll()).length, 1);
+  });
+
+  test('merges easypaisa push after wallet app when merchants differ', () async {
+    final notifyTime = DateTime(2026, 6, 20, 4, 37);
+    final emailTime = notifyTime.add(const Duration(minutes: 12));
+
+    final first = await ingest(
+      text:
+          'Dear MUHAMMAD ARHAM BABAR, An amount of Rs. 1000.0 has been successfully sent to '
+          'ZAIN UI ABIDEEN in *******0917 via Raast Payment from your Easypaisa account '
+          '*******0101 on 2026-06-20 at 04:37:57. Trx ID: 51560858320.',
+      messageTime: notifyTime,
+      source: TransactionSource.notification,
+    );
+    expect(first.result, DedupResult.created);
+
+    final second = await deduplicator.processIncoming(
+      parsed: parser.parse(
+        'Money Transfer of Rs. 1000.0 to ZAIN UI ABIDEEN was successful',
+        source: TransactionSource.gmail,
+        fallbackTime: emailTime,
+      )!,
+      source: TransactionSource.gmail,
+      rawText: 'Money Transfer of Rs. 1000.0 to ZAIN UI ABIDEEN was successful',
       messageTime: emailTime,
     );
 

@@ -50,11 +50,33 @@ object CapturedEventStore {
     fun enqueue(context: Context, event: Map<String, Any?>) {
         val text = event["text"] as? String ?: return
         if (text.isBlank()) return
+        val timestamp = (event["timestamp"] as? Number)?.toLong()
+            ?: System.currentTimeMillis()
+        val pkg = event["package"] as? String
 
         try {
             val db = QueueDb(context).writableDatabase
             db.beginTransaction()
             try {
+                // Skip duplicate rows already waiting in the queue.
+                val dup = db.compileStatement(
+                    """
+                    SELECT COUNT(*) FROM captured_events
+                    WHERE text = ? AND timestamp = ? AND
+                          IFNULL(package, '') = IFNULL(?, '')
+                    """.trimIndent(),
+                )
+                dup.bindString(1, text)
+                dup.bindLong(2, timestamp)
+                if (pkg != null) {
+                    dup.bindString(3, pkg)
+                } else {
+                    dup.bindString(3, "")
+                }
+                if (dup.simpleQueryForLong() > 0) {
+                    return
+                }
+
                 db.execSQL(
                     """
                     INSERT INTO captured_events
@@ -66,14 +88,16 @@ object CapturedEventStore {
                         text,
                         event["package"] as? String,
                         event["sender"] as? String,
-                        (event["timestamp"] as? Number)?.toLong()
-                            ?: System.currentTimeMillis(),
+                        timestamp,
                         System.currentTimeMillis(),
                     ),
                 )
                 trimOldRows(db)
                 db.setTransactionSuccessful()
                 Log.d(TAG, "queued capture (${text.take(48)}…)")
+                if (!IngestPlugin.isLiveIngestAttached()) {
+                    BackgroundIngestRunner.schedule(context)
+                }
             } finally {
                 db.endTransaction()
                 db.close()

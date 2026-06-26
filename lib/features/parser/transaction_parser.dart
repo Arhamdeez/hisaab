@@ -365,7 +365,12 @@ class TransactionParser {
     r'gebze\s+technical\s+university\b|'
     r'fast\s*[—–\-]\s*nuc(?:es)?\b|'
     r'(?:tuition\s*zero|zero\s+tuition)\b|'
-    r'\bcgpa\s*[≥>=]\s*[\d.]+\b',
+    r'\bcgpa\s*[≥>=]\s*[\d.]+\b|'
+    // Telecom / carrier promos that mention Rs amounts.
+    r'\b(?:weekly|monthly|daily)\s+(?:freedom|x\s+plus|package|bundle)\b|'
+    r'\b(?:simosa|full\s+balance\s+offer|jazz\s*advance|readycash|jazztune|jazz\s*caller)\b|'
+    r'\b(?:subscribe\s+now|dial\s*\*|code\s*\*|bit\.ly/|onelink\.to/)\b|'
+    r'\b(?:\d+\s*)?(?:gb|mb)\s*,\s*\d+\s+(?:other\s+)?(?:network\s+)?min',
     caseSensitive: false,
   );
 
@@ -647,18 +652,15 @@ class TransactionParser {
     caseSensitive: false,
   );
 
-  bool _isGenericFromTarget(String value) => _genericFromTargets.hasMatch(value);
-
-  bool _isGenericAlertTitle(String value) {
-    final v = value.trim();
-    if (_genericMerchants.hasMatch(v)) return true;
-    // NayaPay casual send/receive titles — not a counterparty name.
-    return RegExp(
-      r'^(?:off it goes|money in|money out|cha[\s-]?ching|payment sent|'
-      r'payment received|transfer complete|transfer sent)\b',
-      caseSensitive: false,
-    ).hasMatch(v);
+  bool _isGenericFromTarget(String value) {
+    final n = value.toLowerCase().trim();
+    if (_genericFromTargets.hasMatch(n)) return true;
+    return RegExp(r'^(?:your|my)\s+(?:account|wallet|a/c|ac|bank)$')
+        .hasMatch(n);
   }
+
+  bool _isGenericAlertTitle(String value) =>
+      TransactionParser._isGenericNotificationTitle(value);
 
   bool _isPhoneLike(String value) {
     final trimmed = value.trim();
@@ -742,9 +744,16 @@ class TransactionParser {
     caseSensitive: false,
   );
 
-  /// Primary PK wallet alert shape: "You sent Rs. 1,500.00 …"
+  /// Primary PK wallet alert shape: "You sent Rs. 1,500.00 …" / Raqami "You just sent PKR 1.00 …"
   static final _youSentRsPattern = RegExp(
-    r'you\s+sent\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
+    r'you\s+(?:just\s+)?sent\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  /// Raqami / wallets: "You just sent PKR 1.00 to ALI IBRAHIM MUHAMMAD"
+  static final _youJustSentToPattern = RegExp(
+    r'you\s+just\s+sent\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*[\d,]+(?:\.\d+)?\s+to\s+' +
+        _partyCapture,
     caseSensitive: false,
   );
 
@@ -801,6 +810,7 @@ class TransactionParser {
 
   static bool _isUniversalTxnTrigger(String text) {
     return _youSentRsPattern.hasMatch(text) ||
+        _youJustSentToPattern.hasMatch(text) ||
         _youReceivedRsPattern.hasMatch(text) ||
         _receivedInAccountPattern.hasMatch(text) ||
         _rsSentToPattern.hasMatch(text) ||
@@ -876,6 +886,7 @@ class TransactionParser {
   }) {
     final title = notificationTitle?.trim();
     if (title == null || title.isEmpty || title.length < 3) return false;
+    if (_isGenericNotificationTitle(title)) return false;
     if (_genericAlertTitlePattern.hasMatch(title)) return false;
     if (_amountOrAlertTitlePattern.hasMatch(title)) return false;
     if (!_hasFinanceAmount(text, packageName: packageName)) return false;
@@ -894,6 +905,21 @@ class TransactionParser {
     r'payment received|transfer complete|transfer sent)$',
     caseSensitive: false,
   );
+
+  static bool _isGenericNotificationTitle(String value) {
+    final v = value.trim();
+    if (_genericMerchants.hasMatch(v)) return true;
+    final lower = v.toLowerCase();
+    return lower.startsWith('off it goes') ||
+        lower.startsWith('money in') ||
+        lower.startsWith('money out') ||
+        (lower.startsWith('cha') && lower.contains('ching')) ||
+        lower.startsWith('payment sent') ||
+        lower.startsWith('payment received') ||
+        lower.startsWith('transfer complete') ||
+        lower.startsWith('transfer sent') ||
+        lower.startsWith('transfer successful');
+  }
 
   static final _amountOrAlertTitlePattern = RegExp(
     r'(?:rs\.?|pkr|inr|₹|₨|usd|eur|gbp|\$|€|£)\s*[\d,]|'
@@ -1053,7 +1079,7 @@ class TransactionParser {
         _amountOfRsPattern.hasMatch(combined) ||
         _paymentOfPattern.hasMatch(combined) ||
         _youPaidPattern.hasMatch(combined) ||
-        RegExp(r'you\s+sent\b', caseSensitive: false).hasMatch(combined) ||
+        RegExp(r'you\s+(?:just\s+)?sent\b', caseSensitive: false).hasMatch(combined) ||
         RegExp(r'successfully\s+sent', caseSensitive: false).hasMatch(combined) ||
         _moneyTransferOfRsPattern.hasMatch(combined) ||
         (_directionTransferPattern.hasMatch(combined) &&
@@ -1287,6 +1313,10 @@ class TransactionParser {
       caseSensitive: false,
     );
     v = v.replaceAll(boundary, '');
+    v = v.replaceAll(
+      RegExp(r'\s+of\s+(?:IBAN|iban)\b.*$', caseSensitive: false),
+      '',
+    );
     // Raast / IBAN tail glued to a person name — "NAME PK**UNILPKKARTG…" or "NAME PK"
     v = v.replaceAll(RegExp(r'\s+PK(?:[\*A-Z0-9].*)?$', caseSensitive: false), '');
     // JazzCash: "MUHAMMAD ARHAM BABAR AC ********244200101"
@@ -1294,6 +1324,14 @@ class TransactionParser {
     // Strip a trailing standalone number/date fragment and punctuation.
     v = v.replaceAll(RegExp(r'\s+\d[\d/.\-]*$'), '');
     v = v.replaceAll(RegExp(r'[\s.,;:\-]+$'), '').trim();
+    // Trailing emoji / symbols after a person name — "Mohammad Haris Imran 💸"
+    v = v.replaceAll(
+      RegExp(
+        r'[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]+$',
+        unicode: true,
+      ),
+      '',
+    ).trim();
     return v.isEmpty ? value : v;
   }
 
@@ -1325,7 +1363,8 @@ class TransactionParser {
     final successfullySentTo = RegExp(
       r'(?:amount\s+of\s+(?:rs\.?|pkr)\s*[\d,]+(?:\.\d+)?\s+)?'
       r'(?:has\s+been\s+)?successfully\s+sent\s+to\s+' +
-          _partyCapture,
+          _partyCaptureLazy +
+          r'(?=\s+(?:of\s+(?:IBAN|iban|A/C|a/c)|in\s+\*+|via\b|on\b|from\b|trx|tid|\d{4}-\d{2}-\d{2})|\s*[,.]|$)',
       caseSensitive: false,
     ).firstMatch(text);
     if (successfullySentTo != null) {
@@ -1333,10 +1372,18 @@ class TransactionParser {
       if (_isUsablePartyName(name)) return (null, name);
     }
 
+    final youJustSentTo = _youJustSentToPattern.firstMatch(text);
+    if (youJustSentTo != null) {
+      final name = _trimMerchant(youJustSentTo.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (null, name);
+    }
+
     final sentTo = RegExp(
-      r'(?:you\s+)?(?:sent|paid|transferred|transfer(?:red)?)\s+(?:'
+      r'(?:you\s+(?:just\s+)?)?(?:sent|paid|transferred|transfer(?:red)?)\s+(?:'
       r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+)?'
-      r'(?:to|for)\s+' + _partyCapture,
+      r'(?:to|for)\s+' +
+          _partyCaptureLazy +
+          r'(?=\s+(?:of\s+(?:IBAN|iban|A/C|a/c)|in\s+\*+|via\b|on\b|from\b|trx|tid|\d{4}-\d{2}-\d{2})|\s*[,.]|\s[^\w\s-]|$)',
       caseSensitive: false,
     ).firstMatch(text);
     if (sentTo != null) {
@@ -1457,6 +1504,17 @@ class TransactionParser {
       var y = int.tryParse(named.group(3)!);
       if (d != null && m != null && y != null) {
         if (y < 100) y += 2000;
+        final date = _validDate(y, m, d);
+        if (date != null) return date;
+      }
+    }
+
+    final iso = RegExp(r'(\d{4})-(\d{2})-(\d{2})').firstMatch(text);
+    if (iso != null) {
+      final y = int.tryParse(iso.group(1)!);
+      final m = int.tryParse(iso.group(2)!);
+      final d = int.tryParse(iso.group(3)!);
+      if (y != null && m != null && d != null) {
         final date = _validDate(y, m, d);
         if (date != null) return date;
       }

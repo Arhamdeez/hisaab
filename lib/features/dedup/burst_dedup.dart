@@ -16,6 +16,16 @@ abstract final class BurstDedup {
     'payment',
   };
 
+  /// Wallet/bank branding in alerts — not a counterparty name.
+  static final _institutionMerchants = RegExp(
+    r'^(?:jazzcash|easypaisa|nayapay|sadapay|mobilink|ubl|hbl|mcb|'
+    r'transaction alert|money transfer|money received|money sent|'
+    r'payment received|transfer successful|successful transfer|'
+    r'e statement|estatement|debit alert|credit alert|'
+    r'off it goes|transaction successful)$',
+    caseSensitive: false,
+  );
+
   static bool matches({
     required Transaction existing,
     required double amount,
@@ -32,6 +42,19 @@ abstract final class BurstDedup {
     if (gap > window) return false;
 
     return merchantsCompatible(existing.merchant, merchant);
+  }
+
+  /// True when one side is a wallet/bank label rather than a person or shop.
+  static bool isGenericInstitution(String merchant) {
+    final n = _normalizeMerchant(merchant);
+    if (n.isEmpty || _unknownMerchants.contains(n)) return true;
+    return _institutionMerchants.hasMatch(n);
+  }
+
+  /// Same payment across app push + email/SMS when merchants differ by channel.
+  static bool paymentAlertsLikelySame(String a, String b) {
+    if (merchantsCompatible(a, b)) return true;
+    return isGenericInstitution(a) || isGenericInstitution(b);
   }
 
   static bool merchantsCompatible(String a, String b) {

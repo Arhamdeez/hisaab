@@ -5,6 +5,7 @@ import '../../features/parser/transaction_parser.dart';
 import '../../models/transaction.dart' as domain;
 import '../../features/dedup/cross_source_dedup.dart';
 import '../../features/dedup/burst_dedup.dart';
+import '../../features/dedup/payment_alert_dedup.dart';
 
 class TransactionRepository {
   TransactionRepository(this._db);
@@ -53,12 +54,12 @@ class TransactionRepository {
     required domain.TransactionSource incomingSource,
     required String merchant,
   }) async {
-    final rows = await _db.getTransactionsByAmountTypeOnDay(
+    final candidates = await _sameDayAmountCandidates(
       amount: amount,
-      type: type.storageKey,
-      day: occurredAt,
+      type: type,
+      occurredAt: occurredAt,
+      messageTime: messageTime,
     );
-    final candidates = rows.map(_mapRow).toList();
     return CrossSourceDedup.findMatch(
       candidates: candidates,
       incomingSource: incomingSource,
@@ -67,6 +68,56 @@ class TransactionRepository {
       messageTime: messageTime,
       merchant: merchant,
     );
+  }
+
+  /// Wallet push + Gmail shade alert for the same payment (often same source).
+  Future<domain.Transaction?> findPaymentAlertDuplicate({
+    required double amount,
+    required domain.TransactionType type,
+    required DateTime occurredAt,
+    required DateTime messageTime,
+    required String merchant,
+  }) async {
+    final candidates = await _sameDayAmountCandidates(
+      amount: amount,
+      type: type,
+      occurredAt: occurredAt,
+      messageTime: messageTime,
+    );
+    return PaymentAlertDedup.findMatch(
+      candidates: candidates,
+      amount: amount,
+      type: type,
+      messageTime: messageTime,
+      merchant: merchant,
+    );
+  }
+
+  Future<List<domain.Transaction>> _sameDayAmountCandidates({
+    required double amount,
+    required domain.TransactionType type,
+    required DateTime occurredAt,
+    required DateTime messageTime,
+  }) async {
+    final days = {
+      DateTime(occurredAt.year, occurredAt.month, occurredAt.day),
+      DateTime(messageTime.year, messageTime.month, messageTime.day),
+    };
+    final seen = <String>{};
+    final candidates = <domain.Transaction>[];
+    for (final day in days) {
+      final rows = await _db.getTransactionsByAmountTypeOnDay(
+        amount: amount,
+        type: type.storageKey,
+        day: day,
+      );
+      for (final row in rows) {
+        if (seen.add(row.id)) {
+          candidates.add(_mapRow(row));
+        }
+      }
+    }
+    return candidates;
   }
 
   Future<domain.Transaction?> findBurstDuplicate({
