@@ -14,6 +14,7 @@ class Transactions extends Table {
   TextColumn get status => text()();
   TextColumn get fingerprint => text()();
   TextColumn get linkedSources => text().withDefault(const Constant('[]'))();
+  TextColumn get description => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};

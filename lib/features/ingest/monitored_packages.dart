@@ -31,6 +31,28 @@ abstract final class MonitoredPackages {
     'com.foodpanda.',
     'com.flipkart.',
     'com.miui.home',
+    // Messaging / chat — SMS uses [SmsReceiver], not notification capture.
+    'com.whatsapp',
+    'org.telegram.',
+    'org.thoughtcrime.securesms',
+    'com.facebook.orca',
+    'com.facebook.mlite',
+    'com.facebook.lite',
+    'com.viber.voip',
+    'com.imo.android.',
+    'com.tencent.mm',
+    'jp.naver.line.',
+    'com.skype.',
+    'com.microsoft.teams',
+    'com.Slack',
+    'com.google.android.talk',
+    'com.google.android.apps.dynamite',
+    'com.google.android.apps.googlevoice',
+    'com.instagram.barcelona',
+    'com.badoo.mobile',
+    'com.pinterest.',
+    'com.tumblr',
+    'com.amazon.mShop.android.shopping', // shopping alerts, not payments
   ];
 
   /// Email clients — capture only when notification text looks like a txn.

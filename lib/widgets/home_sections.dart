@@ -7,6 +7,7 @@ import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
 import '../models/transaction.dart';
 import '../providers/category_catalog.dart';
+import '../screens/transaction_detail_screen.dart';
 import 'empty_state_view.dart';
 import 'glass_container.dart';
 
@@ -200,60 +201,66 @@ class _RecentLine extends StatelessWidget {
         context.watch<CategoryCatalog>().resolve(transaction.categoryId);
     final color = category.color;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: AppDecorations.iconBadge(color),
-            child: Icon(category.icon, color: color, size: 18),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  transaction.merchant,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  category.label,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppColors.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => TransactionDetailScreen.open(context, transaction),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
             children: [
-              Text(
-                '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: isDebit ? AppColors.expense : AppColors.income,
-                  fontWeight: FontWeight.w700,
+              Container(
+                width: 40,
+                height: 40,
+                decoration: AppDecorations.iconBadge(color),
+                child: Icon(category.icon, color: color, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      transaction.merchant,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      category.label,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 2),
-              Text(
-                formatTime(transaction.occurredAt),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: AppColors.textDim,
-                ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: isDebit ? AppColors.expense : AppColors.income,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    formatTime(transaction.occurredAt),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: AppColors.textDim,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }

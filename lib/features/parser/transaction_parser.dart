@@ -606,8 +606,12 @@ class TransactionParser {
     (String?, String?) parties, {
     String? notificationTitle,
   }) {
-    // Body "from/to" patterns are more reliable than notification titles, which
-    // are often generic ("Money received") or amount-only ("Rs.500 received").
+    final fromTitle = _extractMerchantFromTitle(notificationTitle);
+    if (_isPersonNameTitle(notificationTitle) && _isUsablePartyName(fromTitle)) {
+      return fromTitle;
+    }
+
+    // Body "from/to" patterns are more reliable than generic notification titles.
     if (type == TransactionType.credit) {
       final sender = parties.$1;
       if (_isUsablePartyName(sender)) return sender;
@@ -623,7 +627,6 @@ class TransactionParser {
       if (_isUsablePartyName(receiver)) return receiver;
     }
 
-    final fromTitle = _extractMerchantFromTitle(notificationTitle);
     if (_isUsablePartyName(fromTitle)) return fromTitle;
 
     final extracted = _extractMerchant(text, type: type);
@@ -637,12 +640,20 @@ class TransactionParser {
 
   String? _extractMerchantFromTitle(String? title) {
     if (title == null) return null;
-    final trimmed = title.trim();
+    var trimmed = title.trim();
     if (trimmed.isEmpty ||
         _isGenericAlertTitle(trimmed) ||
         _isAmountOrAlertTitle(trimmed)) {
       return null;
     }
+
+    trimmed = trimmed.replaceAll(
+      RegExp(
+        r'[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]+$',
+        unicode: true,
+      ),
+      '',
+    ).trim();
 
     final leading = _nameBeforeSentenceDot(trimmed);
     if (leading != null) return leading;
@@ -896,41 +907,45 @@ class TransactionParser {
     if (MonitoredPackages.isExcluded(packageName)) return false;
     if (_isNoiseNotification(text)) return false;
 
-    // Tier 1 — explicit payment phrasing from any app (incl. Gmail).
-    if (_isHighConfidenceTxn(text)) return true;
-
     final isFinanceApp = MonitoredPackages.matches(packageName);
     final isEmail = MonitoredPackages.isEmailClient(packageName);
+    final hasPackage = packageName != null && packageName.isNotEmpty;
 
-    if (isEmail) {
+    // SMS events have no package — native layer already filters senders.
+    if (!hasPackage) {
+      if (_isHighConfidenceTxn(text)) return true;
       return _hasCurrencyLabel(text) && _strongFinanceSignals.hasMatch(text);
     }
 
-    if (isFinanceApp) {
-      if (!_hasFinanceAmount(
-        text,
-        packageName: packageName,
-        notificationTitle: notificationTitle,
-      )) {
-        return false;
-      }
-      // JazzCash / NayaPay often post the counterparty as the title and only
-      // the amount in the body — e.g. title "Ahmed Khan", body "2,000.00".
-      if (_isPersonNameTitle(notificationTitle)) return true;
-      if (_strongFinanceSignals.hasMatch(text)) return true;
-      if (_monitoredWalletFallback.hasMatch(text)) return true;
-      if (_isTitleWithAmountBody(
-        notificationTitle: notificationTitle,
-        text: text,
-        packageName: packageName,
-      )) {
-        return true;
-      }
-      return false;
+    if (isEmail) {
+      if (_isHighConfidenceTxn(text)) return true;
+      return _hasCurrencyLabel(text) && _strongFinanceSignals.hasMatch(text);
     }
 
-    // Unknown apps: currency label + strong finance wording only.
-    return _hasCurrencyLabel(text) && _strongFinanceSignals.hasMatch(text);
+    if (!isFinanceApp) return false;
+
+    if (_isHighConfidenceTxn(text)) return true;
+
+    if (!_hasFinanceAmount(
+      text,
+      packageName: packageName,
+      notificationTitle: notificationTitle,
+    )) {
+      return false;
+    }
+    // JazzCash / NayaPay often post the counterparty as the title and only
+    // the amount in the body — e.g. title "Ahmed Khan", body "2,000.00".
+    if (_isPersonNameTitle(notificationTitle)) return true;
+    if (_strongFinanceSignals.hasMatch(text)) return true;
+    if (_monitoredWalletFallback.hasMatch(text)) return true;
+    if (_isTitleWithAmountBody(
+      notificationTitle: notificationTitle,
+      text: text,
+      packageName: packageName,
+    )) {
+      return true;
+    }
+    return false;
   }
 
   /// Merchant/person in title + amount in body (Google Wallet, JazzCash, NayaPay).
@@ -1508,6 +1523,17 @@ class TransactionParser {
     ).firstMatch(text);
     if (paidAt != null) {
       final name = _trimMerchant(paidAt.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (null, name);
+    }
+
+    final rsSentToName = RegExp(
+      r'(?:rs\.?|pkr|inr|₹|₨)\.?\s*[\d,]+(?:\.\d+)?\s+sent\s+to\s+' +
+          _partyCaptureLazy +
+          r'(?=\s+(?:of\s+(?:IBAN|iban|A/C|a/c)|in\s+\*+|via\b|on\b|from\b|trx|tid|\d{4}-\d{2}-\d{2})|\s*[,.]|\s[^\w\s-]|$)',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (rsSentToName != null) {
+      final name = _trimMerchant(rsSentToName.group(1)!.trim());
       if (_isUsablePartyName(name)) return (null, name);
     }
 

@@ -92,6 +92,7 @@ class Transaction {
     this.rawText,
     this.confidence = 1.0,
     this.linkedSources = const [],
+    this.description,
   });
 
   final String id;
@@ -107,6 +108,7 @@ class Transaction {
   final double confidence;
   final String fingerprint;
   final List<TransactionSource> linkedSources;
+  final String? description;
 
   bool get isDebit => type == TransactionType.debit;
   bool get isPending => status == TransactionStatus.pendingReview;
@@ -126,6 +128,7 @@ class Transaction {
     TransactionStatus? status,
     String? categoryId,
     List<TransactionSource>? linkedSources,
+    String? description,
   }) {
     return Transaction(
       id: id,
@@ -141,6 +144,7 @@ class Transaction {
       confidence: confidence,
       fingerprint: fingerprint,
       linkedSources: linkedSources ?? this.linkedSources,
+      description: description ?? this.description,
     );
   }
 }

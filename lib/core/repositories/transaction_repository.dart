@@ -156,6 +156,9 @@ class TransactionRepository {
   Future<void> updateCategory(String id, String categoryId) =>
       _db.updateTransactionCategory(id, categoryId);
 
+  Future<void> updateDescription(String id, String? description) =>
+      _db.updateTransactionDescription(id, description);
+
   Future<void> save(domain.Transaction transaction) async {
     await _db.upsertTransaction(_toCompanion(transaction));
   }
@@ -198,6 +201,8 @@ class TransactionRepository {
   /// Removes legacy demo rows seeded during development.
   Future<int> deleteLegacySeedData() =>
       _db.deleteTransactionsWithIdPrefix('seed_');
+
+  Future<bool> deleteTransaction(String id) => _db.deleteTransaction(id);
 
   Future<List<ParserRule>> getParserRules() async {
     final rows = await _db.getEnabledParserRules();
@@ -248,6 +253,7 @@ class TransactionRepository {
       confidence: row.confidence,
       fingerprint: row.fingerprint,
       linkedSources: domain.linkedSourcesFromJson(row.linkedSources),
+      description: row.description,
     );
   }
 
@@ -266,6 +272,7 @@ class TransactionRepository {
       status: Value(t.status.storageKey),
       fingerprint: Value(t.fingerprint),
       linkedSources: Value(domain.linkedSourcesToJson(t.linkedSources)),
+      description: Value(t.description),
     );
   }
 }

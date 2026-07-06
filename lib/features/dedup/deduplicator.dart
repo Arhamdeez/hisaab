@@ -2,6 +2,7 @@ import '../../core/repositories/transaction_repository.dart';
 import '../../models/transaction.dart';
 import '../parser/transaction_parser.dart';
 import 'burst_dedup.dart';
+import 'rescan_dedup.dart';
 import 'review_policy.dart';
 
 enum DedupResult { created, merged, skipped }
@@ -44,17 +45,36 @@ class Deduplicator {
     );
 
     if (existingInWindow.isNotEmpty) {
-      final existing = existingInWindow.first;
-      final linked = {...existing.linkedSources, existing.source, source}.toList();
-      await _repository.updateLinkedSources(existing.id, linked);
-      return const IngestOutcome(DedupResult.merged);
+      return _mergeExisting(
+        existing: existingInWindow.first,
+        source: source,
+        merchant: parsed.merchant,
+      );
     }
 
     final exact = await _repository.getByFingerprint(fingerprint);
     if (exact != null) {
-      final linked = {...exact.linkedSources, exact.source, source}.toList();
-      await _repository.updateLinkedSources(exact.id, linked);
-      return const IngestOutcome(DedupResult.merged);
+      return _mergeExisting(
+        existing: exact,
+        source: source,
+        merchant: parsed.merchant,
+      );
+    }
+
+    final recentCandidates = await _repository.getLatestTransactions(limit: 80);
+    final rescanDuplicate = RescanDedup.findMatch(
+      candidates: recentCandidates,
+      amount: parsed.amount,
+      type: parsed.type,
+      rawText: rawText,
+      referenceId: referenceId,
+    );
+    if (rescanDuplicate != null) {
+      return _mergeExisting(
+        existing: rescanDuplicate,
+        source: source,
+        merchant: parsed.merchant,
+      );
     }
 
     // Same payment often arrives as an app notification and an email — merge
@@ -69,13 +89,11 @@ class Deduplicator {
       referenceId: referenceId,
     );
     if (crossSource != null) {
-      final linked = {
-        ...crossSource.linkedSources,
-        crossSource.source,
-        source,
-      }.toList();
-      await _repository.updateLinkedSources(crossSource.id, linked);
-      return const IngestOutcome(DedupResult.merged);
+      return _mergeExisting(
+        existing: crossSource,
+        source: source,
+        merchant: parsed.merchant,
+      );
     }
 
     final paymentAlert = await _repository.findPaymentAlertDuplicate(
@@ -87,13 +105,11 @@ class Deduplicator {
       referenceId: referenceId,
     );
     if (paymentAlert != null) {
-      final linked = {
-        ...paymentAlert.linkedSources,
-        paymentAlert.source,
-        source,
-      }.toList();
-      await _repository.updateLinkedSources(paymentAlert.id, linked);
-      return const IngestOutcome(DedupResult.merged);
+      return _mergeExisting(
+        existing: paymentAlert,
+        source: source,
+        merchant: parsed.merchant,
+      );
     }
 
     final burstDuplicate = await _repository.findBurstDuplicate(
@@ -105,14 +121,11 @@ class Deduplicator {
       referenceId: referenceId,
     );
     if (burstDuplicate != null) {
-      final betterMerchant = BurstDedup.pickBetterMerchant(
-        burstDuplicate.merchant,
-        parsed.merchant,
+      return _mergeExisting(
+        existing: burstDuplicate,
+        source: source,
+        merchant: parsed.merchant,
       );
-      if (betterMerchant != burstDuplicate.merchant) {
-        await _repository.updateMerchant(burstDuplicate.id, betterMerchant);
-      }
-      return const IngestOutcome(DedupResult.merged);
     }
 
     final recent = await _repository.getLatestTransactions();
@@ -153,5 +166,19 @@ class Deduplicator {
 
     await _repository.save(transaction);
     return IngestOutcome(DedupResult.created, transaction);
+  }
+
+  Future<IngestOutcome> _mergeExisting({
+    required Transaction existing,
+    required TransactionSource source,
+    required String merchant,
+  }) async {
+    final linked = {...existing.linkedSources, existing.source, source}.toList();
+    await _repository.updateLinkedSources(existing.id, linked);
+    final better = BurstDedup.pickBetterMerchant(existing.merchant, merchant);
+    if (better != existing.merchant) {
+      await _repository.updateMerchant(existing.id, better);
+    }
+    return const IngestOutcome(DedupResult.merged);
   }
 }

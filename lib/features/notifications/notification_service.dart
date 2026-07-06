@@ -173,17 +173,12 @@ class NotificationService {
     return false;
   }
 
-  /// Shows a short "Got it" confirmation when a payment is tracked.
+  /// Shows a quick heads-up when a payment is logged (direction-aware copy).
   Future<void> showTransactionCaptured(Transaction transaction) async {
     if (!_initialized) await initialize();
     if (!_initialized) return;
 
-    final isDebit = transaction.isDebit;
-    final amount = formatCurrency(transaction.amount);
-    final sign = isDebit ? '−' : '+';
-    final title = 'Got it';
-    final inboxHint = transaction.isPending ? ' · check inbox' : '';
-    final body = '$sign$amount · ${transaction.merchant}$inboxHint';
+    final copy = _captureAlertCopy(transaction);
 
     const androidDetails = AndroidNotificationDetails(
       _channelId,
@@ -202,8 +197,8 @@ class NotificationService {
     try {
       await _plugin.show(
         id: _notificationIdFor(transaction.id),
-        title: title,
-        body: body,
+        title: copy.title,
+        body: copy.body,
         notificationDetails: const NotificationDetails(
           android: androidDetails,
           iOS: darwinDetails,
@@ -213,6 +208,26 @@ class NotificationService {
     } catch (e) {
       debugPrint('NotificationService show error: $e');
     }
+  }
+
+  /// Title + body for a newly captured transaction.
+  static ({String title, String body}) _captureAlertCopy(
+    Transaction transaction,
+  ) {
+    final amount = formatCurrency(transaction.amount);
+    final merchant = transaction.merchant;
+    final inboxHint = transaction.isPending ? ' · check inbox' : '';
+
+    if (transaction.isDebit) {
+      return (
+        title: 'Gone.',
+        body: '−$amount to $merchant$inboxHint',
+      );
+    }
+    return (
+      title: 'Got it.',
+      body: '+$amount from $merchant$inboxHint',
+    );
   }
 
   void _onForegroundResponse(NotificationResponse response) {

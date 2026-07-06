@@ -16,13 +16,18 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) async {
           await m.createAll();
           await _seedParserRules();
+        },
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.addColumn(transactions, transactions.description);
+          }
         },
       );
 
@@ -193,6 +198,16 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<void> updateTransactionDescription(String id, String? description) async {
+    await (update(transactions)..where((t) => t.id.equals(id))).write(
+      TransactionsCompanion(
+        description: description == null || description.isEmpty
+            ? const Value(null)
+            : Value(description),
+      ),
+    );
+  }
+
   Future<int> reassignTransactionCategory(String fromId, String toId) {
     return (update(transactions)..where((t) => t.category.equals(fromId))).write(
       TransactionsCompanion(category: Value(toId)),
@@ -219,6 +234,12 @@ class AppDatabase extends _$AppDatabase {
 
   Future<int> deleteTransactionsWithIdPrefix(String prefix) =>
       (delete(transactions)..where((t) => t.id.like('$prefix%'))).go();
+
+  Future<bool> deleteTransaction(String id) async {
+    final deleted =
+        await (delete(transactions)..where((t) => t.id.equals(id))).go();
+    return deleted > 0;
+  }
 
   Future<MonthlySummary?> getMonthlySummary(String yearMonth) =>
       (select(monthlySummaries)..where((m) => m.yearMonth.equals(yearMonth)))

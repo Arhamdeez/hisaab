@@ -32,7 +32,7 @@ class IngestProcessor {
   /// Rescans OS sources, drains the native queue, and returns rows created or merged.
   Future<int> processPendingQueue({bool rescanSources = false}) async {
     if (rescanSources && Platform.isAndroid) {
-      await IngestBridge.instance.scanActiveNotifications();
+      await IngestBridge.instance.scanActiveNotifications(force: true);
       final sms = await Permission.sms.status;
       if (sms.isGranted || sms.isLimited) {
         await IngestBridge.instance.scanRecentSms(walletShortCodesOnly: false);

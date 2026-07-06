@@ -38,16 +38,17 @@ Future<void> main() async {
   final repository = TransactionRepository(database);
   final deduplicator = Deduplicator(repository);
   final gmailService = GmailService();
-  final ingestService = IngestService(
-    repository: repository,
-    database: database,
-    gmailService: gmailService,
-  );
-  final backupService = BackupService(repository);
   final transactionProvider = TransactionProvider(
     repository: repository,
     deduplicator: deduplicator,
   );
+  final ingestService = IngestService(
+    repository: repository,
+    database: database,
+    gmailService: gmailService,
+    onTransactionsChanged: transactionProvider.reload,
+  );
+  final backupService = BackupService(repository);
 
   // Load existing rows fast so the UI paints immediately with real data.
   await transactionProvider.load();
@@ -63,11 +64,8 @@ Future<void> main() async {
   );
 
   // Drain captures off the critical path so a heavy shade scan / queue drain
-  // never freezes the first frame. New rows surface via the ingest listener and
-  // this reload when the drain finishes.
-  unawaited(
-    ingestService.initialize().then((_) => transactionProvider.reload()),
-  );
+  // never freezes the first frame. Rows refresh via [onTransactionsChanged].
+  unawaited(ingestService.initialize());
 
   unawaited(_warmFontsAndPrefs(repository));
 }
@@ -156,8 +154,8 @@ class _IngestSyncState extends State<_IngestSync> {
   }
 
   void _onIngest() {
-    if (!mounted) return;
-    context.read<TransactionProvider>().reload();
+    // Transaction lists reload via [IngestService.onTransactionsChanged].
+    // This listener only rebuilds ingest-dependent UI (settings, etc.).
   }
 
   @override

@@ -186,10 +186,14 @@ class IngestBridge {
   }
 
   /// Re-reads alerts still sitting in the notification shade (EasyPaisa, Gmail, …).
-  Future<void> scanActiveNotifications() async {
+  /// [force] — bypass throttle (cold start, pull-to-refresh).
+  Future<void> scanActiveNotifications({bool force = false}) async {
     if (!Platform.isAndroid) return;
     try {
-      await _methodChannel.invokeMethod<void>('scanActiveNotifications');
+      await _methodChannel.invokeMethod<void>(
+        'scanActiveNotifications',
+        {'force': force},
+      );
     } catch (e) {
       debugPrint('IngestBridge scan error: $e');
     }

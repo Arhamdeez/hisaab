@@ -73,6 +73,21 @@ class TransactionProvider extends ChangeNotifier {
     });
   }
 
+  /// Full history for a month — confirmed and inbox-pending (not ignored).
+  List<Transaction> historyForMonth(DateTime month) {
+    final key = '${_monthKey(month)}-history';
+    return _monthTxCache.putIfAbsent(key, () {
+      return _transactions
+          .where(
+            (t) =>
+                t.status != TransactionStatus.ignored &&
+                t.occurredAt.year == month.year &&
+                t.occurredAt.month == month.month,
+          )
+          .toList();
+    });
+  }
+
   /// Newest transactions for [month] on home — includes inbox-pending rows.
   List<Transaction> recentForMonth(DateTime month, {int limit = 5}) {
     final sorted = List<Transaction>.from(
@@ -216,6 +231,12 @@ class TransactionProvider extends ChangeNotifier {
     await load();
   }
 
+  Future<bool> deleteTransaction(String id) async {
+    final deleted = await _repository.deleteTransaction(id);
+    if (deleted) await load();
+    return deleted;
+  }
+
   Future<void> addManualTransaction({
     required double amount,
     required String merchant,
@@ -285,6 +306,11 @@ class TransactionProvider extends ChangeNotifier {
 
   Future<void> updateTransactionCategory(String id, String categoryId) async {
     await _repository.updateCategory(id, categoryId);
+    await load();
+  }
+
+  Future<void> updateTransactionDescription(String id, String? description) async {
+    await _repository.updateDescription(id, description);
     await load();
   }
 }

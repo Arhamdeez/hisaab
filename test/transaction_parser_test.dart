@@ -529,11 +529,11 @@ void main() {
     expect(result.type, TransactionType.credit);
   });
 
-  test('parses you paid Rs from any wallet', () {
+  test('parses you paid Rs from monitored wallet', () {
     final result = parser.parse(
       'You paid Rs. 750 to K-Electric. Reference 445566.',
       source: TransactionSource.notification,
-      packageName: 'com.example.mypay',
+      packageName: 'pk.com.telenor.phoenix',
     );
     expect(result, isNotNull);
     expect(result!.amount, 750);
@@ -696,15 +696,13 @@ void main() {
     expect(result, isNull);
   });
 
-  test('parses WhatsApp Pay UPI received notification', () {
+  test('rejects WhatsApp payment notification', () {
     final result = parser.parse(
       'You received Rs. 500 from Amit Sharma via UPI.',
       source: TransactionSource.notification,
       packageName: 'com.whatsapp',
     );
-    expect(result, isNotNull);
-    expect(result!.amount, 500);
-    expect(result.type, TransactionType.credit);
+    expect(result, isNull);
   });
 
   test('parses UBL IBFT transfer to EasyPaisa', () {

@@ -84,7 +84,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         final monthlyAvg =
             monthsWithSpend == 0 ? 0.0 : monthlySum / monthsWithSpend;
 
-        var txs = provider.transactionsForMonth(selected);
+        var txs = provider.historyForMonth(selected);
         if (_query.isNotEmpty) {
           txs = txs
               .where(

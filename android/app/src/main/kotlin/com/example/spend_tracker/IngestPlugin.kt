@@ -70,6 +70,28 @@ class IngestPlugin(
             "com.foodpanda.",
             "com.flipkart.",
             "com.miui.home",
+            // Messaging / chat — SMS uses SmsReceiver, not notification capture.
+            "com.whatsapp",
+            "org.telegram.",
+            "org.thoughtcrime.securesms",
+            "com.facebook.orca",
+            "com.facebook.mlite",
+            "com.facebook.lite",
+            "com.viber.voip",
+            "com.imo.android.",
+            "com.tencent.mm",
+            "jp.naver.line.",
+            "com.skype.",
+            "com.microsoft.teams",
+            "com.Slack",
+            "com.google.android.talk",
+            "com.google.android.apps.dynamite",
+            "com.google.android.apps.googlevoice",
+            "com.instagram.barcelona",
+            "com.badoo.mobile",
+            "com.pinterest.",
+            "com.tumblr",
+            "com.amazon.mShop.android.shopping",
         )
 
         private val emailClientPrefixes = listOf(
@@ -799,29 +821,25 @@ class IngestPlugin(
             if (isExcludedPackage(packageName)) return false
             if (isNoiseNotification(text)) return false
 
-            // Tier 1 — explicit payment phrasing from any app (incl. Gmail).
-            if (isHighConfidenceTxn(text)) return true
-
             if (isEmailClient(packageName)) {
+                if (isHighConfidenceTxn(text)) return true
                 return hasCurrencyLabel(text) && strongFinanceRegex.containsMatchIn(text)
             }
 
-            if (shouldMonitor(packageName)) {
-                if (isHighConfidenceTxn(text)) return true
-                if (!hasFinanceAmount(text)) {
-                    return false
-                }
-                // JazzCash / NayaPay: counterparty in title, amount-only body.
-                if (isPersonNameTitle(title)) return true
-                if (strongFinanceRegex.containsMatchIn(text)) return true
-                if (monitoredWalletFallbackRegex.containsMatchIn(text)) return true
-                if (walletTxnRegex.containsMatchIn(text)) return true
-                if (isTitleWithAmountBody(title, text)) return true
+            // Only bank / wallet apps — never random apps (WhatsApp, etc.).
+            if (!shouldMonitor(packageName)) return false
+
+            if (isHighConfidenceTxn(text)) return true
+            if (!hasFinanceAmount(text)) {
                 return false
             }
-
-            // Unknown apps: currency + strong finance wording only.
-            return hasCurrencyLabel(text) && strongFinanceRegex.containsMatchIn(text)
+            // JazzCash / NayaPay: counterparty in title, amount-only body.
+            if (isPersonNameTitle(title)) return true
+            if (strongFinanceRegex.containsMatchIn(text)) return true
+            if (monitoredWalletFallbackRegex.containsMatchIn(text)) return true
+            if (walletTxnRegex.containsMatchIn(text)) return true
+            if (isTitleWithAmountBody(title, text)) return true
+            return false
         }
 
         /** True when native SQLite / legacy queues hold unprocessed captures. */
@@ -1133,7 +1151,11 @@ class IngestPlugin(
                             result.success(null)
                         }
                         "scanActiveNotifications" -> {
-                            NotificationCaptureService.rescanActiveNotifications(context)
+                            val force = call.argument<Boolean>("force") ?: false
+                            NotificationCaptureService.rescanActiveNotifications(
+                                context,
+                                force = force,
+                            )
                             result.success(null)
                         }
                         "scanRecentSms" -> {
@@ -1186,11 +1208,17 @@ class NotificationCaptureService : NotificationListenerService() {
         @Volatile
         private var connectedInstance: NotificationCaptureService? = null
 
+        @Volatile
+        private var lastActiveScanMs = 0L
+
+        /** Minimum gap between automatic shade re-scans (listener reconnect, etc.). */
+        private const val ACTIVE_SCAN_MIN_INTERVAL_MS = 3L * 60L * 1000L
+
         /** Re-process alerts still visible in the notification shade. */
-        fun rescanActiveNotifications(context: Context) {
+        fun rescanActiveNotifications(context: Context, force: Boolean = false) {
             val service = connectedInstance
             if (service != null) {
-                service.scanActiveNotifications()
+                service.scanActiveNotifications(force)
             } else {
                 IngestPlugin.requestNotificationRebind(context)
             }
@@ -1201,7 +1229,8 @@ class NotificationCaptureService : NotificationListenerService() {
         super.onListenerConnected()
         connectedInstance = this
         Log.d(INGEST_TAG, "NotificationListener CONNECTED")
-        scanActiveNotifications()
+        // Throttled — cold start / pull-to-refresh use an explicit forced scan.
+        scanActiveNotifications(force = false)
     }
 
     override fun onListenerDisconnected() {
@@ -1218,7 +1247,13 @@ class NotificationCaptureService : NotificationListenerService() {
         super.onDestroy()
     }
 
-    private fun scanActiveNotifications() {
+    private fun scanActiveNotifications(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastActiveScanMs < ACTIVE_SCAN_MIN_INTERVAL_MS) {
+            Log.d(INGEST_TAG, "skip shade scan — throttled")
+            return
+        }
+        lastActiveScanMs = now
         Handler(Looper.getMainLooper()).post {
             try {
                 val active = activeNotifications

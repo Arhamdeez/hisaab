@@ -297,4 +297,56 @@ void main() {
     expect((await repository.getAll()).length, 1);
     expect((await repository.getAll()).single.merchant, 'Ali Khan');
   });
+
+  test('does not create a second row when the same alert is ingested again', () async {
+    const text =
+        'Dear MUHAMMAD ARHAM BABAR, An amount of Rs. 1.0 has been successfully sent to '
+        'ALI IBRAHIM MUHAMMAD in *******1541 via Raast Payment from your Easypaisa account '
+        '*******0101 on 2026-06-26 at 05:53:41. Trx ID: 51829532776.';
+    final when = DateTime(2026, 6, 26, 5, 53);
+
+    final first = await ingest(text: text, messageTime: when);
+    expect(first.result, DedupResult.created);
+
+    final second = await ingest(
+      text: text,
+      messageTime: when.add(const Duration(hours: 6)),
+    );
+    expect(second.result, DedupResult.merged);
+    expect((await repository.getAll()).length, 1);
+  });
+
+  test('upgrades generic merchant when cross-source alert has the real name', () async {
+    final when = DateTime(2026, 6, 26, 6, 24);
+    final first = await deduplicator.processIncoming(
+      parsed: ParsedTransaction(
+        amount: 1,
+        type: TransactionType.debit,
+        merchant: 'Easypaisa',
+        category: SpendingCategory.other,
+        confidence: 0.9,
+        occurredAt: when,
+      ),
+      source: TransactionSource.notification,
+      rawText: 'Money sent via Easypaisa',
+      messageTime: when,
+    );
+    expect(first.result, DedupResult.created);
+
+    final second = await ingest(
+      text:
+          'Dear MUHAMMAD ARHAM BABAR, an amount of Rs. 1 has been successfully sent to '
+          'ALI IBRAHIM MUHAMMAD of IBAN No: ****1541 on 2026-06-26 at 06:24:16. '
+          'TID:715814224891 via RAAST',
+      messageTime: when.add(const Duration(seconds: 45)),
+      source: TransactionSource.sms,
+    );
+
+    expect(second.result, DedupResult.merged);
+    expect((await repository.getAll()).length, 1);
+    expect(
+      (await repository.getAll()).single.merchant,
+      'ALI IBRAHIM MUHAMMAD',
+    );
+  });
 }

@@ -85,14 +85,21 @@ abstract final class BurstDedup {
   }
 
   static String pickBetterMerchant(String existing, String incoming) {
-    if (_isUnknown(existing) && !_isUnknown(incoming)) return incoming.trim();
-    if (!_isUnknown(incoming) &&
-        incoming.trim().length > existing.trim().length &&
-        (_isUnknown(existing) ||
-            merchantsCompatible(existing, incoming))) {
-      return incoming.trim();
+    final e = existing.trim();
+    final i = incoming.trim();
+    if (isGenericInstitution(e) && !isGenericInstitution(i) && !_isUnknown(i)) {
+      return i;
     }
-    return existing.trim();
+    if (isGenericInstitution(i) && !isGenericInstitution(e) && !_isUnknown(e)) {
+      return e;
+    }
+    if (_isUnknown(e) && !_isUnknown(i)) return i;
+    if (!_isUnknown(i) &&
+        i.length > e.length &&
+        (_isUnknown(e) || merchantsCompatible(e, i))) {
+      return i;
+    }
+    return e;
   }
 
   static bool _isUnknown(String value) {

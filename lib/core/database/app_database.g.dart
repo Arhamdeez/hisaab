@@ -37,7 +37,7 @@ class $TransactionsTable extends Transactions
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: false,
-    defaultValue: const Constant('INR'),
+    defaultValue: const Constant('PKR'),
   );
   static const VerificationMeta _typeMeta = const VerificationMeta('type');
   @override
@@ -145,6 +145,17 @@ class $TransactionsTable extends Transactions
     requiredDuringInsert: false,
     defaultValue: const Constant('[]'),
   );
+  static const VerificationMeta _descriptionMeta = const VerificationMeta(
+    'description',
+  );
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+    'description',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -160,6 +171,7 @@ class $TransactionsTable extends Transactions
     status,
     fingerprint,
     linkedSources,
+    description,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -272,6 +284,15 @@ class $TransactionsTable extends Transactions
         ),
       );
     }
+    if (data.containsKey('description')) {
+      context.handle(
+        _descriptionMeta,
+        description.isAcceptableOrUnknown(
+          data['description']!,
+          _descriptionMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -333,6 +354,10 @@ class $TransactionsTable extends Transactions
         DriftSqlType.string,
         data['${effectivePrefix}linked_sources'],
       )!,
+      description: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}description'],
+      ),
     );
   }
 
@@ -356,6 +381,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
   final String status;
   final String fingerprint;
   final String linkedSources;
+  final String? description;
   const Transaction({
     required this.id,
     required this.amount,
@@ -370,6 +396,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     required this.status,
     required this.fingerprint,
     required this.linkedSources,
+    this.description,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -389,6 +416,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     map['status'] = Variable<String>(status);
     map['fingerprint'] = Variable<String>(fingerprint);
     map['linked_sources'] = Variable<String>(linkedSources);
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
     return map;
   }
 
@@ -409,6 +439,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       status: Value(status),
       fingerprint: Value(fingerprint),
       linkedSources: Value(linkedSources),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
     );
   }
 
@@ -431,6 +464,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       status: serializer.fromJson<String>(json['status']),
       fingerprint: serializer.fromJson<String>(json['fingerprint']),
       linkedSources: serializer.fromJson<String>(json['linkedSources']),
+      description: serializer.fromJson<String?>(json['description']),
     );
   }
   @override
@@ -450,6 +484,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       'status': serializer.toJson<String>(status),
       'fingerprint': serializer.toJson<String>(fingerprint),
       'linkedSources': serializer.toJson<String>(linkedSources),
+      'description': serializer.toJson<String?>(description),
     };
   }
 
@@ -467,6 +502,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     String? status,
     String? fingerprint,
     String? linkedSources,
+    Value<String?> description = const Value.absent(),
   }) => Transaction(
     id: id ?? this.id,
     amount: amount ?? this.amount,
@@ -481,6 +517,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     status: status ?? this.status,
     fingerprint: fingerprint ?? this.fingerprint,
     linkedSources: linkedSources ?? this.linkedSources,
+    description: description.present ? description.value : this.description,
   );
   Transaction copyWithCompanion(TransactionsCompanion data) {
     return Transaction(
@@ -505,6 +542,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       linkedSources: data.linkedSources.present
           ? data.linkedSources.value
           : this.linkedSources,
+      description: data.description.present
+          ? data.description.value
+          : this.description,
     );
   }
 
@@ -523,7 +563,8 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           ..write('confidence: $confidence, ')
           ..write('status: $status, ')
           ..write('fingerprint: $fingerprint, ')
-          ..write('linkedSources: $linkedSources')
+          ..write('linkedSources: $linkedSources, ')
+          ..write('description: $description')
           ..write(')'))
         .toString();
   }
@@ -543,6 +584,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     status,
     fingerprint,
     linkedSources,
+    description,
   );
   @override
   bool operator ==(Object other) =>
@@ -560,7 +602,8 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           other.confidence == this.confidence &&
           other.status == this.status &&
           other.fingerprint == this.fingerprint &&
-          other.linkedSources == this.linkedSources);
+          other.linkedSources == this.linkedSources &&
+          other.description == this.description);
 }
 
 class TransactionsCompanion extends UpdateCompanion<Transaction> {
@@ -577,6 +620,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
   final Value<String> status;
   final Value<String> fingerprint;
   final Value<String> linkedSources;
+  final Value<String?> description;
   final Value<int> rowid;
   const TransactionsCompanion({
     this.id = const Value.absent(),
@@ -592,6 +636,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     this.status = const Value.absent(),
     this.fingerprint = const Value.absent(),
     this.linkedSources = const Value.absent(),
+    this.description = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TransactionsCompanion.insert({
@@ -608,6 +653,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     required String status,
     required String fingerprint,
     this.linkedSources = const Value.absent(),
+    this.description = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        amount = Value(amount),
@@ -632,6 +678,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     Expression<String>? status,
     Expression<String>? fingerprint,
     Expression<String>? linkedSources,
+    Expression<String>? description,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -648,6 +695,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
       if (status != null) 'status': status,
       if (fingerprint != null) 'fingerprint': fingerprint,
       if (linkedSources != null) 'linked_sources': linkedSources,
+      if (description != null) 'description': description,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -666,6 +714,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     Value<String>? status,
     Value<String>? fingerprint,
     Value<String>? linkedSources,
+    Value<String?>? description,
     Value<int>? rowid,
   }) {
     return TransactionsCompanion(
@@ -682,6 +731,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
       status: status ?? this.status,
       fingerprint: fingerprint ?? this.fingerprint,
       linkedSources: linkedSources ?? this.linkedSources,
+      description: description ?? this.description,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -728,6 +778,9 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     if (linkedSources.present) {
       map['linked_sources'] = Variable<String>(linkedSources.value);
     }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -750,6 +803,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
           ..write('status: $status, ')
           ..write('fingerprint: $fingerprint, ')
           ..write('linkedSources: $linkedSources, ')
+          ..write('description: $description, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1793,6 +1847,7 @@ typedef $$TransactionsTableCreateCompanionBuilder =
       required String status,
       required String fingerprint,
       Value<String> linkedSources,
+      Value<String?> description,
       Value<int> rowid,
     });
 typedef $$TransactionsTableUpdateCompanionBuilder =
@@ -1810,6 +1865,7 @@ typedef $$TransactionsTableUpdateCompanionBuilder =
       Value<String> status,
       Value<String> fingerprint,
       Value<String> linkedSources,
+      Value<String?> description,
       Value<int> rowid,
     });
 
@@ -1884,6 +1940,11 @@ class $$TransactionsTableFilterComposer
 
   ColumnFilters<String> get linkedSources => $composableBuilder(
     column: $table.linkedSources,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get description => $composableBuilder(
+    column: $table.description,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -1961,6 +2022,11 @@ class $$TransactionsTableOrderingComposer
     column: $table.linkedSources,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$TransactionsTableAnnotationComposer
@@ -2018,6 +2084,11 @@ class $$TransactionsTableAnnotationComposer
     column: $table.linkedSources,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => column,
+  );
 }
 
 class $$TransactionsTableTableManager
@@ -2064,6 +2135,7 @@ class $$TransactionsTableTableManager
                 Value<String> status = const Value.absent(),
                 Value<String> fingerprint = const Value.absent(),
                 Value<String> linkedSources = const Value.absent(),
+                Value<String?> description = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TransactionsCompanion(
                 id: id,
@@ -2079,6 +2151,7 @@ class $$TransactionsTableTableManager
                 status: status,
                 fingerprint: fingerprint,
                 linkedSources: linkedSources,
+                description: description,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2096,6 +2169,7 @@ class $$TransactionsTableTableManager
                 required String status,
                 required String fingerprint,
                 Value<String> linkedSources = const Value.absent(),
+                Value<String?> description = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TransactionsCompanion.insert(
                 id: id,
@@ -2111,6 +2185,7 @@ class $$TransactionsTableTableManager
                 status: status,
                 fingerprint: fingerprint,
                 linkedSources: linkedSources,
+                description: description,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

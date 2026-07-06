@@ -53,29 +53,28 @@ object CapturedEventStore {
         val timestamp = (event["timestamp"] as? Number)?.toLong()
             ?: System.currentTimeMillis()
         val pkg = event["package"] as? String
+        val normalized = normalizeQueueText(text)
 
         try {
             val db = QueueDb(context).writableDatabase
             db.beginTransaction()
             try {
-                // Skip duplicate rows already waiting in the queue.
-                val dup = db.compileStatement(
+                // Skip duplicate rows — same package + normalized body (rescans).
+                val cursor = db.rawQuery(
                     """
-                    SELECT COUNT(*) FROM captured_events
-                    WHERE text = ? AND timestamp = ? AND
-                          IFNULL(package, '') = IFNULL(?, '')
+                    SELECT text FROM captured_events
+                    WHERE IFNULL(package, '') = IFNULL(?, '')
                     """.trimIndent(),
+                    arrayOf(pkg ?: ""),
                 )
-                dup.bindString(1, text)
-                dup.bindLong(2, timestamp)
-                if (pkg != null) {
-                    dup.bindString(3, pkg)
-                } else {
-                    dup.bindString(3, "")
+                while (cursor.moveToNext()) {
+                    val existing = cursor.getString(0) ?: continue
+                    if (normalizeQueueText(existing) == normalized) {
+                        cursor.close()
+                        return
+                    }
                 }
-                if (dup.simpleQueryForLong() > 0) {
-                    return
-                }
+                cursor.close()
 
                 db.execSQL(
                     """
@@ -106,6 +105,9 @@ object CapturedEventStore {
             Log.e(TAG, "enqueue failed", e)
         }
     }
+
+    private fun normalizeQueueText(text: String): String =
+        text.replace("\\s+".toRegex(), " ").trim().lowercase()
 
     fun drain(context: Context): List<Map<String, Any?>> {
         return try {

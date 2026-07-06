@@ -16,15 +16,21 @@ import 'ingest_processor.dart';
 import 'gmail_service.dart';
 import 'ingest_bridge.dart';
 
+typedef TransactionRefreshCallback = Future<void> Function();
+
 class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   IngestService({
     required TransactionRepository repository,
     required AppDatabase database,
     required GmailService gmailService,
+    this.onTransactionsChanged,
   })  : _repository = repository,
         _processor = IngestProcessor(repository: repository),
         _gmail = gmailService,
         _database = database;
+
+  /// Called after captures are saved so transaction lists refresh immediately.
+  TransactionRefreshCallback? onTransactionsChanged;
 
   final TransactionRepository _repository;
   final IngestProcessor _processor;
@@ -34,7 +40,12 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   bool _listening = false;
   bool _notificationAccess = false;
   bool _batteryUnrestricted = true;
+  bool _appInForeground = true;
   Timer? _foregroundSafetyTimer;
+  DateTime? _lastSmsRescanAt;
+
+  static const _smsRescanCooldown = Duration(minutes: 5);
+  static const _foregroundDrainInterval = Duration(minutes: 15);
 
   bool get isListening => _listening;
   bool get isGmailConnected => _gmail.isConnected;
@@ -66,16 +77,26 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       includeSmsRescan: true,
       walletSmsOnly: true,
       rescanShade: true,
+      forceShadeScan: true,
     );
     await _drainNotificationActionsIfQueued();
     await refreshNotificationAccess();
     await refreshBatteryOptimization();
+    await _notifyTransactionDataChanged();
+  }
+
+  Future<void> _notifyTransactionDataChanged() async {
+    final refresh = onTransactionsChanged;
+    if (refresh != null) {
+      await refresh();
+    }
     notifyListeners();
   }
 
   /// Scans the notification shade and drains the native capture queue.
   Future<void> syncCaptures() => _scanAndDrain(
         rescanShade: true,
+        forceShadeScan: true,
         includeSmsRescan: true,
         walletSmsOnly: false,
       );
@@ -87,9 +108,10 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     bool includeSmsRescan = false,
     bool walletSmsOnly = true,
     bool rescanShade = false,
+    bool forceShadeScan = false,
   }) async {
     if (rescanShade) {
-      await IngestBridge.instance.scanActiveNotifications();
+      await IngestBridge.instance.scanActiveNotifications(force: forceShadeScan);
     }
     if (includeSmsRescan && Platform.isAndroid) {
       final sms = await Permission.sms.status;
@@ -97,21 +119,31 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
         await IngestBridge.instance.scanRecentSms(
           walletShortCodesOnly: walletSmsOnly,
         );
+        _lastSmsRescanAt = DateTime.now();
       }
     }
+    await _drainPendingQueue();
+  }
+
+  /// Drains the native queue only when something is waiting — cheap idle check.
+  Future<void> _drainPendingQueue() async {
+    if (!await IngestBridge.instance.hasPendingCaptures()) return;
     await _processor.processPendingQueue();
-    notifyListeners();
+    await _notifyTransactionDataChanged();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
+        _appInForeground = true;
         unawaited(_onResumed());
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
+        _appInForeground = false;
         unawaited(_onBackground());
       case AppLifecycleState.detached:
+        _appInForeground = false;
         _foregroundSafetyTimer?.cancel();
       case AppLifecycleState.inactive:
         break;
@@ -119,17 +151,25 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _onResumed() async {
+    // Live EventChannel handles captures while the app is open — no need for
+    // the foreground keep-alive service until the user leaves.
+    await IngestBridge.instance.stopKeepAlive();
     await refreshNotificationAccess();
     await refreshBatteryOptimization();
     await IngestBridge.instance.requestNotificationRebind();
-    // Drain queue + check wallet SMS that arrived while backgrounded.
-    await _scanAndDrain(
-      includeSmsRescan: true,
-      walletSmsOnly: true,
-      rescanShade: false,
-    );
+
+    final smsDue = _lastSmsRescanAt == null ||
+        DateTime.now().difference(_lastSmsRescanAt!) >= _smsRescanCooldown;
+    if (smsDue) {
+      await _scanAndDrain(
+        includeSmsRescan: true,
+        walletSmsOnly: true,
+        rescanShade: false,
+      );
+    } else {
+      await _drainPendingQueue();
+    }
     await _drainNotificationActionsIfQueued();
-    notifyListeners();
   }
 
   Future<void> _onBackground() async {
@@ -145,17 +185,17 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       decision,
       fast: true,
     );
-    if (changed) notifyListeners();
+    if (changed) await _notifyTransactionDataChanged();
   }
 
-  /// Full rescan + drain every 5 min while the app is open (original failsafe).
+  /// Light failsafe while the app is open — live ingest is primary; this only
+  /// drains a non-empty native queue (no SMS/shade rescans).
   void _startForegroundSafetyTimer() {
     _foregroundSafetyTimer?.cancel();
-    _foregroundSafetyTimer = Timer.periodic(const Duration(minutes: 5), (_) {
-      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
-        return;
-      }
-      unawaited(_scanAndDrain(rescanShade: false));
+    _foregroundSafetyTimer =
+        Timer.periodic(_foregroundDrainInterval, (_) async {
+      if (!_appInForeground) return;
+      await _drainPendingQueue();
     });
   }
 
@@ -170,10 +210,12 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
-    if (notifAccess) {
+    if (notifAccess && !_appInForeground) {
       await IngestBridge.instance.requestNotificationRebind();
-      // Keeps notification listener alive on Samsung — not needed for SMS-only.
       await IngestBridge.instance.startKeepAlive();
+    } else if (notifAccess) {
+      await IngestBridge.instance.requestNotificationRebind();
+      await IngestBridge.instance.stopKeepAlive();
     } else {
       await IngestBridge.instance.stopKeepAlive();
     }
@@ -204,13 +246,13 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _drainNotificationActions() async {
     final changed =
         await NotificationService.instance.drainPendingActions(_repository);
-    if (changed) notifyListeners();
+    if (changed) await _notifyTransactionDataChanged();
   }
 
   Future<void> _handleIngestEvent(IngestEvent event) async {
     if (event.text.trim().isEmpty) return;
     await _processor.processLiveEvent(event);
-    notifyListeners();
+    await _notifyTransactionDataChanged();
   }
 
   /// Re-reads the OS notification-access state and notifies listeners on change.
@@ -257,7 +299,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     if (processedIds.isNotEmpty) {
       await _gmail.markProcessed(processedIds);
     }
-    notifyListeners();
+    await _notifyTransactionDataChanged();
     return count;
   }
 

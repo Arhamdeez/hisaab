@@ -34,12 +34,16 @@ class TransactionDetailScreen extends StatefulWidget {
 
 class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   late String _categoryId;
+  late String? _description;
   bool _saving = false;
+  bool _deleting = false;
+  bool _savingNote = false;
 
   @override
   void initState() {
     super.initState();
     _categoryId = widget.transaction.categoryId;
+    _description = widget.transaction.description;
   }
 
   CategoryInfo _category(BuildContext context) {
@@ -78,6 +82,174 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  Future<void> _editDescription() async {
+    if (_saving || _deleting || _savingNote) return;
+
+    final controller = TextEditingController(text: _description ?? '');
+    final saved = await showModalBottomSheet<String?>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: AppColors.backgroundElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (ctx) {
+        final bottom = MediaQuery.viewInsetsOf(ctx).bottom;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.borderLight,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Note',
+                style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                maxLines: 5,
+                minLines: 3,
+                style: Theme.of(ctx).textTheme.bodyMedium,
+                decoration: InputDecoration(
+                  hintText: 'What was this for?',
+                  hintStyle: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.textMuted,
+                      ),
+                  filled: true,
+                  fillColor: AppColors.surfaceMuted,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    borderSide: const BorderSide(color: AppColors.borderLight),
+                  ),
+                  contentPadding: const EdgeInsets.all(14),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  if ((_description ?? '').isNotEmpty)
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, ''),
+                      child: const Text('Remove'),
+                    ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: () =>
+                        Navigator.pop(ctx, controller.text.trim()),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.ui,
+                      foregroundColor: AppColors.textOnPrimary,
+                      minimumSize: const Size(80, 40),
+                    ),
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || saved == null) return;
+
+    setState(() => _savingNote = true);
+    HapticFeedback.lightImpact();
+
+    final next = saved.isEmpty ? null : saved;
+    await context.read<TransactionProvider>().updateTransactionDescription(
+          widget.transaction.id,
+          next,
+        );
+
+    if (!mounted) return;
+    setState(() {
+      _description = next;
+      _savingNote = false;
+    });
+  }
+
+  Future<void> _confirmDelete() async {
+    if (_saving || _deleting) return;
+
+    final tx = widget.transaction;
+    final isDebit = tx.isDebit;
+    final amountLabel =
+        '${isDebit ? '−' : '+'}${formatCurrency(tx.amount, showDecimals: true)}';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete transaction?'),
+        content: Text(
+          '$amountLabel ${isDebit ? 'to' : 'from'} ${tx.merchant} will be '
+          'removed. Your totals will update everywhere.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.expense,
+              foregroundColor: AppColors.textPrimary,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deleting = true);
+    HapticFeedback.mediumImpact();
+
+    final deleted = await context
+        .read<TransactionProvider>()
+        .deleteTransaction(tx.id);
+
+    if (!mounted) return;
+
+    if (!deleted) {
+      setState(() => _deleting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not delete transaction'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    Navigator.of(context).pop();
   }
 
   @override
@@ -217,21 +389,6 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                             label: 'Source',
                             value: SourceBadge(source: tx.source),
                           ),
-                          if (tx.linkedSources.isNotEmpty) ...[
-                            const _DetailDivider(),
-                            _DetailRow(
-                              label: 'Also seen in',
-                              value: Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                alignment: WrapAlignment.end,
-                                children: [
-                                  for (final s in tx.linkedSources)
-                                    SourceBadge(source: s),
-                                ],
-                              ),
-                            ),
-                          ],
                           if (tx.status != TransactionStatus.confirmed) ...[
                             const _DetailDivider(),
                             _DetailRow(
@@ -253,8 +410,52 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                               ),
                             ),
                           ],
+                          const _DetailDivider(),
+                          _NoteRow(
+                            description: _description,
+                            saving: _savingNote,
+                            onTap: _editDescription,
+                          ),
                         ],
                       ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.pageH,
+                      AppSpacing.section,
+                      AppSpacing.pageH,
+                      0,
+                    ),
+                    child: OutlinedButton.icon(
+                      onPressed: (_saving || _deleting) ? null : _confirmDelete,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.expense,
+                        disabledForegroundColor:
+                            AppColors.expense.withValues(alpha: 0.45),
+                        minimumSize: const Size(double.infinity, 48),
+                        side: BorderSide(
+                          color: AppColors.expense.withValues(
+                            alpha: _deleting ? 0.25 : 0.45,
+                          ),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                        ),
+                      ),
+                      icon: _deleting
+                          ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.expense.withValues(alpha: 0.7),
+                              ),
+                            )
+                          : const Icon(Icons.delete_outline_rounded, size: 20),
+                      label: Text(_deleting ? 'Deleting…' : 'Delete transaction'),
                     ),
                   ),
                 ),
@@ -305,6 +506,83 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
 
   static String _formatFullDate(DateTime date) {
     return DateFormat('EEEE, d MMMM yyyy').format(date);
+  }
+}
+
+class _NoteRow extends StatelessWidget {
+  const _NoteRow({
+    required this.description,
+    required this.saving,
+    required this.onTap,
+  });
+
+  final String? description;
+  final bool saving;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasNote = description != null && description!.trim().isNotEmpty;
+    final action = TextButton(
+      onPressed: saving ? null : onTap,
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.textMuted,
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: const Size(0, 28),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: saving
+          ? SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.textMuted.withValues(alpha: 0.7),
+              ),
+            )
+          : Text(
+              hasNote ? 'Edit' : 'Add',
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+    );
+
+    if (!hasNote) {
+      return _DetailRow(label: 'Note', value: action);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Note',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ),
+              action,
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            description!.trim(),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: AppColors.textSecondary,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
