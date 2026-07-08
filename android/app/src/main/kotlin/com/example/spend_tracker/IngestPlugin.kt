@@ -207,6 +207,13 @@ class IngestPlugin(
                 "\\b(?:out\\s+for\\s+delivery|order\\s+confirmed|your\\s+order\\s+#|" +
                 "track(?:ing)?\\s+(?:your|order))\\b|" +
                 "\\b(?:flash\\s+sale|limited\\s+offer|promo\\s+code|coupon|\\d+\\s*%\\s*off)\\b|" +
+                "\\b\\d+\\s*%\\s*cashback\\b|" +
+                "\\bget\\s+upto\\b|\\bupto\\s+[\\d,]+(?:\\s+cashback)?\\b|" +
+                "\\bcashback\\s+on\\b|" +
+                "\\bjoin\\s+karein\\b|\\bmein\\s+join\\b|" +
+                "\\beligible\\s+hain\\b|" +
+                "\\brewards?\\s+(?:ke\\s+liye|aap\\s+ka\\s+intezar)\\b|" +
+                "\\bintezar\\s+kar\\s+rahe\\b|" +
                 "\\b(?:missed\\s+call|incoming\\s+call|voice\\s+mail)\\b|" +
                 "\\b(?:weather|forecast|rain\\s+alert)\\b|" +
                 "\\b(?:match\\s+score|full\\s+time)\\b|" +
@@ -599,6 +606,24 @@ class IngestPlugin(
             "^[A-Za-z\\u0600-\\u06FF][A-Za-z0-9\\u0600-\\u06FF .'\\-&]{1,48}$",
         )
 
+        private val amountOnlyBodyRegex = Regex(
+            "^(?:[\\s—\\-–]*(?:pkr|rs\\.?|inr)?[\\s]*)?[\\d,]+(?:\\.\\d+)?[\\s.—\\-–]*$",
+            RegexOption.IGNORE_CASE,
+        )
+
+        private fun isAmountOnlyBody(text: String, title: String = ""): Boolean {
+            val t = text.trim()
+            if (amountOnlyBodyRegex.matches(t)) return true
+            val name = title.trim()
+            if (name.isEmpty()) return false
+            val combined = Regex(
+                "^${Regex.escape(name)}\\s*[—\\-–]\\s*" +
+                    "(?:[\\s]*(?:pkr|rs\\.?|inr)?[\\s]*)?[\\d,]+(?:\\.\\d+)?[\\s.—\\-–]*$",
+                RegexOption.IGNORE_CASE,
+            )
+            return combined.matches(t)
+        }
+
         private fun isPersonNameTitle(title: String): Boolean {
             val t = title.trim()
             if (t.length < 3) return false
@@ -611,7 +636,8 @@ class IngestPlugin(
         private val walletTxnRegex = Regex(
             "debited|credited|spent|withdrawn|deducted|transferred|received|" +
                 "paid|sent|purchase|txn|transaction|debit|credit|refund|" +
-                "cashback|deposited|salary|transfer|withdrawal|" +
+                "(?:received|credited|you\\s+(?:have\\s+)?got).{0,50}cashback|" +
+                "cashback.{0,50}(?:received|credited|in\\s+your)|deposited|salary|transfer|withdrawal|" +
                 "payment|charged|bill|added|successful|completed|processed|" +
                 "money\\s+received|money\\s+sent|payment\\s+received|payment\\s+sent|" +
                 "transfer\\s*successful|successfully\\s*transferred|" +
@@ -834,7 +860,7 @@ class IngestPlugin(
                 return false
             }
             // JazzCash / NayaPay: counterparty in title, amount-only body.
-            if (isPersonNameTitle(title)) return true
+            if (isPersonNameTitle(title) && isAmountOnlyBody(text, title)) return true
             if (strongFinanceRegex.containsMatchIn(text)) return true
             if (monitoredWalletFallbackRegex.containsMatchIn(text)) return true
             if (walletTxnRegex.containsMatchIn(text)) return true

@@ -352,6 +352,13 @@ class TransactionParser {
     r'chat\s+backup|uploading\s*:|download(?:ing)?\s*:)\b|'
     r'\b(?:out\s+for\s+delivery|order\s+confirmed|your\s+order\s+#|track(?:ing)?\s+(?:your|order))\b|'
     r'\b(?:flash\s+sale|limited\s+offer|promo\s+code|coupon|\d+\s*%\s*off)\b|'
+    r'\b\d+\s*%\s*cashback\b|'
+    r'\bget\s+upto\b|\bupto\s+[\d,]+(?:\s+cashback)?\b|'
+    r'\bcashback\s+on\b|'
+    r'\bjoin\s+karein\b|\bmein\s+join\b|'
+    r'\beligible\s+hain\b|'
+    r'\brewards?\s+(?:ke\s+liye|aap\s+ka\s+intezar)\b|'
+    r'\bintezar\s+kar\s+rahe\b|'
     r'\b(?:missed\s+call|incoming\s+call|voice\s+mail)\b|'
     r'\b(?:weather|forecast|rain\s+alert)\b|'
     r'\b(?:match\s+score|full\s+time)\b|'
@@ -416,7 +423,8 @@ class TransactionParser {
   static final _walletTxnSignals = RegExp(
     r'debited|credited|spent|withdrawn|deducted|transferred|received|'
     r'\bpaid\b|\bsent\b|purchase|\btxn\b|transaction|\bdebit\b|\bcredit\b|'
-    r'refund|cashback|deposited|salary|transfer|withdrawal|'
+    r'refund|(?:received|credited|you\s+(?:have\s+)?got).{0,50}cashback|'
+    r'cashback.{0,50}(?:received|credited|in\s+your)|deposited|salary|transfer|withdrawal|'
     r'payment|charged|\bbill\b|added|successful|completed|processed|'
     r'money\s+received|money\s+sent|payment\s+received|payment\s+sent|'
     r'transfer\s*successful|successfully\s*transferred|'
@@ -935,7 +943,12 @@ class TransactionParser {
     }
     // JazzCash / NayaPay often post the counterparty as the title and only
     // the amount in the body — e.g. title "Ahmed Khan", body "2,000.00".
-    if (_isPersonNameTitle(notificationTitle)) return true;
+    // Require amount-only body so promo titles like "Yeylo" / "Reward Hub" do
+    // not bypass filters when the body is marketing copy with embedded amounts.
+    if (_isPersonNameTitle(notificationTitle) &&
+        _isAmountOnlyBody(text, notificationTitle: notificationTitle)) {
+      return true;
+    }
     if (_strongFinanceSignals.hasMatch(text)) return true;
     if (_monitoredWalletFallback.hasMatch(text)) return true;
     if (_isTitleWithAmountBody(
@@ -998,6 +1011,24 @@ class TransactionParser {
   }
 
   /// Person-name notification title (JazzCash, NayaPay, Raqami).
+  static final _amountOnlyBodyPattern = RegExp(
+    r'^(?:[\s—\-–]*(?:pkr|rs\.?|inr)?[\s]*)?[\d,]+(?:\.\d+)?[\s.—\-–]*$',
+    caseSensitive: false,
+  );
+
+  static bool _isAmountOnlyBody(String text, {String? notificationTitle}) {
+    final t = text.trim();
+    if (_amountOnlyBodyPattern.hasMatch(t)) return true;
+    final title = notificationTitle?.trim();
+    if (title == null || title.isEmpty) return false;
+    final combinedPattern = RegExp(
+      '^${RegExp.escape(title)}\\s*[—\\-–]\\s*'
+      r'(?:[\s]*(?:pkr|rs\.?|inr)?[\s]*)?[\d,]+(?:\.\d+)?[\s.—\-–]*$',
+      caseSensitive: false,
+    );
+    return combinedPattern.hasMatch(t);
+  }
+
   static bool _isPersonNameTitle(String? title) {
     final t = title?.trim();
     if (t == null || t.length < 3) return false;
