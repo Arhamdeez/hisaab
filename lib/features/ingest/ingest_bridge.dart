@@ -100,9 +100,15 @@ class IngestBridge {
   }
 
   static String? _readTitle(Map<String, dynamic> map) {
+    final sourceKey = map['source'] as String? ?? 'notification';
     final title = (map['sender'] as String?) ?? (map['title'] as String?);
     if (title == null || title.trim().isEmpty) return null;
-    return title.trim();
+    final trimmed = title.trim();
+    // Easypaisa 3737, Raast 8558, etc. — the merchant is in the SMS body.
+    if (sourceKey == 'sms' && RegExp(r'^\d{3,6}$').hasMatch(trimmed)) {
+      return null;
+    }
+    return trimmed;
   }
 
   Future<bool> isNotificationAccessEnabled() async {

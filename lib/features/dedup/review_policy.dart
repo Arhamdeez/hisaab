@@ -61,14 +61,12 @@ abstract final class ReviewPolicy {
     required Iterable<Transaction> recent,
     String? accountHolderName,
   }) {
-    // Only outgoing self-transfers need inbox approval — everything else
-    // (payments to others, incoming money, between-account moves) auto-confirms.
-    if (parsed.type != TransactionType.debit) return false;
-
     if (_selfTransferPhrases.hasMatch(rawText)) return true;
 
     if (sameSenderAndReceiver(parsed: parsed, rawText: rawText)) return true;
 
+    // Moving money between the user's own accounts (NayaPay → Easypaisa, etc.)
+    // must be confirmed manually — both the outgoing and incoming legs.
     return involvesAccountHolder(
       parsed: parsed,
       rawText: rawText,

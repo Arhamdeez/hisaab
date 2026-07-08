@@ -41,6 +41,26 @@ void main() {
       expect(result, isNotNull, reason: '3737 debit card SMS');
       expect(result!.amount, 330);
       expect(result.type, TransactionType.debit);
+      expect(result.merchant.toUpperCase(), contains('FAST MART'));
+    });
+
+    test('Easypaisa SMS 3737: debit card with comma amount and short-code title', () {
+      const text =
+          'Txn ID 52438503229. Debit Card No. ***8421. You have paid Rs. 1,100.00 at '
+          'BUTT G FAST FOOD (PAYSA) Lahore PK on 2026-07-08. Transaction Fee: Rs. 0.00';
+      final withoutTitle = parser.parse(text, source: TransactionSource.sms);
+      expect(withoutTitle, isNotNull);
+      expect(withoutTitle!.amount, 1100);
+      expect(withoutTitle.merchant.toUpperCase(), contains('BUTT G FAST FOOD'));
+
+      final withShortCode = parser.parse(
+        text,
+        source: TransactionSource.sms,
+        notificationTitle: '3737',
+      );
+      expect(withShortCode, isNotNull);
+      expect(withShortCode!.merchant.toUpperCase(), contains('BUTT G FAST FOOD'));
+      expect(withShortCode.merchant, isNot('3737'));
     });
 
     test('Raast SMS 8558: amount sent to NAME of IBAN', () {

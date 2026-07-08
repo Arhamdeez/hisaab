@@ -178,6 +178,11 @@ class NotificationService {
     if (!_initialized) await initialize();
     if (!_initialized) return;
 
+    if (transaction.isPending) {
+      await _showReviewNotification(transaction);
+      return;
+    }
+
     final copy = _captureAlertCopy(transaction);
 
     const androidDetails = AndroidNotificationDetails(
@@ -210,23 +215,99 @@ class NotificationService {
     }
   }
 
+  /// Self-transfers land in the inbox — ask Accept/Reject before they count.
+  Future<void> _showReviewNotification(Transaction transaction) async {
+    final copy = _reviewAlertCopy(transaction);
+    final prompt = transaction.isDebit ? _outPrompt : _inPrompt;
+    final payload = _payloadFor(transaction);
+
+    final androidDetails = AndroidNotificationDetails(
+      _channelId,
+      _channelName,
+      channelDescription: _channelDescription,
+      importance: Importance.high,
+      priority: Priority.high,
+      category: AndroidNotificationCategory.message,
+      actions: [
+        AndroidNotificationAction(
+          _acceptActionId,
+          'Accept',
+          inputs: [
+            AndroidNotificationActionInput(
+              label: prompt,
+              allowFreeFormInput: true,
+            ),
+          ],
+        ),
+        const AndroidNotificationAction(
+          _rejectActionId,
+          'Reject',
+          cancelNotification: true,
+        ),
+      ],
+    );
+    final darwinDetails = DarwinNotificationDetails(
+      categoryIdentifier:
+          transaction.isDebit ? _iosCategoryDebit : _iosCategoryCredit,
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    try {
+      await _plugin.show(
+        id: _notificationIdFor(transaction.id),
+        title: copy.title,
+        body: copy.body,
+        notificationDetails: NotificationDetails(
+          android: androidDetails,
+          iOS: darwinDetails,
+          macOS: darwinDetails,
+        ),
+        payload: payload,
+      );
+    } catch (e) {
+      debugPrint('NotificationService review show error: $e');
+    }
+  }
+
+  static String _payloadFor(Transaction transaction) =>
+      '${transaction.id}|${transaction.isDebit ? 'd' : 'c'}';
+
   /// Title + body for a newly captured transaction.
   static ({String title, String body}) _captureAlertCopy(
     Transaction transaction,
   ) {
     final amount = formatCurrency(transaction.amount);
     final merchant = transaction.merchant;
-    final inboxHint = transaction.isPending ? ' · check inbox' : '';
 
     if (transaction.isDebit) {
       return (
         title: 'Gone.',
-        body: '−$amount to $merchant$inboxHint',
+        body: '−$amount to $merchant',
       );
     }
     return (
       title: 'Got it.',
-      body: '+$amount from $merchant$inboxHint',
+      body: '+$amount from $merchant',
+    );
+  }
+
+  static ({String title, String body}) _reviewAlertCopy(
+    Transaction transaction,
+  ) {
+    final amount = formatCurrency(transaction.amount);
+    final merchant = transaction.merchant;
+
+    if (transaction.isDebit) {
+      return (
+        title: 'Review transfer',
+        body: '−$amount to $merchant — accept or reject',
+      );
+    }
+    return (
+      title: 'Review transfer',
+      body: '+$amount from $merchant — accept or reject',
     );
   }
 

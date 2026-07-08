@@ -321,7 +321,16 @@ class TransactionParser {
   /// Drops Java/FCM metadata and other non-human notification segments.
   static String sanitizeIngestText(String text) {
     if (text.trim().isEmpty) return '';
-    final segments = text.split(RegExp(r'\s*[—\-|]\s*'));
+    final protectedDates = <String>[];
+    var scratch = text;
+    for (final pattern in _dateProtectPatterns) {
+      scratch = scratch.replaceAllMapped(pattern, (match) {
+        final token = '@@D${protectedDates.length}@@';
+        protectedDates.add(match.group(0)!);
+        return token;
+      });
+    }
+    final segments = scratch.split(RegExp(r'\s*[—\-|]\s*'));
     final kept = <String>[];
     for (final segment in segments) {
       final t = segment.trim();
@@ -329,8 +338,17 @@ class TransactionParser {
       if (_metadataSegmentPattern.hasMatch(t)) continue;
       kept.add(t);
     }
-    return kept.join(' — ');
+    var result = kept.join(' — ');
+    for (var i = 0; i < protectedDates.length; i++) {
+      result = result.replaceAll('@@D$i@@', protectedDates[i]);
+    }
+    return result;
   }
+
+  static final _dateProtectPatterns = [
+    RegExp(r'\b\d{4}-\d{2}-\d{2}\b'),
+    RegExp(r'\b\d{2}-[A-Za-z]{3}-\d{4}\b'),
+  ];
 
   static final _metadataSegmentPattern = RegExp(
     r'(?:android\.(?:app|x)\.|androidx\.|Notification\$|NotificationCompat|'
@@ -640,10 +658,18 @@ class TransactionParser {
     final extracted = _extractMerchant(text, type: type);
     if (_isUsablePartyName(extracted)) return extracted;
 
-    if (_isUsableMerchant(fromTitle) && !_isPhoneLike(fromTitle!)) {
+    if (_isUsableMerchant(fromTitle) &&
+        !_isPhoneLike(fromTitle!) &&
+        !_isSmsShortCode(fromTitle)) {
       return fromTitle;
     }
     return extracted;
+  }
+
+  /// Wallet/bank SMS short codes (3737, 8558, …) — never a merchant name.
+  static bool _isSmsShortCode(String? value) {
+    if (value == null) return false;
+    return RegExp(r'^\d{3,6}$').hasMatch(value.trim());
   }
 
   String? _extractMerchantFromTitle(String? title) {
@@ -651,7 +677,8 @@ class TransactionParser {
     var trimmed = title.trim();
     if (trimmed.isEmpty ||
         _isGenericAlertTitle(trimmed) ||
-        _isAmountOrAlertTitle(trimmed)) {
+        _isAmountOrAlertTitle(trimmed) ||
+        _isSmsShortCode(trimmed)) {
       return null;
     }
 
@@ -726,6 +753,7 @@ class TransactionParser {
     if (value == null) return false;
     final trimmed = value.trim();
     if (trimmed.length < 2) return false;
+    if (_isSmsShortCode(trimmed)) return false;
     return !_genericMerchants.hasMatch(trimmed);
   }
 
@@ -1364,6 +1392,13 @@ class TransactionParser {
 
   String? _extractMerchant(String text, {TransactionType? type}) {
     final patterns = [
+      // Easypaisa debit-card SMS: "paid Rs. 1,100.00 at MERCHANT … on 2026-07-08"
+      RegExp(
+        r'you\s+(?:have\s+)?paid\s+(?:'
+        r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+)?'
+        r'at\s+(.+?)\s+on\s+(?:\d{4}-\d{2}-\d{2}|\d{2}-[A-Za-z]{3}-\d{4})\b',
+        caseSensitive: false,
+      ),
       RegExp(
         r'you\s+(?:have\s+)?paid\s+(?:'
         r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+)?'
@@ -1393,7 +1428,8 @@ class TransactionParser {
     }
 
     // Wallet/bank notifications often lead with "Counterparty Name. …" in the title.
-    for (final segment in text.split(RegExp(r'\s*[—\-|]\s*'))) {
+    // Only split on em-dash / pipe — ISO dates (2026-07-08) use ASCII hyphens.
+    for (final segment in text.split(RegExp(r'\s*[—|]\s*'))) {
       final trimmed = segment.trim();
       if (RegExp(
         r'^(?:txn|trx|debit\s+card|transaction\s+id|transaction)\b',

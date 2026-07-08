@@ -296,6 +296,22 @@ void main() {
   });
 
   test('parses EasyPaisa debit card SMS from short code', () {
+    const text =
+        'Txn ID 52438503229. Debit Card No. ***8421. You have paid Rs. 1,100.00 at '
+        'BUTT G FAST FOOD (PAYSA) Lahore PK on 2026-07-08. Transaction Fee: Rs. 0.00';
+    final result = parser.parse(
+      text,
+      source: TransactionSource.sms,
+      notificationTitle: '3737',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 1100);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant.toUpperCase(), contains('BUTT G FAST FOOD'));
+    expect(result.merchant, isNot('3737'));
+  });
+
+  test('parses EasyPaisa debit card SMS from short code without title', () {
     final result = parser.parse(
       'Txn ID 51695745211. Debit Card No. ***8421. You have paid Rs. 330.00 at '
       'THE FAST MART LAHORE PK on 2026-06-22. Transaction Fee: Rs. 0.00',

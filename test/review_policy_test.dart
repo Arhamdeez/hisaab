@@ -80,7 +80,7 @@ void main() {
     );
   });
 
-  test('credit from account holder own name does not require review', () {
+  test('credit from account holder own name requires review', () {
     const raw =
         'Dear MUHAMMAD ARHAM BABAR, You have received Rs.1 in your Easypaisa account '
         'from MUHAMMAD ARHAM BABAR PK**UNILPKKARTG via Raast Payment';
@@ -101,7 +101,7 @@ void main() {
         messageTime: DateTime(2026, 6, 22),
         recent: const [],
       ),
-      isFalse,
+      isTrue,
     );
   });
 

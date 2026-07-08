@@ -220,7 +220,7 @@ void main() {
     expect((await repository.getAll()).length, 1);
   });
 
-  test('auto-confirms easypaisa self-received transfer', () async {
+  test('flags easypaisa self-received transfer for review', () async {
     const text =
         'Dear MUHAMMAD ARHAM BABAR, You have received Rs.1 in your Easypaisa account '
         '***********0101 from MUHAMMAD ARHAM BABAR PK**UNILPKKARTG****7613 via Raast Payment '
@@ -230,8 +230,23 @@ void main() {
     final outcome = await ingest(text: text, messageTime: when);
 
     expect(outcome.result, DedupResult.created);
-    expect(outcome.transaction?.status, TransactionStatus.confirmed);
-    expect(outcome.transaction?.isPending, isFalse);
+    expect(outcome.transaction?.status, TransactionStatus.pendingReview);
+    expect(outcome.transaction?.isPending, isTrue);
+  });
+
+  test('flags easypaisa raast self-transfer from nayapay for review', () async {
+    const text =
+        'Dear MUHAMMAD ARHAM BABAR, You have received Rs.1500 in your Easypaisa account '
+        '***********0101 from MUHAMMAD ARHAM BABAR PK**NAYAPKKA**0101 via Raast Payment '
+        'on 09-07-2026 at 02:20:07. Trx ID: 52438501193';
+    final when = DateTime(2026, 7, 9, 2, 20);
+
+    final outcome = await ingest(text: text, messageTime: when);
+
+    expect(outcome.result, DedupResult.created);
+    expect(outcome.transaction?.status, TransactionStatus.pendingReview);
+    expect(outcome.transaction?.amount, 1500);
+    expect(outcome.transaction?.type, TransactionType.credit);
   });
 
   test('auto-confirms easypaisa payment to another person', () async {
