@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
 import '../widgets/glass_container.dart';
+import '../core/utils/cash_flow.dart';
 import '../core/utils/formatters.dart';
 
 class BalanceHeroCard extends StatelessWidget {
@@ -25,13 +26,16 @@ class BalanceHeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cashFlowOnly = trackInwardFlow && !showIncome;
+    final flow = CashFlowMetrics(cashIn: totalReceived, cashOut: totalExpense);
     final hasIncome = showIncome && totalIncome > 0;
-    final usedPct = hasIncome
-        ? (totalExpense / totalIncome).clamp(0.0, 1.0)
-        : 0.0;
-    final usedPercent = usedPct * 100;
+    final rawUsed = hasIncome ? totalExpense / totalIncome : 0.0;
+    final usedPct = rawUsed.clamp(0.0, 1.0);
+    final usedPercent = (rawUsed * 100).clamp(0.0, 999.0);
     final remaining = totalIncome - totalExpense;
-    final netCash = totalReceived - totalExpense;
+    final netCash = flow.net;
+    final cashOutRelative = flow.cashIn > 0
+        ? '${formatPercent(flow.cashOutOfCashIn * 100)} of cash in'
+        : null;
 
     return GlassContainer(
       radius: AppRadius.xl,
@@ -57,6 +61,17 @@ class BalanceHeroCard extends StatelessWidget {
             textAlign: TextAlign.center,
             style: theme.textTheme.displayLarge,
           ),
+          if (cashFlowOnly && cashOutRelative != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              cashOutRelative,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppColors.textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
           if (trackInwardFlow) ...[
             const SizedBox(height: 20),
             IntrinsicHeight(
@@ -77,6 +92,13 @@ class BalanceHeroCard extends StatelessWidget {
                           style: theme.textTheme.titleLarge?.copyWith(
                             color: AppColors.income,
                             fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          'Received',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: AppColors.textMuted,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
@@ -108,6 +130,14 @@ class BalanceHeroCard extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
+                        if (flow.cashIn > 0)
+                          Text(
+                            '${formatPercent((netCash / flow.cashIn * 100).abs())} of cash in',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: AppColors.textMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                       ],
                     ),
                   ),

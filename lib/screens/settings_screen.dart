@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
@@ -12,8 +11,11 @@ import '../widgets/glass_container.dart';
 import '../widgets/settings_tour_overlay.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
+import '../core/support/issue_report.dart';
 import '../features/backup/backup_service.dart';
 import '../features/ingest/ingest_service.dart';
+import '../features/ingest/notification_access.dart';
+import '../features/ingest/sms_permission.dart';
 import '../providers/app_preferences.dart';
 import '../providers/category_catalog.dart';
 import 'about_screen.dart';
@@ -128,7 +130,7 @@ Future<void> _editAccountHolderName(
               autofocus: true,
               textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(
-                hintText: 'Muhammad Arham Babar',
+                hintText: 'John Doe',
               ),
             ),
           ],
@@ -178,7 +180,8 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with WidgetsBindingObserver {
   final _scrollController = ScrollController();
   final _dataSourcesKey = GlobalKey();
   final _backupKey = GlobalKey();
@@ -187,10 +190,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _aboutKey = GlobalKey();
 
   bool _showTour = false;
+  bool _smsGranted = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshSmsAccess();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final prefs = context.read<AppPreferences>();
@@ -202,8 +208,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshSmsAccess();
+    }
+  }
+
+  Future<void> _refreshSmsAccess() async {
+    if (!Platform.isAndroid) return;
+    final granted = await SmsPermission.isGranted();
+    if (!mounted) return;
+    setState(() => _smsGranted = granted);
   }
 
   List<SettingsTourStep> _tourSteps() => [
@@ -211,7 +232,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           targetKey: _dataSourcesKey,
           title: 'Data sources',
           body:
-              'Connect app notifications, SMS, and Gmail here. '
+              'Connect app notifications and SMS here. '
               'This is how HISAAB auto-captures your payments.',
           icon: Icons.notifications_active_outlined,
         ),
@@ -320,7 +341,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: 'App Notifications',
                       subtitle: Platform.isAndroid
                           ? (ingest.hasNotificationAccessGranted
-                              ? 'Reading bank & UPI app alerts'
+                              ? 'Reading bank & wallet app alerts'
                               : 'Tap to grant notification access')
                           : 'Not available on iOS',
                       trailing: _StatusPill(
@@ -329,10 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         label: Platform.isAndroid ? null : 'N/A',
                       ),
                       onTap: Platform.isAndroid
-                          ? () async {
-                              await ingest.openNotificationSettings();
-                              await ingest.refreshNotificationAccess();
-                            }
+                          ? () => NotificationAccess.requestFromSettings(context)
                           : null,
                     ),
                     if (Platform.isAndroid && ingest.hasNotificationAccessGranted)
@@ -341,61 +359,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: 'Background monitoring',
                         subtitle: ingest.isBatteryUnrestricted
                             ? 'Battery unrestricted — best capture reliability'
-                            : 'Tap to disable battery limits for HISAAB',
+                            : 'Open battery settings and set HISAAB to Unrestricted',
                         trailing: _StatusPill(
                           enabled: ingest.isBatteryUnrestricted,
-                          label: ingest.isBatteryUnrestricted ? 'On' : 'Fix',
+                          label: ingest.isBatteryUnrestricted ? 'On' : 'Open',
                         ),
                         onTap: () async {
-                          await ingest.requestBatteryOptimizationExemption();
+                          await ingest.openBatteryOptimizationSettings();
                           await ingest.refreshBatteryOptimization();
                         },
                       ),
                     _SettingsTile(
                       icon: Icons.sms_outlined,
-                      title: 'SMS Alerts',
+                      title: 'SMS automation',
                       subtitle: Platform.isAndroid
-                          ? 'Auto-read transaction SMS'
+                          ? (_smsGranted
+                              ? 'Reading wallet & bank transaction SMS on-device'
+                              : 'Required for hands-free tracking from SMS alerts')
                           : 'Use Shortcuts — see docs/IOS_SHORTCUTS.md',
-                      trailing: _StatusPill(enabled: Platform.isAndroid),
+                      trailing: _StatusPill(
+                        enabled: Platform.isAndroid && _smsGranted,
+                        label: Platform.isAndroid
+                            ? (_smsGranted ? 'On' : 'Allow')
+                            : 'N/A',
+                      ),
                       onTap: Platform.isAndroid
-                          ? () => Permission.sms.request()
+                          ? () async {
+                              await SmsPermission.requestForAutomation(context);
+                              await _refreshSmsAccess();
+                            }
                           : null,
                     ),
-                    _SettingsTile(
-                      icon: Icons.mail_outline,
-                      title: 'Gmail',
-                      subtitle: ingest.isGmailConnected
-                          ? 'Connected — tap to sync'
-                          : 'Connect to sync email alerts',
-                      trailing: _StatusPill(
-                        enabled: ingest.isGmailConnected,
-                        label: ingest.isGmailConnected ? 'On' : 'Connect',
-                      ),
-                      onTap: () async {
-                        if (ingest.isGmailConnected) {
-                          final messenger = ScaffoldMessenger.of(context);
-                          messenger.clearSnackBars();
-                          final count = await ingest.syncGmail();
-                          if (!context.mounted) return;
-                          messenger.clearSnackBars();
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text('Synced $count email alerts'),
-                            ),
-                          );
-                        } else {
-                          await ingest.connectGmail();
-                        }
-                      },
-                    ),
-                    if (ingest.isGmailConnected)
-                      _SettingsTile(
-                        icon: Icons.logout_rounded,
-                        title: 'Disconnect Gmail',
-                        subtitle: 'Remove Gmail access',
-                        onTap: () => ingest.disconnectGmail(),
-                      ),
                   ],
                 ),
                 ),
@@ -445,6 +439,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: 'About ${AppBrand.name}',
                       subtitle: 'Made by Arham · Vawcom AI agency',
                       onTap: () => AboutScreen.open(context),
+                    ),
+                    _SettingsTile(
+                      icon: Icons.bug_report_outlined,
+                      title: 'Report an issue',
+                      subtitle: 'Email crash details to the developer',
+                      onTap: () => IssueReport.openSheet(context),
                     ),
                     const _SettingsTile(
                       icon: Icons.privacy_tip_outlined,

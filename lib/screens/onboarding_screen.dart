@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../core/brand.dart';
@@ -9,6 +8,8 @@ import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart' show AppRadius;
 import '../features/ingest/ingest_service.dart';
+import '../features/ingest/notification_access.dart';
+import '../features/ingest/sms_permission.dart';
 import '../widgets/app_logo_mark.dart';
 import '../widgets/glass_container.dart';
 
@@ -115,9 +116,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                           ),
                           _SetupFeature(
                             icon: Icons.sms_outlined,
-                            title: 'SMS fallback',
+                            title: 'SMS automation',
                             subtitle:
-                                'Transaction texts can be read locally when alerts arrive by SMS.',
+                                'Wallet and bank transaction texts (3737, 8558, etc.) are read on-device for hands-free tracking.',
                           ),
                           _SetupFeature(
                             icon: Icons.inbox_outlined,
@@ -517,10 +518,14 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
 
   Future<void> _refreshSms() async {
     if (!Platform.isAndroid) return;
-    final status = await Permission.sms.status;
     if (!mounted) return;
     setState(() {
-      _smsGranted = status.isGranted || status.isLimited;
+      _smsGranted = false;
+    });
+    final granted = await SmsPermission.isGranted();
+    if (!mounted) return;
+    setState(() {
+      _smsGranted = granted;
     });
   }
 
@@ -585,12 +590,7 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
                 recommended: true,
                 actionLabel: Platform.isAndroid ? 'Open settings' : 'Not available',
                 onAction: Platform.isAndroid
-                    ? () async {
-                        final ok = await ingest.hasNotificationAccess();
-                        if (!ok) await ingest.openNotificationSettings();
-                        await ingest.refreshNotificationAccess();
-                        await ingest.requestBatteryOptimizationExemption();
-                      }
+                    ? () => NotificationAccess.requestFromOnboarding(context)
                     : null,
               ),
               if (Platform.isAndroid) ...[
@@ -599,27 +599,16 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
                   icon: Icons.sms_outlined,
                   title: 'SMS access',
                   subtitle:
-                      'Optional — reads transaction SMS when apps send alerts by text.',
+                      'Required for automation — reads wallet and bank transaction SMS only (Easypaisa, Raast, etc.). Nothing is uploaded.',
                   enabled: _smsGranted,
+                  recommended: true,
                   actionLabel: 'Allow SMS',
                   onAction: () async {
-                    await Permission.sms.request();
+                    await SmsPermission.requestForAutomation(context);
                     await _refreshSms();
                   },
                 ),
               ],
-              const SizedBox(height: 10),
-              _PermissionCard(
-                icon: Icons.mail_outline_rounded,
-                title: 'Gmail',
-                subtitle:
-                    'Optional — sync email alerts from banks and payment services.',
-                enabled: ingest.isGmailConnected,
-                actionLabel: ingest.isGmailConnected ? 'Connected' : 'Connect',
-                onAction: ingest.isGmailConnected
-                    ? null
-                    : () => ingest.connectGmail(),
-              ),
               const SizedBox(height: 16),
               const _FeatureHighlight(
                 icon: Icons.privacy_tip_outlined,
@@ -746,7 +735,7 @@ class _PermissionCard extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              if (onAction != null && !enabled)
+              if (onAction != null)
                 TextButton(
                   onPressed: onAction,
                   style: TextButton.styleFrom(

@@ -50,7 +50,8 @@ class CategoryCatalog extends ChangeNotifier {
   CategoryCatalog._(this._prefs, List<CustomCategoryRecord> custom)
       : _custom = List.of(custom);
 
-  static const _storageKey = 'custom_categories';
+  static const storageKey = 'custom_categories';
+  static const _storageKey = storageKey;
 
   static CategoryCatalog? _instance;
   static Future<void>? _hydrating;
@@ -209,18 +210,53 @@ abstract final class CategoryIconOptions {
   }
 
   static const icons = [
-    Icons.label_outline_rounded,
+    // Travel & trips
+    Icons.flight_outlined,
+    Icons.luggage_outlined,
+    Icons.hotel_outlined,
+    Icons.map_outlined,
+    Icons.explore_outlined,
+    Icons.hiking_outlined,
+    Icons.beach_access_outlined,
+    // Transport
+    Icons.directions_car_outlined,
+    Icons.directions_bus_outlined,
+    Icons.train_outlined,
+    Icons.local_gas_station_outlined,
+    // Home & bills
+    Icons.home_outlined,
+    Icons.electric_bolt_outlined,
+    Icons.wifi_outlined,
+    Icons.cleaning_services_outlined,
+    Icons.build_outlined,
+    // Food & shopping
+    Icons.local_cafe_outlined,
+    Icons.restaurant_outlined,
+    Icons.local_grocery_store_outlined,
+    Icons.shopping_bag_outlined,
+    Icons.storefront_outlined,
+    Icons.checkroom_outlined,
+    // Health & wellness
+    Icons.spa_outlined,
+    Icons.fitness_center_outlined,
+    Icons.medical_services_outlined,
+    // Work & learning
     Icons.work_outline_rounded,
     Icons.school_outlined,
-    Icons.card_giftcard_outlined,
-    Icons.pets_outlined,
-    Icons.flight_outlined,
-    Icons.child_care_outlined,
+    Icons.laptop_outlined,
+    Icons.book_outlined,
+    // Lifestyle
+    Icons.subscriptions_outlined,
+    Icons.music_note_outlined,
     Icons.sports_esports_outlined,
-    Icons.home_outlined,
+    Icons.celebration_outlined,
+    Icons.card_giftcard_outlined,
+    Icons.favorite_outline,
+    Icons.pets_outlined,
+    Icons.child_care_outlined,
     Icons.phone_iphone_outlined,
-    Icons.local_cafe_outlined,
-    Icons.checkroom_outlined,
+    Icons.savings_outlined,
+    Icons.label_outline_rounded,
   ];
 }
 
@@ -237,5 +273,19 @@ abstract final class CategoryColorOptions {
     Color(0xFFE8B86D),
     AppColors.brand,
     Color(0xFFAEA6A0),
+    Color(0xFF6BA3C7),
+    Color(0xFF9B8DC7),
+    Color(0xFF7EB89A),
+    Color(0xFFE89A7A),
+    Color(0xFFD4A574),
+    Color(0xFF88B4A8),
+    Color(0xFFA890B8),
+    Color(0xFF6EB5C0),
+    Color(0xFFE07B8A),
+    Color(0xFF8BC47E),
+    Color(0xFF5C9EAD),
+    Color(0xFFB5A642),
+    Color(0xFF78909C),
+    Color(0xFFB08D6E),
   ];
 }

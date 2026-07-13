@@ -17,15 +17,12 @@ const refreshScrollPhysics = AlwaysScrollableScrollPhysics(
   parent: BouncingScrollPhysics(),
 );
 
-/// Syncs Gmail if connected, then refreshes local data.
+/// Rescans captures and refreshes local transaction data.
 Future<void> refreshAppData(BuildContext context) async {
   final provider = context.read<TransactionProvider>();
   final ingest = context.read<IngestService>();
 
   final started = DateTime.now();
-  if (ingest.isGmailConnected) {
-    await ingest.syncGmail();
-  }
   await ingest.syncCaptures();
   await provider.reload();
 

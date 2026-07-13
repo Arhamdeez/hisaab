@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/brand.dart';
+import '../core/support/issue_report.dart';
+import '../core/privacy/local_data_policy.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
@@ -292,6 +294,8 @@ class _AboutContentCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _WebsiteLink(onTap: onOpenVawcom),
+          const SizedBox(height: 16),
+          _ReportIssueLink(onTap: () => IssueReport.openSheet(context)),
           const SizedBox(height: 22),
           const Divider(height: 1, color: AppColors.border),
           const SizedBox(height: 18),
@@ -320,15 +324,36 @@ class _AboutContentCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Privacy first',
+                        LocalDataPolicy.headline,
                         style: theme.textTheme.titleMedium?.copyWith(
                           letterSpacing: -0.2,
                         ),
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'All your data stays on your device. '
-                        '${AppBrand.name} does not upload transactions to any server.',
+                        LocalDataPolicy.summary,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.textMuted,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ...LocalDataPolicy.neverUploaded.map(
+                        (item) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '• $item',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppColors.textMuted,
+                              height: 1.45,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Bank SMS and app alerts are read on your phone only — '
+                        'nothing is sent to ${AppBrand.name} servers.',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: AppColors.textMuted,
                           height: 1.5,
@@ -434,6 +459,58 @@ class _WebsiteLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _ExternalActionLink(
+      onTap: onTap,
+      icon: Icons.language_rounded,
+      iconColor: AppColors.brand,
+      title: 'vawcom.com',
+      subtitle: 'Visit the Vawcom website',
+      actionLabel: 'Open',
+      accent: AppColors.brand,
+    );
+  }
+}
+
+class _ReportIssueLink extends StatelessWidget {
+  const _ReportIssueLink({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ExternalActionLink(
+      onTap: onTap,
+      icon: Icons.bug_report_outlined,
+      iconColor: AppColors.ui,
+      title: 'Report an issue',
+      subtitle: 'Email ${AppBrand.supportEmail}',
+      actionLabel: 'Send',
+      accent: AppColors.ui,
+    );
+  }
+}
+
+class _ExternalActionLink extends StatelessWidget {
+  const _ExternalActionLink({
+    required this.onTap,
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.actionLabel,
+    required this.accent,
+  });
+
+  final VoidCallback onTap;
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final String actionLabel;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Material(
@@ -448,13 +525,11 @@ class _WebsiteLink extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                AppColors.brand.withValues(alpha: 0.14),
+                accent.withValues(alpha: 0.14),
                 AppColors.glassFillStrong,
               ],
             ),
-            border: Border.all(
-              color: AppColors.brand.withValues(alpha: 0.32),
-            ),
+            border: Border.all(color: accent.withValues(alpha: 0.32)),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
@@ -463,12 +538,8 @@ class _WebsiteLink extends StatelessWidget {
                 Container(
                   width: 40,
                   height: 40,
-                  decoration: AppDecorations.iconBadge(AppColors.brand),
-                  child: const Icon(
-                    Icons.language_rounded,
-                    color: AppColors.brand,
-                    size: 20,
-                  ),
+                  decoration: AppDecorations.iconBadge(iconColor),
+                  child: Icon(icon, color: iconColor, size: 20),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -476,7 +547,7 @@ class _WebsiteLink extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'vawcom.com',
+                        title,
                         style: theme.textTheme.titleMedium?.copyWith(
                           letterSpacing: -0.2,
                           fontWeight: FontWeight.w700,
@@ -484,7 +555,7 @@ class _WebsiteLink extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Visit the Vawcom website',
+                        subtitle,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: AppColors.textMuted,
                           fontWeight: FontWeight.w600,
@@ -499,13 +570,13 @@ class _WebsiteLink extends StatelessWidget {
                     vertical: 5,
                   ),
                   decoration: AppDecorations.pillChip(
-                    fill: AppColors.brand.withValues(alpha: 0.12),
-                    border: AppColors.brand.withValues(alpha: 0.28),
+                    fill: accent.withValues(alpha: 0.12),
+                    border: accent.withValues(alpha: 0.28),
                   ),
                   child: Text(
-                    'Open',
+                    actionLabel,
                     style: theme.textTheme.labelLarge?.copyWith(
-                      color: AppColors.brand,
+                      color: accent,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),

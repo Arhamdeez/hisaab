@@ -441,6 +441,7 @@ class _CashFlowSummary extends StatelessWidget {
                 icon: Icons.north_east_rounded,
                 label: 'Cash in',
                 value: formatCompactCurrency(received),
+                subtitle: 'Received',
               ),
             ),
             const VerticalDivider(
@@ -480,6 +481,17 @@ class _CashFlowSummary extends StatelessWidget {
                       color: net >= 0 ? AppColors.income : AppColors.expense,
                     ),
                   ),
+                  if (received > 0) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '${formatPercent((net / received * 100).abs())} of cash in',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -537,11 +549,13 @@ class _AvgStat extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.subtitle,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -569,6 +583,17 @@ class _AvgStat extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtitle!,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: AppColors.textMuted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -632,36 +657,15 @@ class _FilterChip extends StatelessWidget {
                     ]
                   : null,
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: AnimatedOpacity(
-                    opacity: selected ? 1 : 0,
-                    duration: AppMotion.fast,
-                    child: Icon(
-                      Icons.check_rounded,
-                      size: 14,
-                      color: activeColor == AppColors.ui
-                          ? AppColors.ui
-                          : activeColor,
-                    ),
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: selected
+                        ? AppColors.textPrimary
+                        : AppColors.textMuted,
+                    fontWeight: FontWeight.w700,
                   ),
-                ),
-                if (selected) const SizedBox(width: 5),
-                Text(
-                    label,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: selected
-                              ? AppColors.textPrimary
-                              : AppColors.textMuted,
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                ],
-              ),
+            ),
             ),
           ),
         ),

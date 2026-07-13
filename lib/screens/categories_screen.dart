@@ -69,8 +69,8 @@ class CategoriesScreen extends StatelessWidget {
                           12,
                         ),
                         child: Text(
-                          'Built-in categories are always available. Add your own '
-                          'for anything that does not fit the defaults.',
+                          'Default categories are always available. Add your own '
+                          'for anything that does not fit.',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: AppColors.textMuted,
                               ),
@@ -82,7 +82,7 @@ class CategoriesScreen extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                           horizontal: AppSpacing.pageH,
                         ),
-                        child: _SectionHeader(title: 'Built-in'),
+                        child: _SectionHeader(title: 'Default'),
                       ),
                     ),
                     SliverPadding(
@@ -417,7 +417,7 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
                   labelText: 'Name',
-                  hintText: 'e.g. Subscriptions',
+                  hintText: 'e.g. Trip, Subscriptions',
                 ),
               ),
               const SizedBox(height: 18),

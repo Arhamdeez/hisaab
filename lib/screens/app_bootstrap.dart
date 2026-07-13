@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/data/local_data_persistence.dart';
 import '../widgets/glass_container.dart';
 import '../core/app_launch_scope.dart';
 import '../providers/transaction_provider.dart';
@@ -30,7 +31,8 @@ class _AppBootstrapState extends State<AppBootstrap> {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      _onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+      _onboardingComplete =
+          prefs.getBool(LocalDataPersistence.onboardingCompleteKey) ?? false;
     });
   }
 
@@ -41,7 +43,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
         onComplete: () async {
           final provider = context.read<TransactionProvider>();
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('onboarding_complete', true);
+          await prefs.setBool(LocalDataPersistence.onboardingCompleteKey, true);
           if (!mounted) return;
           setState(() => _onboardingComplete = true);
           await provider.reload();

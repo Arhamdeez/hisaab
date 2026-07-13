@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/brand.dart';
@@ -276,6 +277,7 @@ class _MonthSelector extends StatelessWidget {
     final current = provider.selectedMonth;
     final next = DateTime(current.year, current.month + delta);
     if (next.isAfter(DateTime.now())) return;
+    HapticFeedback.selectionClick();
     provider.setSelectedMonth(next);
   }
 }

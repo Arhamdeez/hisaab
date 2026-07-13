@@ -9,7 +9,7 @@ import 'features/notifications/notification_service.dart';
 import 'providers/app_preferences.dart';
 
 const _bgRescanKey = 'bg_ingest_rescan';
-const _doneChannel = MethodChannel('com.example.spend_tracker/background_ingest');
+const _doneChannel = MethodChannel('com.arham.hisaab/background_ingest');
 
 /// Headless Android entry — processes queued payment alerts without opening the UI.
 @pragma('vm:entry-point')

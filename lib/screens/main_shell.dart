@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/app_launch_scope.dart';
@@ -6,6 +7,7 @@ import '../core/splash_timing.dart';
 import '../core/theme/app_colors.dart';
 import '../core/motion.dart';
 import '../core/theme/app_spacing.dart' show AppRadius;
+import '../core/utils/formatters.dart';
 import '../features/notifications/notification_service.dart';
 import '../models/transaction.dart';
 import '../providers/app_preferences.dart';
@@ -257,6 +259,43 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final amountCtrl = TextEditingController();
     var categoryId = SpendingCategory.other.storageKey;
     var type = TransactionType.debit;
+    var amountInvalid = false;
+    var merchantInvalid = false;
+    var shakeTick = 0;
+
+    void pulseInvalidHaptics() {
+      HapticFeedback.heavyImpact();
+      Future<void>.delayed(const Duration(milliseconds: 70), () {
+        HapticFeedback.mediumImpact();
+      });
+    }
+
+    InputDecoration addFieldDecoration({
+      required String labelText,
+      String? hintText,
+      required bool invalid,
+    }) {
+      const radius = BorderRadius.all(Radius.circular(AppRadius.md));
+      const normal = BorderSide(color: AppColors.glassBorder);
+      const error = BorderSide(color: AppColors.expense, width: 1.4);
+      final side = invalid ? error : normal;
+      return InputDecoration(
+        labelText: labelText,
+        hintText: hintText,
+        labelStyle: TextStyle(
+          color: invalid ? AppColors.expense : AppColors.textSecondary,
+        ),
+        enabledBorder: OutlineInputBorder(borderRadius: radius, borderSide: side),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: radius,
+          borderSide: BorderSide(
+            color: invalid ? AppColors.expense : AppColors.ui,
+            width: 1.4,
+          ),
+        ),
+        border: OutlineInputBorder(borderRadius: radius, borderSide: side),
+      );
+    }
 
     showModalBottomSheet(
       context: context,
@@ -288,18 +327,44 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                       style: Theme.of(ctx).textTheme.headlineMedium,
                     ),
                     const SizedBox(height: 20),
-                    TextField(
-                      controller: merchantCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Merchant / Description',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: amountCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Amount (Rs)',
+                    _ShakeFeedback(
+                      trigger: shakeTick,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          TextField(
+                            controller: merchantCtrl,
+                            onChanged: (_) {
+                              if (merchantInvalid) {
+                                setSheetState(() => merchantInvalid = false);
+                              }
+                            },
+                            decoration: addFieldDecoration(
+                              labelText: 'Merchant / Description',
+                              invalid: merchantInvalid,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: amountCtrl,
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                              decimal: true,
+                              signed: false,
+                            ),
+                            inputFormatters: [PositiveAmountInputFormatter()],
+                            onChanged: (_) {
+                              if (amountInvalid) {
+                                setSheetState(() => amountInvalid = false);
+                              }
+                            },
+                            decoration: addFieldDecoration(
+                              labelText: 'Amount (Rs)',
+                              hintText: '0',
+                              invalid: amountInvalid,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -326,13 +391,27 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     const SizedBox(height: 24),
                     FilledButton(
                       onPressed: () {
-                        final amount = double.tryParse(amountCtrl.text);
-                        if (amount == null || merchantCtrl.text.isEmpty) return;
+                        final merchant = merchantCtrl.text.trim();
+                        final nextMerchantInvalid = merchant.isEmpty;
+                        final nextAmountInvalid =
+                            transactionAmountInputError(amountCtrl.text) !=
+                                null;
+                        if (nextMerchantInvalid || nextAmountInvalid) {
+                          pulseInvalidHaptics();
+                          setSheetState(() {
+                            merchantInvalid = nextMerchantInvalid;
+                            amountInvalid = nextAmountInvalid;
+                            shakeTick++;
+                          });
+                          return;
+                        }
+                        final amount =
+                            parseTransactionAmountInput(amountCtrl.text)!;
                         context
                             .read<TransactionProvider>()
                             .addManualTransaction(
                               amount: amount,
-                              merchant: merchantCtrl.text,
+                              merchant: merchant,
                               categoryId: categoryId,
                               type: type,
                             );
@@ -355,6 +434,65 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           },
         );
       },
+    );
+  }
+}
+
+/// Quick horizontal shake + driven by [trigger] increments.
+class _ShakeFeedback extends StatefulWidget {
+  const _ShakeFeedback({required this.trigger, required this.child});
+
+  final int trigger;
+  final Widget child;
+
+  @override
+  State<_ShakeFeedback> createState() => _ShakeFeedbackState();
+}
+
+class _ShakeFeedbackState extends State<_ShakeFeedback>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 460),
+    );
+    _offset = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0, end: -12), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -12, end: 12), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 12, end: -10), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -10, end: 10), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 10, end: 0), weight: 1),
+    ]).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+  }
+
+  @override
+  void didUpdateWidget(covariant _ShakeFeedback oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.trigger != oldWidget.trigger && widget.trigger > 0) {
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _offset,
+      builder: (context, child) => Transform.translate(
+        offset: Offset(_offset.value, 0),
+        child: child,
+      ),
+      child: widget.child,
     );
   }
 }

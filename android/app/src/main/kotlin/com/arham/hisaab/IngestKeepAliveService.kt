@@ -1,4 +1,4 @@
-package com.example.spend_tracker
+package com.arham.hisaab
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -56,7 +56,7 @@ class IngestKeepAliveService : Service() {
     }
 
     companion object {
-        const val ACTION_STOP = "com.example.spend_tracker.STOP_KEEPALIVE"
+        const val ACTION_STOP = "com.arham.hisaab.STOP_KEEPALIVE"
         private const val NOTIFICATION_ID = 7001
         private const val CHANNEL_ID = "hisaab_capture_monitor"
         /** First background queue check — not immediate, to save boot battery. */

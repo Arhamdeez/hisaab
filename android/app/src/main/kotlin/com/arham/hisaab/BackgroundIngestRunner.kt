@@ -1,9 +1,8 @@
-package com.example.spend_tracker
+package com.arham.hisaab
 
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -18,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object BackgroundIngestRunner {
     private const val TAG = "BackgroundIngest"
-    private const val BG_CHANNEL = "com.example.spend_tracker/background_ingest"
+    private const val BG_CHANNEL = "com.arham.hisaab/background_ingest"
     private const val PREFS = "spend_tracker_ingest"
     private const val RESCAN_KEY = "bg_ingest_rescan"
 
@@ -47,12 +46,12 @@ object BackgroundIngestRunner {
         pendingRescan = false
 
         if (!shouldRescan && !IngestPlugin.hasPendingCaptures(appContext)) {
-            Log.d(TAG, "skip — capture queue empty")
+            PrivacyLog.d(TAG, "skip — capture queue empty")
             return
         }
 
         if (IngestPlugin.isLiveIngestAttached()) {
-            Log.d(TAG, "skip — foreground app is handling ingest")
+            PrivacyLog.d(TAG, "skip — foreground app is handling ingest")
             return
         }
 
@@ -65,7 +64,7 @@ object BackgroundIngestRunner {
             try {
                 executeBackgroundIngest(appContext, shouldRescan)
             } catch (e: Exception) {
-                Log.e(TAG, "background ingest failed", e)
+                PrivacyLog.e(TAG, "background ingest failed", e)
             } finally {
                 running.set(false)
                 if (runAgain || IngestPlugin.hasPendingCaptures(appContext)) {
@@ -110,9 +109,9 @@ object BackgroundIngestRunner {
                     when (call.method) {
                         "done", "error" -> {
                             if (call.method == "error") {
-                                Log.w(TAG, "dart error: ${call.arguments}")
+                                PrivacyLog.w(TAG, "dart error: ${call.arguments}")
                             } else {
-                                Log.i(TAG, "background ingest created=${call.arguments}")
+                                PrivacyLog.i(TAG, "background ingest created=${call.arguments}")
                             }
                             latch.countDown()
                             result.success(null)
@@ -128,14 +127,14 @@ object BackgroundIngestRunner {
                     ),
                 )
             } catch (e: Exception) {
-                Log.e(TAG, "engine start failed", e)
+                PrivacyLog.e(TAG, "engine start failed", e)
                 latch.countDown()
             }
         }
 
         val finished = latch.await(ENGINE_TIMEOUT_SEC, TimeUnit.SECONDS)
         if (!finished) {
-            Log.w(TAG, "background ingest timed out")
+            PrivacyLog.w(TAG, "background ingest timed out")
         }
 
         mainHandler.post {

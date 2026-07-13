@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../core/utils/cash_flow.dart';
 import '../core/repositories/transaction_repository.dart';
 import '../features/dedup/deduplicator.dart';
 import '../features/dedup/review_policy.dart';
@@ -108,11 +109,14 @@ class TransactionProvider extends ChangeNotifier {
       return _summaryCache!;
     }
     final txs = transactionsForMonth(month);
-    final debits = txs.where((t) => t.isDebit);
-    final credits = txs.where((t) => !t.isDebit);
-
-    final totalDebit = debits.fold<double>(0, (s, t) => s + t.amount);
-    final totalCredit = credits.fold<double>(0, (s, t) => s + t.amount);
+    final flow = CashFlowMetrics.fromTransactions(txs);
+    final totalDebit = flow.cashOut;
+    final totalCredit = flow.cashIn;
+    final debits = txs.where(
+      (t) =>
+          t.status == TransactionStatus.confirmed &&
+          t.type == TransactionType.debit,
+    );
 
     final categoryMap = <String, CategorySummary>{};
     for (final t in debits) {
@@ -243,6 +247,8 @@ class TransactionProvider extends ChangeNotifier {
     required String categoryId,
     required TransactionType type,
   }) async {
+    if (!amount.isFinite || amount <= 0) return;
+
     final now = DateTime.now();
     final fingerprint = TransactionParser.buildFingerprint(
       amount: amount,

@@ -27,6 +27,7 @@ class TransactionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDebit = transaction.isDebit;
+    final isFailed = transaction.isFailed;
     final category = context.watch<CategoryCatalog>().resolve(transaction.categoryId);
 
     return Material(
@@ -78,9 +79,15 @@ class TransactionTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
+                    isFailed
+                        ? 'Failed'
+                        : '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
                     style: theme.textTheme.titleMedium?.copyWith(
-                      color: isDebit ? AppColors.expense : AppColors.income,
+                      color: isFailed
+                          ? AppColors.textMuted
+                          : isDebit
+                              ? AppColors.expense
+                              : AppColors.income,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -101,6 +108,7 @@ class TransactionTile extends StatelessWidget {
   }
 
   String _subtitle(CategoryInfo category) {
+    if (transaction.isFailed) return 'Failed payment';
     final base = category.label;
     if (!showSource) return base;
     return '$base · ${_sourceLabel(transaction.source)}';

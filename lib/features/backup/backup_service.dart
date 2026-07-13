@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/data/local_data_persistence.dart';
 import '../../core/repositories/transaction_repository.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/transaction.dart';
@@ -40,6 +41,30 @@ class BackupService {
   BackupService(this._repository);
 
   final TransactionRepository _repository;
+
+  /// Replaces the on-device SQLite database from a picked `.sqlite` file.
+  /// Fully close and reopen the app after a successful restore.
+  Future<BackupResult> importSqliteFile(String sourcePath) async {
+    try {
+      final source = File(sourcePath);
+      if (!await source.exists()) {
+        return const BackupResult.failure('Backup file not found');
+      }
+
+      final dir = await getApplicationDocumentsDirectory();
+      final target = File(p.join(dir.path, LocalDataPersistence.dbFileName));
+      await target.parent.create(recursive: true);
+      await source.copy(target.path);
+
+      return BackupResult._(
+        status: BackupStatus.success,
+        message: 'Database restored — fully close and reopen HISAAB',
+      );
+    } catch (e) {
+      debugPrint('Backup import failed: $e');
+      return BackupResult.failure('Could not restore database: $e');
+    }
+  }
 
   Future<BackupResult> exportToFile() async {
     try {

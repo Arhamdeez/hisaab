@@ -1,4 +1,4 @@
-package com.example.spend_tracker
+package com.arham.hisaab
 
 import android.Manifest
 import android.content.BroadcastReceiver
@@ -76,10 +76,7 @@ class SmsReceiver : BroadcastReceiver() {
                 val body = assembled.parts.toString()
                 if (body.isBlank()) return@Runnable
                 if (!IngestPlugin.isLikelySmsTransaction(sender, body)) return@Runnable
-                android.util.Log.i(
-                    "HisaabIngest",
-                    "sms capture from $sender preview=${body.take(80)}",
-                )
+                PrivacyLog.captureLive("HisaabIngest", "sms", sender)
                 IngestPlugin.deliver(
                     context,
                     mapOf(

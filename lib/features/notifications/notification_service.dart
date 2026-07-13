@@ -10,7 +10,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/database/app_database.dart' hide Transaction;
 import '../../core/repositories/transaction_repository.dart';
 import '../../core/utils/formatters.dart';
-import '../../features/parser/category_guesser.dart';
 import '../../models/transaction.dart';
 
 /// Action ids shared between the posted notification and the response handler.
@@ -50,9 +49,11 @@ Future<void> notificationBackgroundHandler(NotificationResponse response) async 
   await NotificationService.handleBackgroundResponse(response);
 }
 
-/// Posts on-device notifications for newly captured transactions, with quick
-/// "Accept" (inline reply) and "Reject" actions so the user can triage without
-/// opening the app. The reply prompt adapts to money out vs money in.
+/// Posts on-device notifications for newly captured transactions.
+///
+/// Normal payments get a simple "logged" heads-up.
+/// Own-account / self-transfers get plain Accept / Reject actions so the user
+/// can confirm before they count toward spending.
 class NotificationService {
   NotificationService._();
 
@@ -61,12 +62,8 @@ class NotificationService {
   static const _channelId = 'captured_transactions';
   static const _channelName = 'Payment tracking';
   static const _channelDescription =
-      'Quick confirmation when Spend Tracker logs a payment.';
-  static const _iosCategoryDebit = 'txn_review_out';
-  static const _iosCategoryCredit = 'txn_review_in';
-
-  static const _outPrompt = 'Where did this money go?';
-  static const _inPrompt = 'Where did this money come from?';
+      'Alerts when HISAAB logs a payment, and Accept/Reject for self-transfers.';
+  static const _iosCategoryReview = 'txn_self_transfer_review';
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -87,12 +84,15 @@ class NotificationService {
       requestSoundPermission: true,
       notificationCategories: [
         DarwinNotificationCategory(
-          _iosCategoryDebit,
-          actions: _darwinActions(_outPrompt),
-        ),
-        DarwinNotificationCategory(
-          _iosCategoryCredit,
-          actions: _darwinActions(_inPrompt),
+          _iosCategoryReview,
+          actions: [
+            DarwinNotificationAction.plain(_acceptActionId, 'Accept'),
+            DarwinNotificationAction.plain(
+              _rejectActionId,
+              'Reject',
+              options: {DarwinNotificationActionOption.destructive},
+            ),
+          ],
         ),
       ],
     );
@@ -129,20 +129,6 @@ class NotificationService {
       debugPrint('NotificationService init error: $e');
     }
   }
-
-  List<DarwinNotificationAction> _darwinActions(String prompt) => [
-        DarwinNotificationAction.text(
-          _acceptActionId,
-          'Accept',
-          buttonTitle: 'Save',
-          placeholder: prompt,
-        ),
-        DarwinNotificationAction.plain(
-          _rejectActionId,
-          'Reject',
-          options: {DarwinNotificationActionOption.destructive},
-        ),
-      ];
 
   /// Asks the OS for permission to post notifications (Android 13+ / iOS).
   Future<bool> requestPermission() async {
@@ -215,10 +201,9 @@ class NotificationService {
     }
   }
 
-  /// Self-transfers land in the inbox — ask Accept/Reject before they count.
+  /// Own-account transfers only — plain Accept / Reject, no text input.
   Future<void> _showReviewNotification(Transaction transaction) async {
     final copy = _reviewAlertCopy(transaction);
-    final prompt = transaction.isDebit ? _outPrompt : _inPrompt;
     final payload = _payloadFor(transaction);
 
     final androidDetails = AndroidNotificationDetails(
@@ -228,27 +213,23 @@ class NotificationService {
       importance: Importance.high,
       priority: Priority.high,
       category: AndroidNotificationCategory.message,
-      actions: [
+      actions: const [
         AndroidNotificationAction(
           _acceptActionId,
           'Accept',
-          inputs: [
-            AndroidNotificationActionInput(
-              label: prompt,
-              allowFreeFormInput: true,
-            ),
-          ],
+          showsUserInterface: false,
+          cancelNotification: true,
         ),
-        const AndroidNotificationAction(
+        AndroidNotificationAction(
           _rejectActionId,
           'Reject',
+          showsUserInterface: false,
           cancelNotification: true,
         ),
       ],
     );
-    final darwinDetails = DarwinNotificationDetails(
-      categoryIdentifier:
-          transaction.isDebit ? _iosCategoryDebit : _iosCategoryCredit,
+    const darwinDetails = DarwinNotificationDetails(
+      categoryIdentifier: _iosCategoryReview,
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
@@ -301,19 +282,25 @@ class NotificationService {
 
     if (transaction.isDebit) {
       return (
-        title: 'Review transfer',
-        body: '−$amount to $merchant — accept or reject',
+        title: 'Own-account transfer?',
+        body: '−$amount to $merchant — Accept to count, Reject to skip',
       );
     }
     return (
-      title: 'Review transfer',
-      body: '+$amount from $merchant — accept or reject',
+      title: 'Own-account transfer?',
+      body: '+$amount from $merchant — Accept to count, Reject to skip',
     );
   }
 
   void _onForegroundResponse(NotificationResponse response) {
     final decision = _parse(response);
-    if (decision == null) return;
+    if (decision == null) {
+      debugPrint(
+        'NotificationService ignored response '
+        'action=${response.actionId} payload=${response.payload}',
+      );
+      return;
+    }
 
     unawaited(_dismiss(decision.id));
     final handler = onForegroundDecision;
@@ -326,8 +313,8 @@ class NotificationService {
     }
   }
 
-  /// Applies a single decision to [repository]. [fast] skips merchant-history
-  /// lookup so notification actions return quickly (text/parser guess only).
+  /// Applies a single decision to [repository].
+  /// Accept confirms (counts the transfer); Reject ignores it.
   Future<bool> applyDecision(
     TransactionRepository repository,
     NotificationDecision decision, {
@@ -341,62 +328,10 @@ class NotificationService {
         );
       }
 
-      if (!decision.isDebit) {
-        return repository.applyReview(
-          decision.id,
-          status: TransactionStatus.confirmed,
-        );
-      }
-
-      final note = decision.note?.trim();
-      final hasNote = note != null && note.isNotEmpty;
-
-      // Inline reply — infer from typed text only (single DB write).
-      if (fast && hasNote) {
-        final suggestion = CategoryGuesser.suggest(
-          merchant: note,
-          userNote: note,
-        );
-        String? merchant;
-        if (suggestion.source == CategorySuggestionSource.defaultOther) {
-          merchant = note;
-        }
-        return repository.applyReview(
-          decision.id,
-          status: TransactionStatus.confirmed,
-          merchant: merchant,
-          categoryId: suggestion.categoryId,
-        );
-      }
-
-      final existing = await repository.getById(decision.id);
-
-      Iterable<Transaction>? history;
-      if (!fast) {
-        history = await repository.getConfirmed();
-      }
-
-      final suggestion = CategoryGuesser.suggest(
-        merchant: hasNote ? note : (existing?.merchant ?? ''),
-        rawText: existing?.rawText,
-        userNote: hasNote ? note : null,
-        parsedCategory: existing == null
-            ? null
-            : SpendingCategoryX.fromKey(existing.categoryId),
-        confirmedHistory: history,
-      );
-
-      String? merchant;
-      if (hasNote &&
-          suggestion.source == CategorySuggestionSource.defaultOther) {
-        merchant = note;
-      }
-
+      // Self-transfer accept: just confirm. Category stays as parsed / Other.
       return repository.applyReview(
         decision.id,
         status: TransactionStatus.confirmed,
-        merchant: merchant,
-        categoryId: suggestion.categoryId,
       );
     } catch (e) {
       debugPrint('NotificationService apply error: $e');
@@ -437,7 +372,13 @@ class NotificationService {
     DartPluginRegistrant.ensureInitialized();
 
     final decision = _parse(response);
-    if (decision == null) return;
+    if (decision == null) {
+      debugPrint(
+        'NotificationService background ignored response '
+        'action=${response.actionId} payload=${response.payload}',
+      );
+      return;
+    }
 
     var applied = false;
     try {
@@ -447,6 +388,11 @@ class NotificationService {
           TransactionRepository(database),
           decision,
           fast: true,
+        );
+        debugPrint(
+          'NotificationService background '
+          '${decision.accept ? 'accept' : 'reject'} '
+          '${decision.id} applied=$applied',
         );
       } finally {
         await database.close();

@@ -142,6 +142,16 @@ void main() {
       ReviewPolicy.involvesAccountHolder(parsed: parsed, rawText: raw),
       isFalse,
     );
+    expect(
+      ReviewPolicy.requiresReview(
+        parsed: parsed,
+        rawText: raw,
+        messageTime: DateTime(2026, 6, 22),
+        recent: const [],
+        accountHolderName: 'MUHAMMAD ARHAM BABAR',
+      ),
+      isFalse,
+    );
   });
 
   test('namesMatch ignores letter case', () {

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/utils/app_refresh.dart';
+import '../core/utils/cash_flow.dart';
 import '../core/utils/formatters.dart';
 import '../models/transaction.dart';
 import '../providers/app_preferences.dart';
@@ -286,25 +287,48 @@ class _StatGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (trackInwardFlow) {
-      final net = summary.totalCredit - summary.totalDebit;
-      return Row(
+      final flow = CashFlowMetrics(
+        cashIn: summary.totalCredit,
+        cashOut: summary.totalDebit,
+      );
+      final net = flow.net;
+      final cashOutRelative = flow.cashIn > 0
+          ? '${formatPercent(flow.cashOutOfCashIn * 100)} of cash in'
+          : null;
+      return Column(
         children: [
-          Expanded(
-            child: _StatCard(
-              label: 'Cash in',
-              value: formatCurrency(summary.totalCredit),
-              icon: Icons.north_east_rounded,
-              color: AppColors.income,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  label: 'Cash in',
+                  value: formatCurrency(flow.cashIn),
+                  icon: Icons.north_east_rounded,
+                  color: AppColors.income,
+                  subtitle: 'Received',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _StatCard(
+                  label: 'Cash out',
+                  value: formatCurrency(flow.cashOut),
+                  icon: Icons.south_west_rounded,
+                  color: AppColors.expense,
+                  subtitle: cashOutRelative,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _StatCard(
-              label: net >= 0 ? 'Net cash' : 'Net out',
-              value: formatCurrency(net.abs()),
-              icon: Icons.compare_arrows_rounded,
-              color: net >= 0 ? AppColors.income : AppColors.expense,
-            ),
+          const SizedBox(height: 12),
+          _StatCard(
+            label: net >= 0 ? 'Net cash' : 'Net out',
+            value: formatCurrency(net.abs()),
+            icon: Icons.compare_arrows_rounded,
+            color: net >= 0 ? AppColors.income : AppColors.expense,
+            subtitle: flow.cashIn > 0
+                ? '${formatPercent((net / flow.cashIn * 100).abs())} of cash in'
+                : null,
           ),
         ],
       );
@@ -343,12 +367,14 @@ class _StatCard extends StatelessWidget {
     required this.value,
     required this.icon,
     required this.color,
+    this.subtitle,
   });
 
   final String label;
   final String value;
   final IconData icon;
   final Color color;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -382,6 +408,16 @@ class _StatCard extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                 ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textMuted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
               ],
             ),
           ),

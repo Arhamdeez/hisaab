@@ -6,6 +6,61 @@ import 'package:flutter/services.dart';
 
 import '../../models/transaction.dart';
 
+/// Result of attempting to open the OS notification-listener settings screen.
+class NotificationAccessOpenResult {
+  const NotificationAccessOpenResult({
+    required this.opened,
+    this.via,
+    this.manufacturer = '',
+    this.model = '',
+    this.sdkInt = 0,
+  });
+
+  final bool opened;
+  final String? via;
+  final String manufacturer;
+  final String model;
+  final int sdkInt;
+
+  factory NotificationAccessOpenResult.fromMap(Map<dynamic, dynamic> map) {
+    return NotificationAccessOpenResult(
+      opened: map['opened'] as bool? ?? false,
+      via: map['via'] as String?,
+      manufacturer: map['manufacturer'] as String? ?? '',
+      model: map['model'] as String? ?? '',
+      sdkInt: (map['sdkInt'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+/// Outcome of copying data from the old dev package id on first launch.
+class LegacyMigrationStatus {
+  const LegacyMigrationStatus({
+    required this.status,
+    this.legacyInstalled = false,
+    this.bytesCopied = 0,
+    this.message,
+  });
+
+  final String status;
+  final bool legacyInstalled;
+  final int bytesCopied;
+  final String? message;
+
+  bool get migrated => status == 'migrated';
+  bool get needsManualRestore =>
+      status == 'legacy_locked' || status == 'failed';
+
+  factory LegacyMigrationStatus.fromMap(Map<dynamic, dynamic> map) {
+    return LegacyMigrationStatus(
+      status: map['status'] as String? ?? 'unknown',
+      legacyInstalled: map['legacyInstalled'] as bool? ?? false,
+      bytesCopied: (map['bytesCopied'] as num?)?.toInt() ?? 0,
+      message: map['message'] as String?,
+    );
+  }
+}
+
 class IngestEvent {
   const IngestEvent({
     required this.text,
@@ -29,9 +84,9 @@ class IngestBridge {
 
   static final IngestBridge instance = IngestBridge._();
 
-  static const _eventChannel = EventChannel('com.example.spend_tracker/ingest');
+  static const _eventChannel = EventChannel('com.arham.hisaab/ingest');
   static const _methodChannel =
-      MethodChannel('com.example.spend_tracker/ingest_control');
+      MethodChannel('com.arham.hisaab/ingest_control');
 
   final _controller = StreamController<IngestEvent>.broadcast();
 
@@ -123,9 +178,40 @@ class IngestBridge {
     }
   }
 
-  Future<void> openNotificationAccessSettings() async {
-    if (!Platform.isAndroid) return;
-    await _methodChannel.invokeMethod<void>('openNotificationAccessSettings');
+  Future<NotificationAccessOpenResult> openNotificationAccessSettings() async {
+    if (!Platform.isAndroid) {
+      return const NotificationAccessOpenResult(opened: false);
+    }
+    try {
+      final result = await _methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'openNotificationAccessSettings',
+      );
+      if (result == null) {
+        return const NotificationAccessOpenResult(opened: false);
+      }
+      return NotificationAccessOpenResult.fromMap(result);
+    } catch (e) {
+      debugPrint('IngestBridge openNotificationAccessSettings error: $e');
+      return const NotificationAccessOpenResult(opened: false);
+    }
+  }
+
+  Future<LegacyMigrationStatus> getLegacyMigrationStatus() async {
+    if (!Platform.isAndroid) {
+      return const LegacyMigrationStatus(status: 'unsupported');
+    }
+    try {
+      final result = await _methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'getLegacyMigrationStatus',
+      );
+      if (result == null) {
+        return const LegacyMigrationStatus(status: 'unknown');
+      }
+      return LegacyMigrationStatus.fromMap(result);
+    } catch (e) {
+      debugPrint('IngestBridge getLegacyMigrationStatus error: $e');
+      return LegacyMigrationStatus(status: 'error', message: e.toString());
+    }
   }
 
   Future<void> startKeepAlive() async {
@@ -158,14 +244,14 @@ class IngestBridge {
     }
   }
 
-  Future<void> requestIgnoreBatteryOptimizations() async {
+  Future<void> openBatteryOptimizationSettings() async {
     if (!Platform.isAndroid) return;
     try {
       await _methodChannel.invokeMethod<void>(
-        'requestIgnoreBatteryOptimizations',
+        'openBatteryOptimizationSettings',
       );
     } catch (e) {
-      debugPrint('IngestBridge battery opt error: $e');
+      debugPrint('IngestBridge battery settings error: $e');
     }
   }
 

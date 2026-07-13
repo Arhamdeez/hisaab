@@ -65,8 +65,7 @@ abstract final class ReviewPolicy {
 
     if (sameSenderAndReceiver(parsed: parsed, rawText: rawText)) return true;
 
-    // Moving money between the user's own accounts (NayaPay → Easypaisa, etc.)
-    // must be confirmed manually — both the outgoing and incoming legs.
+    // Money to/from the user's own name (saved or from "Dear NAME,").
     return involvesAccountHolder(
       parsed: parsed,
       rawText: rawText,
@@ -160,6 +159,4 @@ abstract final class ReviewPolicy {
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
-
-  static String _normalizeName(String value) => normalizeName(value);
 }

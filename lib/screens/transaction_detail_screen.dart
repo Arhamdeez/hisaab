@@ -709,6 +709,7 @@ class _StatusChip extends StatelessWidget {
       TransactionStatus.pendingReview => ('Pending review', AppColors.warning),
       TransactionStatus.confirmed => ('Confirmed', AppColors.accent),
       TransactionStatus.ignored => ('Ignored', AppColors.textMuted),
+      TransactionStatus.failed => ('Failed', AppColors.textMuted),
     };
 
     return Container(

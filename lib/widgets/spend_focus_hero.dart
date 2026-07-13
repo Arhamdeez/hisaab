@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/motion.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
+import '../core/utils/cash_flow.dart';
 import 'app_logo_mark.dart';
 import 'glass_container.dart';
 
@@ -525,35 +527,67 @@ class _NetBalanceToggle extends StatefulWidget {
 
 class _NetBalanceToggleState extends State<_NetBalanceToggle> {
   static const _animDuration = _kHeroAnimDuration;
-  static const _restScale = 1.024;
-  static const _pressedScale = 0.988;
+  static const _restScale = 1.0;
+  static const _pressedScale = 0.965;
 
   bool _pressed = false;
 
-  List<BoxShadow> _bulgeShadow({required Color accent}) {
+  List<BoxShadow> _buttonShadow({required Color accent}) {
     if (_pressed) {
+      // Flat, inset feel when depressed.
       return [
         BoxShadow(
-          color: AppColors.shadow.withValues(alpha: 0.20),
-          blurRadius: 8,
-          offset: const Offset(0, 2),
+          color: AppColors.shadow.withValues(alpha: 0.55),
+          blurRadius: 4,
+          offset: const Offset(0, 1),
         ),
       ];
     }
+    // Raised / popping out at rest.
     return [
       BoxShadow(
-        color: AppColors.shadow.withValues(alpha: 0.36),
-        blurRadius: 20,
-        offset: const Offset(0, 8),
+        color: AppColors.shadow.withValues(alpha: 0.55),
+        blurRadius: 22,
+        offset: const Offset(0, 10),
+      ),
+      BoxShadow(
+        color: AppColors.shadow.withValues(alpha: 0.28),
+        blurRadius: 8,
+        offset: const Offset(0, 3),
       ),
       BoxShadow(
         color: (widget.active ? accent : AppColors.ui)
-            .withValues(alpha: widget.active ? 0.12 : 0.06),
-        blurRadius: 16,
-        spreadRadius: -3,
-        offset: const Offset(0, 4),
+            .withValues(alpha: widget.active ? 0.22 : 0.10),
+        blurRadius: 20,
+        spreadRadius: -2,
+        offset: const Offset(0, 6),
       ),
     ];
+  }
+
+  LinearGradient _buttonGradient({required Color accent}) {
+    if (widget.active) {
+      return LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          accent.withValues(alpha: _pressed ? 0.22 : 0.30),
+          accent.withValues(alpha: _pressed ? 0.10 : 0.14),
+          AppColors.glassFillStrong,
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      );
+    }
+    return LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        _pressed ? AppColors.glassFillStrong : AppColors.glassHighlight,
+        AppColors.glassFillStrong,
+        _pressed ? const Color(0x14FFFFFF) : const Color(0x22FFFFFF),
+      ],
+      stops: const [0.0, 0.55, 1.0],
+    );
   }
 
   @override
@@ -605,101 +639,135 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
     );
 
     return GestureDetector(
-      onTap: widget.onTap,
-      onTapDown: (_) => setState(() => _pressed = true),
+      onTapDown: (_) {
+        setState(() => _pressed = true);
+        // One solid click — like pressing a physical button.
+        HapticFeedback.mediumImpact();
+      },
       onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
+      onTap: widget.onTap,
       behavior: HitTestBehavior.opaque,
       child: AnimatedScale(
         scale: _pressed ? _pressedScale : _restScale,
         duration: _pressed
-            ? const Duration(milliseconds: 90)
-            : const Duration(milliseconds: 260),
+            ? const Duration(milliseconds: 70)
+            : const Duration(milliseconds: 220),
         curve: _pressed ? Curves.easeInCubic : Curves.easeOutCubic,
         alignment: Alignment.center,
-        child: AnimatedContainer(
-          duration: _pressed ? AppMotion.fast : _animDuration,
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            color: widget.active
-                ? netColor.withValues(alpha: 0.14)
-                : AppColors.glassFillStrong,
-            border: Border.all(
-              color: widget.active
-                  ? netColor.withValues(alpha: 0.65)
-                  : AppColors.glassBorder,
-              width: 1.25,
+        child: AnimatedSlide(
+          offset: _pressed ? const Offset(0, 0.012) : Offset.zero,
+          duration: _pressed
+              ? const Duration(milliseconds: 70)
+              : const Duration(milliseconds: 220),
+          curve: _pressed ? Curves.easeInCubic : Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: _pressed ? AppMotion.fast : _animDuration,
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              gradient: _buttonGradient(accent: netColor),
+              border: Border.all(
+                color: widget.active
+                    ? netColor.withValues(alpha: _pressed ? 0.55 : 0.85)
+                    : (_pressed
+                        ? AppColors.borderLight
+                        : AppColors.ui.withValues(alpha: 0.42)),
+                width: widget.active || !_pressed ? 1.5 : 1.1,
+              ),
+              boxShadow: _buttonShadow(accent: netColor),
             ),
-            boxShadow: _bulgeShadow(accent: netColor),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  AnimatedContainer(
-                    duration: _animDuration,
-                    curve: Curves.easeOutCubic,
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: widget.active
-                          ? netColor.withValues(alpha: 0.22)
-                          : AppColors.surfaceHigh,
-                      border: Border.all(
-                        color: widget.active
-                            ? netColor.withValues(alpha: 0.7)
-                            : AppColors.borderLight,
-                      ),
-                    ),
-                    child: _SequentialFadeSwap(
-                      swapKey: widget.active,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    AnimatedContainer(
                       duration: _animDuration,
-                      child: Icon(
-                        widget.active
-                            ? Icons.check_rounded
-                            : Icons.compare_arrows_rounded,
-                        size: 18,
-                        color:
-                            widget.active ? netColor : AppColors.textPrimary,
+                      curve: Curves.easeOutCubic,
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: widget.active
+                              ? [
+                                  netColor.withValues(alpha: 0.35),
+                                  netColor.withValues(alpha: 0.14),
+                                ]
+                              : [
+                                  AppColors.glassHighlight,
+                                  AppColors.surfaceHigh,
+                                ],
+                        ),
+                        border: Border.all(
+                          color: widget.active
+                              ? netColor.withValues(alpha: 0.8)
+                              : AppColors.ui.withValues(alpha: 0.35),
+                          width: 1.25,
+                        ),
+                        boxShadow: _pressed
+                            ? null
+                            : [
+                                BoxShadow(
+                                  color: (widget.active
+                                          ? netColor
+                                          : AppColors.ui)
+                                      .withValues(alpha: 0.18),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                      ),
+                      child: _SequentialFadeSwap(
+                        swapKey: widget.active,
+                        duration: _animDuration,
+                        child: Icon(
+                          widget.active
+                              ? Icons.check_rounded
+                              : Icons.compare_arrows_rounded,
+                          size: 20,
+                          color:
+                              widget.active ? netColor : AppColors.textPrimary,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Flexible(
-                    child: _FadeSwapText(
-                      text: widget.active
-                          ? 'Net shown on main'
-                          : 'Show net balance',
-                      duration: _animDuration,
-                      alignment: Alignment.center,
-                      style: theme.textTheme.titleMedium!.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                        letterSpacing: 0.1,
-                        height: 1.25,
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: _FadeSwapText(
+                        text: widget.active
+                            ? 'Net shown on main'
+                            : 'Show net balance',
+                        duration: _animDuration,
+                        alignment: Alignment.center,
+                        style: theme.textTheme.titleMedium!.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textPrimary,
+                          letterSpacing: 0.15,
+                          height: 1.25,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              AnimatedSize(
-                duration: _animDuration,
-                curve: Curves.easeOutCubic,
-                alignment: Alignment.topCenter,
-                clipBehavior: Clip.hardEdge,
-                child: _SequentialFadeSwap(
-                  swapKey: widget.active,
-                  duration: _animDuration,
-                  alignment: Alignment.topCenter,
-                  child: widget.active ? activeFooter : inactiveFooter,
+                  ],
                 ),
-              ),
-            ],
+                AnimatedSize(
+                  duration: _animDuration,
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  clipBehavior: Clip.hardEdge,
+                  child: _SequentialFadeSwap(
+                    swapKey: widget.active,
+                    duration: _animDuration,
+                    alignment: Alignment.topCenter,
+                    child: widget.active ? activeFooter : inactiveFooter,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -748,7 +816,7 @@ class _NetFlowStat extends StatelessWidget {
   }
 }
 
-/// In/out proportion bar for cash-flow-only mode (no income budget).
+/// In/out bars scaled to the larger side so cash out is relative to cash in.
 class _CashFlowGauge extends StatelessWidget {
   const _CashFlowGauge({required this.received, required this.spent});
 
@@ -757,8 +825,9 @@ class _CashFlowGauge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = received + spent;
-    final inShare = total > 0 ? received / total : 0.5;
+    final flow = CashFlowMetrics(cashIn: received, cashOut: spent);
+    final inFlex = (flow.cashInBarShare * 100).round().clamp(1, 100);
+    final outFlex = (flow.cashOutBarShare * 100).round().clamp(1, 100);
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.pill),
@@ -766,16 +835,14 @@ class _CashFlowGauge extends StatelessWidget {
         height: 8,
         child: Row(
           children: [
-            if (inShare > 0)
-              Expanded(
-                flex: (inShare * 100).round().clamp(1, 100),
-                child: const ColoredBox(color: AppColors.income),
-              ),
-            if (inShare < 1)
-              Expanded(
-                flex: ((1 - inShare) * 100).round().clamp(1, 100),
-                child: const ColoredBox(color: AppColors.expense),
-              ),
+            Expanded(
+              flex: inFlex,
+              child: const ColoredBox(color: AppColors.income),
+            ),
+            Expanded(
+              flex: outFlex,
+              child: const ColoredBox(color: AppColors.expense),
+            ),
           ],
         ),
       ),
@@ -801,15 +868,18 @@ class BudgetSlider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final pct = total > 0 ? (spent / total).clamp(0.0, 1.0) : 0.0;
+    final rawPct = total > 0 ? spent / total : 0.0;
+    final barPct = rawPct.clamp(0.0, 1.0);
+    final displayPct = (rawPct * 100).clamp(0.0, 999.0);
 
     return Column(
       children: [
         LayoutBuilder(
           builder: (context, constraints) {
             final w = constraints.maxWidth;
-            final fillW = (w * pct).clamp(_trackH, w);
-            final thumbLeft = (w * pct - _thumb / 2).clamp(0.0, w - _thumb);
+            final fillW = (w * barPct).clamp(_trackH, w);
+            final thumbLeft =
+                (w * barPct - _thumb / 2).clamp(0.0, w - _thumb);
 
             return SizedBox(
               height: _thumb,
@@ -876,9 +946,11 @@ class BudgetSlider extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              '${formatPercent(pct * 100)} of income',
+              '${formatPercent(displayPct)} of income',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: AppColors.textSecondary,
+                color: rawPct > 1
+                    ? AppColors.expense
+                    : AppColors.textSecondary,
                 fontWeight: FontWeight.w600,
               ),
             ),

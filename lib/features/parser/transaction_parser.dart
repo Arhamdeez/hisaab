@@ -34,6 +34,7 @@ class ParsedTransaction {
     this.occurredAt,
     this.senderName,
     this.receiverName,
+    this.isFailed = false,
   });
 
   final double amount;
@@ -54,6 +55,9 @@ class ParsedTransaction {
 
   /// Counterparty receiving money (debit alerts). May be null when unknown.
   final String? receiverName;
+
+  /// Bank/wallet alert for a declined or blocked payment — not real spending.
+  final bool isFailed;
 }
 
 class TransactionParser {
@@ -357,6 +361,64 @@ class TransactionParser {
     caseSensitive: false,
   );
 
+  /// Bank/wallet alerts for declined, blocked, or penalized payments — captured
+  /// for history but never counted as spending.
+  static final _failedTransactionPattern = RegExp(
+    r'\b(?:online\s+)?(?:transaction|payment|transfer|purchase|txn)\s+failed\b|'
+    r'\bfailed\s+(?:online\s+)?(?:transaction|payment|transfer|purchase)\b|'
+    r'\b(?:transaction|payment|transfer|purchase)\s+(?:was\s+)?'
+    r'(?:declined|rejected|unsuccessful|not\s+(?:processed|completed))\b|'
+    r'\bunsuccessful\s+(?:transaction|payment|transfer|purchase)\b|'
+    r'\bcould\s+not\s+(?:be\s+)?(?:processed|completed)\b|'
+    r'\bfailed\s+(?:int(?:ernational)?\.?\s+)?transaction(?:s)?\s+fees?\b|'
+    r'\b(?:incurred|charged)\s+failed\s+(?:int(?:ernational)?\.?\s+)?'
+    r'(?:transaction\s+)?fees?\b',
+    caseSensitive: false,
+  );
+
+  static final _failedAtMerchantPattern = RegExp(
+    r'(?:online\s+)?(?:transaction|payment|purchase)\s+at\s+(.+?)\s+failed\b',
+    caseSensitive: false,
+  );
+
+  static final _failedFeeAmountPattern = RegExp(
+    r'failed\s+(?:int(?:ernational)?\.?\s+)?transaction(?:s)?\s+fees?\s+of\s+'
+    r'(?:PKR|Rs\.?)\.?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  static final _incurredFailedFeeAmountPattern = RegExp(
+    r'(?:incurred|charged)\s+failed\s+(?:int(?:ernational)?\.?\s+)?'
+    r'(?:transaction\s+)?fees?\s+of\s+(?:PKR|Rs\.?)\.?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  /// Returns true when [text] is a declined/blocked payment alert, not a real
+  /// debit or credit.
+  static bool isFailedTransactionNotification(String text) =>
+      _failedTransactionPattern.hasMatch(text);
+
+  /// Fingerprint for failed alerts — includes raw text so repeated failures at
+  /// the same merchant on the same day stay distinct.
+  static String buildFailedFingerprint({
+    required DateTime occurredAt,
+    required String merchant,
+    required String rawText,
+    String? referenceId,
+  }) {
+    if (referenceId != null && referenceId.isNotEmpty) {
+      final payload = 'failed|ref:$referenceId';
+      return sha256.convert(utf8.encode(payload)).toString();
+    }
+    final day = '${occurredAt.year}-${occurredAt.month}-${occurredAt.day}';
+    final cleaned = merchant.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final normalizedMerchant =
+        cleaned.length > 24 ? cleaned.substring(0, 24) : cleaned;
+    final textKey = sha256.convert(utf8.encode(rawText.trim())).toString();
+    final payload = 'failed|$day|$normalizedMerchant|$textKey';
+    return sha256.convert(utf8.encode(payload)).toString();
+  }
+
   /// Non-finance alerts that often contain numbers — never treat as cash.
   static final _noiseNotificationPattern = RegExp(
     r'\b(?:otp|one[\s-]?time\s+(?:password|pin|code)|verification\s+code|'
@@ -401,7 +463,27 @@ class TransactionParser {
     r'\b(?:weekly|monthly|daily)\s+(?:freedom|x\s+plus|package|bundle)\b|'
     r'\b(?:simosa|full\s+balance\s+offer|jazz\s*advance|readycash|jazztune|jazz\s*caller)\b|'
     r'\b(?:subscribe\s+now|dial\s*\*|code\s*\*|bit\.ly/|onelink\.to/)\b|'
-    r'\b(?:\d+\s*)?(?:gb|mb)\s*,\s*\d+\s+(?:other\s+)?(?:network\s+)?min',
+    r'\b(?:\d+\s*)?(?:gb|mb)\s*,\s*\d+\s+(?:other\s+)?(?:network\s+)?min|' +
+    // Bank / wallet service maintenance — not payments.
+    r'\b(?:maintenance|scheduled\s+maintenance|system\s+maintenance|planned\s+maintenance)\b|' +
+    r'\b(?:services?\s+will\s+be\s+unavailable|temporarily\s+unavailable)\b|' +
+    r'\b(?:service\s+disruptions?|intermittent\s+service)\b|' +
+    r'\b(?:downtime|service\s+outage|planned\s+outage)\b|' +
+    r'\bunavailable\s+due\s+to\b|' +
+    r'\b(?:apologize|apologise)\s+for\s+(?:any\s+)?inconvenience\b|' +
+    r'\braast\s+(?:system\s+)?maintenance\b|' +
+    r'\bmaintenance\s+(?:window|period|activity)\b|' +
+    r'\b(?:for\s+any\s+queries|please\s+(?:immediately\s+)?call)\b|' +
+    // Bank login / security — not money movement.
+    r'\b(?:login|log[\s-]?in)\s+successful\b|' +
+    r'\bsuccessfully\s+logged\s+in\b|' +
+    r'\blogged\s+in\s+to\b|' +
+    r'\bdo\s+not\s+recogni[sz]e\s+this\s+login\b|' +
+    r'\bunrecogni[sz]ed\s+login\b|' +
+    r'\bnew\s+device\s+(?:login|sign[\s-]?in)\b|' +
+    r'\b(?:security|fraud)\s+alert\b|' +
+    r'\bhelpline\b|' +
+    r'\bblock\s+(?:the\s+)?(?:mobile\s+)?banking\b',
     caseSensitive: false,
   );
 
@@ -509,6 +591,17 @@ class TransactionParser {
     final normalized = normalizeIngestText(text, notificationTitle: notificationTitle);
     if (normalized.isEmpty) return null;
 
+    if (isFailedTransactionNotification(normalized)) {
+      return _parseFailed(
+        text: text,
+        normalized: normalized,
+        source: source,
+        fallbackTime: fallbackTime,
+        packageName: packageName,
+        notificationTitle: notificationTitle,
+      );
+    }
+
     if (!_looksLikeTransaction(
       normalized,
       packageName: packageName,
@@ -595,6 +688,77 @@ class TransactionParser {
     );
   }
 
+  ParsedTransaction? _parseFailed({
+    required String text,
+    required String normalized,
+    required TransactionSource source,
+    DateTime? fallbackTime,
+    String? packageName,
+    String? notificationTitle,
+  }) {
+    if (MonitoredPackages.isExcluded(packageName)) return null;
+    if (_isNoiseNotification(normalized)) return null;
+
+    final hasPackage = packageName != null && packageName.isNotEmpty;
+    final isFinanceApp = MonitoredPackages.matches(packageName);
+    final isEmail = MonitoredPackages.isEmailClient(packageName);
+    if (hasPackage && !isFinanceApp && !isEmail) return null;
+
+    final amount = _extractFailedTransactionAmount(normalized) ?? 0;
+    final merchant = _extractFailedMerchant(normalized, notificationTitle);
+    final accountRef = _extractAccountRef(normalized);
+    final referenceId = extractReferenceId(text);
+    final occurredAt =
+        _extractDate(text) ?? _extractDate(normalized) ?? fallbackTime;
+    final category = CategoryGuesser.guess('$merchant $normalized');
+
+    return ParsedTransaction(
+      amount: amount,
+      type: TransactionType.debit,
+      merchant: merchant,
+      category: category,
+      confidence: 0.92,
+      accountRef: accountRef,
+      referenceId: referenceId,
+      occurredAt: occurredAt,
+      isFailed: true,
+    );
+  }
+
+  static double? _extractFailedTransactionAmount(String text) {
+    for (final pattern in [
+      _incurredFailedFeeAmountPattern,
+      _failedFeeAmountPattern,
+    ]) {
+      final amount = _amountFromPattern(pattern, text);
+      if (amount != null && amount > 0) return amount;
+    }
+    return _amountFromCurrencyLabel(text);
+  }
+
+  String _extractFailedMerchant(String text, String? notificationTitle) {
+    final atMerchant = _failedAtMerchantPattern.firstMatch(text);
+    if (atMerchant != null) {
+      final name = _trimMerchant(atMerchant.group(1)!.trim());
+      if (_isUsableMerchant(name)) return name;
+    }
+
+    if (_failedFeeAmountPattern.hasMatch(text) ||
+        _incurredFailedFeeAmountPattern.hasMatch(text)) {
+      return 'Failed transaction fee';
+    }
+
+    final fromTitle = _extractMerchantFromTitle(notificationTitle);
+    if (_isUsableMerchant(fromTitle)) return fromTitle!;
+
+    if (RegExp(r'\bonline\s+transaction\s+failed\b', caseSensitive: false)
+        .hasMatch(text)) {
+      return 'Online transaction';
+    }
+
+    return 'Failed transaction';
+  }
+
   /// Pulls a transaction/reference number out of an alert. The same payment
   /// carries the same id across the wallet app, email, and bank SMS, so it is
   /// the strongest signal that two alerts describe one payment — and, just as
@@ -632,12 +796,8 @@ class TransactionParser {
     (String?, String?) parties, {
     String? notificationTitle,
   }) {
-    final fromTitle = _extractMerchantFromTitle(notificationTitle);
-    if (_isPersonNameTitle(notificationTitle) && _isUsablePartyName(fromTitle)) {
-      return fromTitle;
-    }
-
-    // Body "from/to" patterns are more reliable than generic notification titles.
+    // Body counterparty always wins over notification headings
+    // ("Raast Incoming Payment", "Meezan Bank Alert", etc.).
     if (type == TransactionType.credit) {
       final sender = parties.$1;
       if (_isUsablePartyName(sender)) return sender;
@@ -653,13 +813,23 @@ class TransactionParser {
       if (_isUsablePartyName(receiver)) return receiver;
     }
 
-    if (_isUsablePartyName(fromTitle)) return fromTitle;
-
     final extracted = _extractMerchant(text, type: type);
     if (_isUsablePartyName(extracted)) return extracted;
 
+    // Title is a last resort — only real person/merchant names, never alert headings.
+    final fromTitle = _extractMerchantFromTitle(notificationTitle);
+    if (_isPersonNameTitle(notificationTitle) && _isUsablePartyName(fromTitle)) {
+      return fromTitle;
+    }
+    if (_isUsablePartyName(fromTitle) &&
+        !_isAlertStyleHeading(fromTitle!) &&
+        !_isPhoneLike(fromTitle) &&
+        !_isSmsShortCode(fromTitle)) {
+      return fromTitle;
+    }
     if (_isUsableMerchant(fromTitle) &&
-        !_isPhoneLike(fromTitle!) &&
+        !_isAlertStyleHeading(fromTitle!) &&
+        !_isPhoneLike(fromTitle) &&
         !_isSmsShortCode(fromTitle)) {
       return fromTitle;
     }
@@ -1019,19 +1189,63 @@ class TransactionParser {
     r'transaction alert|money received|money sent|payment received|'
     r'transfer successful|successful transfer|transfer|backup|'
     r'off it goes|money in|money out|cha[\s-]?ching|payment sent|'
-    r'payment received|transfer complete|transfer sent)$',
+    r'payment received|transfer complete|transfer sent|'
+    r'raast (?:incoming|outgoing) payment)$',
     caseSensitive: false,
   );
+
+  /// Bank/wallet notification headings — never use as merchant/payee names.
+  /// Covers Meezan Bank Alert, Raast Incoming Payment, UBL Transaction Alert, etc.
+  static bool _isAlertStyleHeading(String value) {
+    final lower = value.trim().toLowerCase();
+    if (lower.isEmpty) return false;
+    if (_genericMerchants.hasMatch(lower)) return true;
+    if (_genericAlertTitlePattern.hasMatch(lower)) return true;
+    if (RegExp(
+      r'\b(?:alert|notification|helpline|security)\b',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
+      return true;
+    }
+    if (RegExp(
+      r'\b(?:incoming|outgoing|successful)\s+'
+      r'(?:payment|transfer|transaction|credit|debit)\b',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
+      return true;
+    }
+    if (RegExp(
+      r'\b(?:payment|transfer|transaction)\s+'
+      r'(?:received|sent|successful|complete|failed|alert)\b',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
+      return true;
+    }
+    if (RegExp(
+      r'\b(?:bank|wallet|account)\b.*\b(?:alert|notification)\b|'
+      r'\b(?:alert|notification)\b.*\b(?:bank|wallet|account)\b',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
+      return true;
+    }
+    if (RegExp(
+      r'^(?:raast|ibft|1link|upi|imps|neft)\b',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
+      return true;
+    }
+    return lower.startsWith('off it goes') ||
+        lower.startsWith('money in') ||
+        lower.startsWith('money out') ||
+        (lower.startsWith('cha') && lower.contains('ching'));
+  }
 
   static bool _isGenericNotificationTitle(String value) {
     final v = value.trim();
     if (_genericMerchants.hasMatch(v)) return true;
+    if (_isAlertStyleHeading(v)) return true;
     final lower = v.toLowerCase();
-    return lower.startsWith('off it goes') ||
-        lower.startsWith('money in') ||
-        lower.startsWith('money out') ||
-        (lower.startsWith('cha') && lower.contains('ching')) ||
-        lower.startsWith('payment sent') ||
+    return lower.startsWith('payment sent') ||
         lower.startsWith('payment received') ||
         lower.startsWith('transfer complete') ||
         lower.startsWith('transfer sent') ||
@@ -1060,9 +1274,19 @@ class TransactionParser {
   static bool _isPersonNameTitle(String? title) {
     final t = title?.trim();
     if (t == null || t.length < 3) return false;
+    if (_isAlertStyleHeading(t)) return false;
     if (_isGenericNotificationTitle(t)) return false;
     if (_genericAlertTitlePattern.hasMatch(t)) return false;
     if (_amountOrAlertTitlePattern.hasMatch(t)) return false;
+    // Real person/merchant titles are short name-like strings, not phrases
+    // packed with finance verbs ("Incoming Payment", "Money Received").
+    if (RegExp(
+      r'\b(?:payment|transfer|transaction|alert|incoming|outgoing|'
+      r'received|credited|debited|successful)\b',
+      caseSensitive: false,
+    ).hasMatch(t)) {
+      return false;
+    }
     return _partyNamePattern.hasMatch(t);
   }
 
@@ -1173,8 +1397,27 @@ class TransactionParser {
   }
 
   static bool _isInvalidAmountContext(String text, int start, int end) {
+    final before = text.substring(0, start);
     final tail = text.substring(end).trimLeft();
     if (RegExp(r'^(?:mb|gb|kb|tb|%)\b', caseSensitive: false).hasMatch(tail)) {
+      return true;
+    }
+    // Clock times — "05:00 AM", "5:00 PM".
+    if (RegExp(r'^:\d{2}\b', caseSensitive: false).hasMatch(tail)) {
+      return true;
+    }
+    // Helpline / phone numbers — +92 21 111 — 331 — 331.
+    if (RegExp(
+      r'(?:helpline|please\s+(?:immediately\s+)?call)\b',
+      caseSensitive: false,
+    ).hasMatch(before)) {
+      return true;
+    }
+    if (RegExp(
+      r'(?:\+?\d{1,3}[\s-])?(?:\d{2,4}[\s-]+)?\d{0,4}\s*$',
+      caseSensitive: false,
+    ).hasMatch(before) &&
+        RegExp(r'^[—\-–/]\s*\d', caseSensitive: false).hasMatch(tail)) {
       return true;
     }
     final windowEnd = (end + 24).clamp(0, text.length);
@@ -1183,8 +1426,26 @@ class TransactionParser {
         .hasMatch(window)) {
       return true;
     }
+    final raw = text.substring(start, end).replaceAll(',', '');
+    final value = int.tryParse(raw);
+    if (value != null && value >= 2000 && value <= 2099) {
+      final before = text.substring(0, start);
+      if (_monthNamesPattern.hasMatch(before) ||
+          RegExp(
+            r'\b(?:on|from|,|\d{1,2}(?:st|nd|rd|th)?)\s*$',
+            caseSensitive: false,
+          ).hasMatch(before)) {
+        return true;
+      }
+    }
     return false;
   }
+
+  static final _monthNamesPattern = RegExp(
+    r'\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|'
+    r'jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b',
+    caseSensitive: false,
+  );
 
   static double? _amountPlainFinance(String text) {
     for (final match in _plainAmountPattern.allMatches(text)) {
@@ -1431,6 +1692,7 @@ class TransactionParser {
     // Only split on em-dash / pipe — ISO dates (2026-07-08) use ASCII hyphens.
     for (final segment in text.split(RegExp(r'\s*[—|]\s*'))) {
       final trimmed = segment.trim();
+      if (_isGenericNotificationTitle(trimmed)) continue;
       if (RegExp(
         r'^(?:txn|trx|debit\s+card|transaction\s+id|transaction)\b',
         caseSensitive: false,
@@ -1464,9 +1726,10 @@ class TransactionParser {
   /// the part before the first sentence dot (not decimals like 500.00).
   String? _nameBeforeSentenceDot(String segment) {
     if (segment.isEmpty) return null;
+    if (_isAlertStyleHeading(segment)) return null;
     if (RegExp(
       r'^(?:you |pkr|rs\.?|inr|₹|dear |payment |money |jazzcash|easypaisa|'
-      r'transaction |transfer |sent |received )',
+      r'transaction |transfer |sent |received |raast |login )',
       caseSensitive: false,
     ).hasMatch(segment)) {
       return null;
@@ -1484,10 +1747,18 @@ class TransactionParser {
     return null;
   }
 
-  /// First period that is not part of a decimal amount.
+  /// First period that is not part of a decimal amount or a dotted initial
+  /// (e.g. M.ARHAM).
   static String _truncateAtSentenceDot(String value) {
-    final match = RegExp(r'(?<!\d)\.(?!\d)').firstMatch(value);
-    if (match != null && match.start > 0) {
+    final pattern = RegExp(r'(?<!\d)\.(?!\d)');
+    for (final match in pattern.allMatches(value)) {
+      if (match.start == 0) continue;
+      final before = value[match.start - 1];
+      final after = match.end < value.length ? value[match.end] : '';
+      if (RegExp(r'[A-Za-z]').hasMatch(before) &&
+          RegExp(r'[A-Z]').hasMatch(after)) {
+        continue;
+      }
       return value.substring(0, match.start).trim();
     }
     return value.trim();
@@ -1500,7 +1771,7 @@ class TransactionParser {
     var v = _truncateAtSentenceDot(value);
     final boundary = RegExp(
       r'\s+(?:on|in|via|ref|refno|a/c|ac|upi|info|bal|avl|available|dated|date|'
-      r'txn|trxn|id|using|through|towards|not|will|has|is)\b.*$',
+      r'txn|trxn|id|using|through|towards|not|will|has|is|from)\b.*$',
       caseSensitive: false,
     );
     v = v.replaceAll(boundary, '');

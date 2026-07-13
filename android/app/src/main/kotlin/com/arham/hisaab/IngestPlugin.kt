@@ -1,5 +1,6 @@
-package com.example.spend_tracker
+package com.arham.hisaab
 
+import android.app.Activity
 import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
@@ -16,7 +17,6 @@ import android.provider.Settings
 import android.provider.Telephony
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import android.util.Log
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.BinaryMessenger
@@ -32,8 +32,8 @@ class IngestPlugin(
     flutterEngine: FlutterEngine,
 ) {
     companion object {
-        const val METHOD_CHANNEL = "com.example.spend_tracker/ingest_control"
-        const val EVENT_CHANNEL = "com.example.spend_tracker/ingest"
+        const val METHOD_CHANNEL = "com.arham.hisaab/ingest_control"
+        const val EVENT_CHANNEL = "com.arham.hisaab/ingest"
 
         private const val PREFS = "spend_tracker_ingest"
         private const val KEY_PENDING = "pending_events"
@@ -238,7 +238,27 @@ class IngestPlugin(
                 "\\b(?:weekly|monthly|daily)\\s+(?:freedom|x\\s+plus|package|bundle)\\b|" +
                 "\\b(?:simosa|full\\s+balance\\s+offer|jazz\\s*advance|readycash|jazztune|jazz\\s*caller)\\b|" +
                 "\\b(?:subscribe\\s+now|dial\\s*\\*|code\\s*\\*|bit\\.ly/|onelink\\.to/)\\b|" +
-                "\\b(?:gb|mb)\\s*,\\s*\\d+\\s+(?:other\\s+)?(?:network\\s+)?min",
+                "\\b(?:gb|mb)\\s*,\\s*\\d+\\s+(?:other\\s+)?(?:network\\s+)?min|" +
+                // Bank / wallet service maintenance — not payments.
+                "\\b(?:maintenance|scheduled\\s+maintenance|system\\s+maintenance|planned\\s+maintenance)\\b|" +
+                "\\b(?:services?\\s+will\\s+be\\s+unavailable|temporarily\\s+unavailable)\\b|" +
+                "\\b(?:service\\s+disruptions?|intermittent\\s+service)\\b|" +
+                "\\b(?:downtime|service\\s+outage|planned\\s+outage)\\b|" +
+                "\\bunavailable\\s+due\\s+to\\b|" +
+                "\\b(?:apologize|apologise)\\s+for\\s+(?:any\\s+)?inconvenience\\b|" +
+                "\\braast\\s+(?:system\\s+)?maintenance\\b|" +
+                "\\bmaintenance\\s+(?:window|period|activity)\\b|" +
+                "\\b(?:for\\s+any\\s+queries|please\\s+(?:immediately\\s+)?call)\\b|" +
+                // Bank login / security — not money movement.
+                "\\b(?:login|log[\\s-]?in)\\s+successful\\b|" +
+                "\\bsuccessfully\\s+logged\\s+in\\b|" +
+                "\\blogged\\s+in\\s+to\\b|" +
+                "\\bdo\\s+not\\s+recogni[sz]e\\s+this\\s+login\\b|" +
+                "\\bunrecogni[sz]ed\\s+login\\b|" +
+                "\\bnew\\s+device\\s+(?:login|sign[\\s-]?in)\\b|" +
+                "\\b(?:security|fraud)\\s+alert\\b|" +
+                "\\bhelpline\\b|" +
+                "\\bblock\\s+(?:the\\s+)?(?:mobile\\s+)?banking\\b",
             RegexOption.IGNORE_CASE,
         )
 
@@ -302,7 +322,7 @@ class IngestPlugin(
             synchronized(recentDeliveries) {
                 val prev = recentDeliveries[key]
                 if (prev != null && now - prev < LIVE_DEDUP_MS) {
-                    Log.d(INGEST_TAG, "  deduped identical alert for $key")
+                    PrivacyLog.d(INGEST_TAG, "  deduped identical alert for $key")
                     return false
                 }
                 recentDeliveries[key] = now
@@ -329,11 +349,17 @@ class IngestPlugin(
         )
 
         fun hasFinanceAmount(text: String): Boolean {
-            if (isInvalidAmountContext(text)) return false
             if (amountRegex.containsMatchIn(text)) return true
-            val match = plainAmountRegex.find(text)?.groupValues?.getOrNull(1) ?: return false
-            val value = match.replace(",", "").toDoubleOrNull() ?: return false
-            return value >= 1.0
+            for (match in plainAmountRegex.findAll(text)) {
+                val raw = match.groupValues.getOrNull(1) ?: continue
+                val value = raw.replace(",", "").toDoubleOrNull() ?: continue
+                if (value < 1.0) continue
+                if (isInvalidAmountContext(text, match.range.first, match.range.last + 1)) {
+                    continue
+                }
+                return true
+            }
+            return false
         }
 
         /** PK bank/wallet SMS senders — Raast, Easypaisa, JazzCash, card alerts, etc. */
@@ -449,7 +475,7 @@ class IngestPlugin(
                     val date = it.getLong(3)
                     if (!isSmsRescanCandidate(address, body)) continue
                     queued++
-                    Log.d(INGEST_TAG, "sms rescan from $address: ${body.take(80)}")
+                    PrivacyLog.d(INGEST_TAG, "sms rescan from $address len=${body.length}")
                     CapturedEventStore.enqueue(
                         context,
                         mapOf(
@@ -462,18 +488,63 @@ class IngestPlugin(
                 }
             }
             if (queued > 0) {
-                Log.i(INGEST_TAG, "sms inbox rescan queued=$queued")
+                PrivacyLog.i(INGEST_TAG, "sms inbox rescan queued=$queued")
             }
         }
 
-        private fun isInvalidAmountContext(text: String): Boolean {
-            if (Regex("\\b\\d+\\s*(?:mb|gb|kb|tb)\\s+of\\s+\\d+\\s*(?:mb|gb|kb|tb)\\b", RegexOption.IGNORE_CASE)
-                    .containsMatchIn(text)) {
+        private val monthNamesRegex = Regex(
+            "\\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|" +
+                "jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
+        private fun isInvalidAmountContext(
+            text: String,
+            start: Int = 0,
+            end: Int = text.length,
+        ): Boolean {
+            if (start == 0 && end == text.length) {
+                if (Regex(
+                        "\\b\\d+\\s*(?:mb|gb|kb|tb)\\s+of\\s+\\d+\\s*(?:mb|gb|kb|tb)\\b",
+                        RegexOption.IGNORE_CASE,
+                    ).containsMatchIn(text)) {
+                    return true
+                }
+                if (Regex(
+                        "\\b(?:crore|lakh|lac|million|billion)\\b",
+                        RegexOption.IGNORE_CASE,
+                    ).containsMatchIn(text)) {
+                    return true
+                }
+                return false
+            }
+            val safeEnd = end.coerceAtMost(text.length)
+            val tail = text.substring(safeEnd).trimStart()
+            if (Regex("^(?:mb|gb|kb|tb|%)\\b", RegexOption.IGNORE_CASE).containsMatchIn(tail)) {
                 return true
             }
-            if (Regex("\\b(?:crore|lakh|lac|million|billion)\\b", RegexOption.IGNORE_CASE)
-                    .containsMatchIn(text)) {
+            if (Regex("^:\\d{2}\\b", RegexOption.IGNORE_CASE).containsMatchIn(tail)) {
                 return true
+            }
+            val windowEnd = (safeEnd + 24).coerceAtMost(text.length)
+            val window = text.substring(start.coerceAtMost(text.length), windowEnd)
+            if (Regex(
+                    "\\b(?:crore|lakh|lac|million|billion)\\b",
+                    RegexOption.IGNORE_CASE,
+                ).containsMatchIn(window)) {
+                return true
+            }
+            val raw = text.substring(start.coerceAtMost(text.length), safeEnd).replace(",", "")
+            val value = raw.toIntOrNull()
+            if (value != null && value in 2000..2099) {
+                val before = text.substring(0, start.coerceAtMost(text.length))
+                if (monthNamesRegex.containsMatchIn(before) ||
+                    Regex(
+                        "\\b(?:on|from|,|\\d{1,2}(?:st|nd|rd|th)?)\\s*$",
+                        RegexOption.IGNORE_CASE,
+                    ).containsMatchIn(before)) {
+                    return true
+                }
             }
             return false
         }
@@ -668,7 +739,7 @@ class IngestPlugin(
             // Skip only the live push for a back-to-back identical alert; the
             // queued copy above still guarantees the capture is processed.
             if (suppressLive) {
-                Log.d(INGEST_TAG, "deliver -> queue only (deduped live push)")
+                PrivacyLog.d(INGEST_TAG, "deliver -> queue only (deduped live push)")
                 return
             }
 
@@ -678,16 +749,16 @@ class IngestPlugin(
                 val sink = eventSink
                 if (sink != null) {
                     try {
-                        Log.d(
+                        PrivacyLog.d(
                             INGEST_TAG,
-                            "deliver -> live sink: ${(event["text"] as? String)?.take(80)}",
+                            "deliver -> live sink source=${event["source"]} len=${(event["text"] as? String)?.length ?: 0}",
                         )
                         sink.success(event)
                     } catch (e: Exception) {
-                        Log.w(INGEST_TAG, "live sink failed (queued copy kept)", e)
+                        PrivacyLog.w(INGEST_TAG, "live sink failed (queued copy kept)", e)
                     }
                 } else {
-                    Log.d(INGEST_TAG, "deliver -> queue only (no live sink)")
+                    PrivacyLog.d(INGEST_TAG, "deliver -> queue only (no live sink)")
                 }
             }
         }
@@ -815,7 +886,8 @@ class IngestPlugin(
                 "transaction alert|money received|money sent|payment received|" +
                 "transfer successful|successful transfer|transfer|backup|" +
                 "off it goes|money in|money out|cha[\\s-]?ching|payment sent|" +
-                "payment received|transfer complete|transfer sent)\$",
+                "payment received|transfer complete|transfer sent|" +
+                "raast (?:incoming|outgoing) payment)\$",
             RegexOption.IGNORE_CASE,
         )
 
@@ -823,10 +895,42 @@ class IngestPlugin(
             val t = title.trim()
             if (genericAlertTitleRegex.matches(t)) return true
             val lower = t.lowercase()
+            if (Regex(
+                    "\\b(?:alert|notification|helpline|security)\\b",
+                    RegexOption.IGNORE_CASE,
+                ).containsMatchIn(lower)
+            ) {
+                return true
+            }
+            if (Regex(
+                    "\\b(?:incoming|outgoing|successful)\\s+" +
+                        "(?:payment|transfer|transaction|credit|debit)\\b",
+                    RegexOption.IGNORE_CASE,
+                ).containsMatchIn(lower)
+            ) {
+                return true
+            }
+            if (Regex(
+                    "\\b(?:payment|transfer|transaction)\\s+" +
+                        "(?:received|sent|successful|complete|failed|alert)\\b",
+                    RegexOption.IGNORE_CASE,
+                ).containsMatchIn(lower)
+            ) {
+                return true
+            }
+            if (Regex(
+                    "^(?:raast|ibft|1link|upi|imps|neft)\\b",
+                    RegexOption.IGNORE_CASE,
+                ).containsMatchIn(lower)
+            ) {
+                return true
+            }
             // NayaPay / wallet casual titles with trailing emoji — "Off it goes 💸"
             return lower.startsWith("off it goes") ||
                 lower.startsWith("money in") ||
                 lower.startsWith("money out") ||
+                lower.startsWith("raast incoming payment") ||
+                lower.startsWith("raast outgoing payment") ||
                 lower.startsWith("transfer successful") ||
                 (lower.startsWith("cha") && lower.contains("ching"))
         }
@@ -940,7 +1044,7 @@ class IngestPlugin(
 
             if (text.isBlank()) {
                 if (shouldMonitor(pkg)) {
-                    Log.w(INGEST_TAG, "empty text pkg=$pkg title=${title.take(60)}")
+                    PrivacyLog.w(INGEST_TAG, "empty text pkg=$pkg")
                 }
                 return
             }
@@ -954,14 +1058,14 @@ class IngestPlugin(
             }
 
             if (shouldMonitor(pkg) || isEmailClient(pkg)) {
-                Log.d(INGEST_TAG, "posted pkg=$pkg preview=${text.take(120)}")
+                PrivacyLog.d(INGEST_TAG, "posted pkg=$pkg len=${text.length}")
             }
 
             if (!shouldCapture(pkg, text, title)) {
                 if (shouldMonitor(pkg) || isEmailClient(pkg)) {
-                    Log.w(
+                    PrivacyLog.w(
                         INGEST_TAG,
-                        "skip pkg=$pkg len=${text.length} preview=${text.take(120)}",
+                        "skip pkg=$pkg len=${text.length}",
                     )
                 }
                 return
@@ -972,7 +1076,7 @@ class IngestPlugin(
             // text to the live sink twice in a row; the queued copy remains.
             val suppressLive = !fromActiveScan && !shouldDeliverNow(pkg, text)
 
-            Log.i(INGEST_TAG, "capture pkg=$pkg preview=${text.take(100)}")
+            PrivacyLog.captureLive(INGEST_TAG, "notification", pkg)
 
             deliver(
                 context,
@@ -993,9 +1097,9 @@ class IngestPlugin(
                 NotificationListenerService.requestRebind(
                     ComponentName(context, NotificationCaptureService::class.java),
                 )
-                Log.d(INGEST_TAG, "requested notification listener rebind")
+                PrivacyLog.d(INGEST_TAG, "requested notification listener rebind")
             } catch (e: Exception) {
-                Log.w(INGEST_TAG, "rebind request failed", e)
+                PrivacyLog.w(INGEST_TAG, "rebind request failed", e)
             }
         }
 
@@ -1005,14 +1109,33 @@ class IngestPlugin(
             return pm.isIgnoringBatteryOptimizations(context.packageName)
         }
 
-        fun requestIgnoreBatteryOptimizations(context: Context) {
+        fun openBatteryOptimizationSettings(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-            if (isIgnoringBatteryOptimizations(context)) return
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${context.packageName}")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            tryStartSettingsActivity(
+                context,
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            )
+        }
+
+        /**
+         * Opens notification-listener access with OEM fallbacks.
+         * @see NotificationAccessSettings
+         */
+        fun openNotificationAccessSettings(context: Context): NotificationAccessSettings.OpenResult =
+            NotificationAccessSettings.open(context)
+
+        private fun tryStartSettingsActivity(context: Context, intent: Intent): Boolean {
+            return try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                if (context !is Activity) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                true
+            } catch (e: Exception) {
+                PrivacyLog.w(INGEST_TAG, "startActivity failed for ${intent.action}", e)
+                false
             }
-            context.startActivity(intent)
         }
 
         /**
@@ -1157,12 +1280,10 @@ class IngestPlugin(
                             result.success(isNotificationAccessEnabled(context))
                         }
                         "openNotificationAccessSettings" -> {
-                            context.startActivity(
-                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                },
-                            )
-                            result.success(null)
+                            Handler(Looper.getMainLooper()).post {
+                                val outcome = openNotificationAccessSettings(context)
+                                result.success(outcome.toMap())
+                            }
                         }
                         "drainPending" -> {
                             val legacy = drainLegacyPending(context)
@@ -1201,9 +1322,14 @@ class IngestPlugin(
                         "isIgnoringBatteryOptimizations" -> {
                             result.success(isIgnoringBatteryOptimizations(context))
                         }
-                        "requestIgnoreBatteryOptimizations" -> {
-                            requestIgnoreBatteryOptimizations(context)
+                        "openBatteryOptimizationSettings" -> {
+                            openBatteryOptimizationSettings(context)
                             result.success(null)
+                        }
+                        "getLegacyMigrationStatus" -> {
+                            val outcome = LegacyDataMigrator.lastMigrationResult()
+                                ?: LegacyDataMigrator.migrateIfNeeded(context)
+                            result.success(outcome.toMap())
                         }
                         else -> result.notImplemented()
                     }
@@ -1217,12 +1343,12 @@ class IngestPlugin(
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                    Log.d(INGEST_TAG, "Flutter event sink attached")
+                    PrivacyLog.d(INGEST_TAG, "Flutter event sink attached")
                     eventSink = events
                 }
 
                 override fun onCancel(arguments: Any?) {
-                    Log.d(INGEST_TAG, "Flutter event sink detached")
+                    PrivacyLog.d(INGEST_TAG, "Flutter event sink detached")
                     eventSink = null
                 }
             })
@@ -1254,7 +1380,7 @@ class NotificationCaptureService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         connectedInstance = this
-        Log.d(INGEST_TAG, "NotificationListener CONNECTED")
+        PrivacyLog.d(INGEST_TAG, "NotificationListener CONNECTED")
         // Throttled — cold start / pull-to-refresh use an explicit forced scan.
         scanActiveNotifications(force = false)
     }
@@ -1262,7 +1388,7 @@ class NotificationCaptureService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         connectedInstance = null
         super.onListenerDisconnected()
-        Log.d(INGEST_TAG, "NotificationListener DISCONNECTED — requesting rebind")
+        PrivacyLog.d(INGEST_TAG, "NotificationListener DISCONNECTED — requesting rebind")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             requestRebind(ComponentName(this, NotificationCaptureService::class.java))
         }
@@ -1276,7 +1402,7 @@ class NotificationCaptureService : NotificationListenerService() {
     private fun scanActiveNotifications(force: Boolean = false) {
         val now = System.currentTimeMillis()
         if (!force && now - lastActiveScanMs < ACTIVE_SCAN_MIN_INTERVAL_MS) {
-            Log.d(INGEST_TAG, "skip shade scan — throttled")
+            PrivacyLog.d(INGEST_TAG, "skip shade scan — throttled")
             return
         }
         lastActiveScanMs = now
@@ -1284,7 +1410,7 @@ class NotificationCaptureService : NotificationListenerService() {
             try {
                 val active = activeNotifications
                 if (active.isNullOrEmpty()) return@post
-                Log.d(INGEST_TAG, "scanning ${active.size} active notification(s)")
+                PrivacyLog.d(INGEST_TAG, "scanning ${active.size} active notification(s)")
                 active.forEach { sbn ->
                     IngestPlugin.processNotification(
                         applicationContext,
@@ -1293,7 +1419,7 @@ class NotificationCaptureService : NotificationListenerService() {
                     )
                 }
             } catch (e: Exception) {
-                Log.w(INGEST_TAG, "active notification scan failed", e)
+                PrivacyLog.w(INGEST_TAG, "active notification scan failed", e)
             }
         }
     }

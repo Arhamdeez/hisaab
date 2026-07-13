@@ -25,8 +25,19 @@ class AppDatabase extends _$AppDatabase {
           await _seedParserRules();
         },
         onUpgrade: (m, from, to) async {
+          // Additive-only migrations — never drop user tables or rows.
           if (from < 2) {
             await m.addColumn(transactions, transactions.description);
+          }
+        },
+        beforeOpen: (details) async {
+          if (details.wasCreated) return;
+          final before = details.versionBefore;
+          if (before != null) {
+            assert(
+              details.versionNow >= before,
+              'Database version rollback is not supported',
+            );
           }
         },
       );
@@ -96,6 +107,13 @@ class AppDatabase extends _$AppDatabase {
 
   Future<List<Transaction>> getAllTransactions() =>
       select(transactions).get();
+
+  Future<int> countTransactions() async {
+    final query = selectOnly(transactions)
+      ..addColumns([transactions.id.count()]);
+    final row = await query.getSingle();
+    return row.read(transactions.id.count()) ?? 0;
+  }
 
   Future<List<Transaction>> getTransactionsByStatus(String status) =>
       (select(transactions)..where((t) => t.status.equals(status))).get();

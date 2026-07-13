@@ -1,31 +1,12 @@
-# iOS Phase 2 — Gmail, Manual Entry, and SMS Workaround
+# iOS Phase 2 — Manual Entry and SMS Workaround
 
 Apple does not allow third-party apps to read other apps' notifications or the SMS inbox. On iOS, Spend Tracker supports:
 
-- **Gmail OAuth** — same flow as Android (Settings → Connect Gmail)
 - **Manual transaction entry** — Activity tab → Add button
 - **SMS via Shortcuts** — forward bank SMS text into the app
 
-## Gmail setup (iOS)
-
-1. Create an **iOS OAuth client** in [Google Cloud Console](https://console.cloud.google.com/).
-2. Add the reversed client ID to `ios/Runner/Info.plist`:
-
-```xml
-<key>CFBundleURLTypes</key>
-<array>
-  <dict>
-    <key>CFBundleTypeRole</key>
-    <string>Editor</string>
-    <key>CFBundleURLSchemes</key>
-    <array>
-      <string>com.googleusercontent.apps.YOUR_CLIENT_ID</string>
-    </array>
-  </dict>
-</array>
-```
-
-3. Set `GmailConfig.serverClientId` in `lib/core/config/gmail_config.dart` to your **Web client ID**.
+> Gmail OAuth sync was removed — on Android, bank email alerts are captured
+> from Gmail app notifications via notification access instead.
 
 ## SMS workaround — Apple Shortcuts
 
@@ -68,7 +49,6 @@ Handle this in Flutter with `app_links` or `uni_links` (phase 2 enhancement).
 
 | Feature | Status |
 |---------|--------|
-| Gmail sync | Supported (needs OAuth client IDs) |
 | Manual entry | Supported |
 | Month-end report + CSV export | Supported |
 | Notification capture | Not possible (Apple restriction) |
@@ -76,4 +56,4 @@ Handle this in Flutter with `app_links` or `uni_links` (phase 2 enhancement).
 
 ## Privacy
 
-All parsing and storage remain **on-device**. Gmail uses read-only `gmail.readonly` scope; tokens are stored in the iOS Keychain via `flutter_secure_storage`.
+All parsing and storage remain **on-device**. There is no backend server and nothing is uploaded.

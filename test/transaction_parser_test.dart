@@ -254,6 +254,7 @@ void main() {
     expect(result, isNotNull);
     expect(result!.amount, 100);
     expect(result.type, TransactionType.credit);
+    expect(result.merchant, 'MUHAMMAD ARHAM BABAR');
     expect(result.senderName, 'MUHAMMAD ARHAM BABAR');
   });
 
@@ -779,5 +780,60 @@ void main() {
       notificationTitle: 'easypaisa',
     );
     expect(result, isNull);
+  });
+
+  group('failed transaction alerts', () {
+    const bankPkg = 'com.ubluk.dc';
+
+    test('registers online transaction failed at Google Play without amount', () {
+      final result = parser.parse(
+        'Online transaction failed — Your online transaction at GOOGLE *Play '
+        'g.co/helppay#US failed due to online transactions disabled on your '
+        'Visa — 3865 card.',
+        source: TransactionSource.notification,
+        packageName: bankPkg,
+      );
+      expect(result, isNotNull);
+      expect(result!.isFailed, isTrue);
+      expect(result.amount, 0);
+      expect(result.merchant.toLowerCase(), contains('google'));
+      expect(result.type, TransactionType.debit);
+    });
+
+    test('does not treat merchant reference digits as failed payment amount', () {
+      final result = parser.parse(
+        'Online transaction failed — Your online transaction at Google Play 650 — '
+        '2530000 US failed due to online transactions disabled on your Visa — 3865 card.',
+        source: TransactionSource.notification,
+        packageName: bankPkg,
+      );
+      expect(result, isNotNull);
+      expect(result!.isFailed, isTrue);
+      expect(result.amount, 0);
+    });
+
+    test('registers failed international transaction fee with amount', () {
+      final result = parser.parse(
+        'You have incurred Failed Int. Transactions Fees of Rs. 418.63. '
+        'Your limit has been reset.',
+        source: TransactionSource.notification,
+        packageName: bankPkg,
+      );
+      expect(result, isNotNull);
+      expect(result!.isFailed, isTrue);
+      expect(result.amount, 418.63);
+      expect(result.merchant.toLowerCase(), contains('failed transaction fee'));
+    });
+
+    test('successful debit is not marked failed', () {
+      final result = parser.parse(
+        'PKR 2,500.00 has been debited from A/C ***1234',
+        source: TransactionSource.notification,
+        packageName: bankPkg,
+      );
+      expect(result, isNotNull);
+      expect(result!.isFailed, isFalse);
+      expect(result.amount, 2500);
+    });
   });
 }

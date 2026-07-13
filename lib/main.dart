@@ -1,16 +1,20 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/data/local_data_persistence.dart';
 import 'core/database/app_database.dart';
 import 'core/repositories/transaction_repository.dart';
+import 'core/support/crash_buffer.dart';
 import 'features/backup/backup_service.dart';
 import 'features/dedup/deduplicator.dart';
-import 'features/ingest/gmail_service.dart';
+import 'features/ingest/ingest_bridge.dart';
 import 'features/ingest/ingest_service.dart';
 import 'providers/app_preferences.dart';
 import 'providers/category_catalog.dart';
@@ -22,6 +26,7 @@ import 'core/theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _installCrashHandlers();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -37,21 +42,35 @@ Future<void> main() async {
   final database = AppDatabase();
   final repository = TransactionRepository(database);
   final deduplicator = Deduplicator(repository);
-  final gmailService = GmailService();
   final transactionProvider = TransactionProvider(
     repository: repository,
     deduplicator: deduplicator,
   );
   final ingestService = IngestService(
     repository: repository,
-    database: database,
-    gmailService: gmailService,
     onTransactionsChanged: transactionProvider.reload,
   );
   final backupService = BackupService(repository);
 
   // Load existing rows fast so the UI paints immediately with real data.
   await transactionProvider.load();
+
+  if (Platform.isAndroid) {
+    final migration = await IngestBridge.instance.getLegacyMigrationStatus();
+    if (migration.migrated) {
+      await transactionProvider.load();
+    }
+  }
+
+  final prefs = await SharedPreferences.getInstance();
+  await LocalDataPersistence.recoverReturningUser(
+    repository: repository,
+    prefs: prefs,
+  );
+  await LocalDataPersistence.cleanupLegacyDevDataOnce(
+    repository: repository,
+    prefs: prefs,
+  );
 
   runApp(
     SpendTrackerApp(
@@ -70,12 +89,29 @@ Future<void> main() async {
   unawaited(_warmFontsAndPrefs(repository));
 }
 
+void _installCrashHandlers() {
+  final defaultOnError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    defaultOnError?.call(details);
+    unawaited(
+      CrashBuffer.record(
+        details.exception,
+        details.stack ?? StackTrace.empty,
+      ),
+    );
+  };
+
+  ui.PlatformDispatcher.instance.onError = (error, stack) {
+    unawaited(CrashBuffer.record(error, stack));
+    return true;
+  };
+}
+
 Future<void> _warmFontsAndPrefs(TransactionRepository repository) async {
   GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w400);
   GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600);
   GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700);
   await GoogleFonts.pendingFonts();
-  await repository.deleteLegacySeedData();
   await AppPreferences.load();
   await CategoryCatalog.load();
 }

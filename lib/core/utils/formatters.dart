@@ -16,6 +16,45 @@ double? parseAmountInput(String text) {
   return double.tryParse(cleaned);
 }
 
+/// Error text for manual transaction amount fields; null when valid.
+String? transactionAmountInputError(String text) {
+  final parsed = parseAmountInput(text);
+  if (parsed == null) {
+    final cleaned = text.replaceAll(',', '').trim();
+    if (cleaned.isEmpty) return 'Required';
+    return 'Enter a valid amount';
+  }
+  if (parsed < 0) return 'Amount cannot be negative';
+  if (parsed == 0) return 'Amount must be greater than 0';
+  return null;
+}
+
+/// Returns a positive transaction amount or null when invalid.
+double? parseTransactionAmountInput(String text) {
+  if (transactionAmountInputError(text) != null) return null;
+  return parseAmountInput(text);
+}
+
+/// Blocks negative signs and limits to a positive decimal amount.
+class PositiveAmountInputFormatter extends TextInputFormatter {
+  static final _pattern = RegExp(r'^\d*\.?\d{0,2}$');
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final text = newValue.text.replaceAll(',', '').trim();
+    if (text.isEmpty) {
+      return const TextEditingValue(text: '');
+    }
+    if (_pattern.hasMatch(text)) {
+      return newValue.copyWith(text: text);
+    }
+    return oldValue;
+  }
+}
+
 /// Inserts thousands separators while the user types digits only.
 class CommaThousandsInputFormatter extends TextInputFormatter {
   @override

@@ -147,20 +147,6 @@ class _CategoryChip extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(width: 5),
-              SizedBox(
-                width: 14,
-                height: 14,
-                child: AnimatedOpacity(
-                  opacity: selected ? 1 : 0,
-                  duration: const Duration(milliseconds: 150),
-                  child: const Icon(
-                    Icons.check_rounded,
-                    size: 14,
-                    color: AppColors.ui,
-                  ),
-                ),
-              ),
             ],
           ),
         ),
@@ -207,45 +193,27 @@ class _CategoryTile extends StatelessWidget {
               width: 1.5,
             ),
           ),
-          child: Stack(
-            clipBehavior: Clip.none,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: AppDecorations.iconBadge(color),
-                    child: Icon(category.icon, size: 18, color: color),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    category.label,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: selected
-                          ? AppColors.textPrimary
-                          : AppColors.textSecondary,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
+              Container(
+                width: 36,
+                height: 36,
+                decoration: AppDecorations.iconBadge(color),
+                child: Icon(category.icon, size: 18, color: color),
               ),
-              Positioned(
-                top: 2,
-                right: 2,
-                child: AnimatedOpacity(
-                  opacity: selected ? 1 : 0,
-                  duration: const Duration(milliseconds: 150),
-                  child: const Icon(
-                    Icons.check_circle_rounded,
-                    size: 14,
-                    color: AppColors.ui,
-                  ),
+              const SizedBox(height: 6),
+              Text(
+                category.label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: selected
+                      ? AppColors.textPrimary
+                      : AppColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
                 ),
               ),
             ],

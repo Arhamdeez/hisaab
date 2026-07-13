@@ -17,6 +17,8 @@ class TransactionRepository {
     return rows.map(_mapRow).toList();
   }
 
+  Future<int> countTransactions() => _db.countTransactions();
+
   Future<List<domain.Transaction>> getConfirmed() async {
     final rows =
         await _db.getTransactionsByStatus(domain.TransactionStatus.confirmed.storageKey);

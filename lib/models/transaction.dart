@@ -6,7 +6,7 @@ enum TransactionType { debit, credit }
 
 enum TransactionSource { notification, sms, gmail, manual }
 
-enum TransactionStatus { pendingReview, confirmed, ignored }
+enum TransactionStatus { pendingReview, confirmed, ignored, failed }
 
 enum SpendingCategory {
   food,
@@ -112,6 +112,7 @@ class Transaction {
 
   bool get isDebit => type == TransactionType.debit;
   bool get isPending => status == TransactionStatus.pendingReview;
+  bool get isFailed => status == TransactionStatus.failed;
 
   /// When the payment alert was captured (from the id timestamp). Used for
   /// back-to-back transfer detection; falls back to [occurredAt] for manual rows.

@@ -1,4 +1,4 @@
-package com.example.spend_tracker
+package com.arham.hisaab
 
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.service.notification.NotificationListenerService
-import android.util.Log
 
 /**
  * Restarts capture monitoring after reboot or app update.
@@ -17,7 +16,7 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 if (!IngestPlugin.shouldRunCaptureMonitor(context)) return
-                Log.d("HisaabIngest", "Boot/update — restarting capture pipeline")
+                PrivacyLog.d("HisaabIngest", "Boot/update — restarting capture pipeline")
                 if (IngestPlugin.shouldRunKeepAlive(context)) {
                     IngestKeepAliveService.start(context)
                 }

@@ -74,12 +74,13 @@ class InboxScreen extends StatelessWidget {
                         )
                       else ...[
                         Text(
-                          'Review captured payments',
+                          'Own-account transfers only',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Moves between your own accounts need a quick confirm',
+                          'Accept or reject moves involving your name. '
+                          'Normal payments are logged automatically.',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: AppColors.textMuted,
                               ),
@@ -159,7 +160,8 @@ class _EmptyInbox extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'New transactions from your connected sources will appear here for review.',
+              'Transfers to or from your own name will show up here. '
+              'Everything else is logged automatically.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AppColors.textMuted,
@@ -301,7 +303,7 @@ class _ReviewCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
                   ),
-                  child: const Text('Ignore'),
+                  child: const Text('Reject'),
                 ),
               ),
               const SizedBox(width: 10),
@@ -316,7 +318,7 @@ class _ReviewCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
                   ),
-                  child: const Text('Confirm'),
+                  child: const Text('Accept'),
                 ),
               ),
             ],

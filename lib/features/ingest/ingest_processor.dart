@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/privacy/safe_log.dart';
 import '../../core/repositories/transaction_repository.dart';
 import '../../models/transaction.dart';
 import '../../providers/app_preferences.dart';
@@ -68,9 +69,9 @@ class IngestProcessor {
           notificationTitle: event.notificationTitle,
         );
         if (parsed == null) {
-          debugPrint(
-            'IngestProcessor: could not parse ${event.packageName ?? event.source.storageKey}: '
-            '"${event.text.replaceAll('\n', ' ').trim()}"',
+          SafeLog.ingest(
+            'could not parse ${event.packageName ?? event.source.storageKey}: '
+            '${SafeLog.redact(event.text)}',
           );
           return false;
         }
@@ -85,19 +86,19 @@ class IngestProcessor {
 
         final captured = outcome.transaction;
         if (outcome.result == DedupResult.created && captured != null) {
-          debugPrint(
-            'IngestProcessor: saved ${captured.amount} ${captured.type.name} '
+          SafeLog.ingest(
+            'saved ${captured.amount} ${captured.type.name} '
             '→ ${captured.merchant} (${captured.source.storageKey})',
           );
           final alertAge = DateTime.now().difference(event.timestamp);
-          if (alertAge <= const Duration(hours: 48)) {
+          if (!captured.isFailed && alertAge <= const Duration(hours: 48)) {
             await NotificationService.instance.showTransactionCaptured(captured);
           }
           return true;
         }
         if (outcome.result == DedupResult.merged) {
-          debugPrint(
-            'IngestProcessor: merged duplicate ${parsed.amount} '
+          SafeLog.ingest(
+            'merged duplicate ${parsed.amount} '
             '${parsed.type.name} → ${parsed.merchant}',
           );
         }

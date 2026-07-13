@@ -4,16 +4,9 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../core/database/app_database.dart';
 import '../../core/repositories/transaction_repository.dart';
-import '../../models/transaction.dart';
-import '../../providers/app_preferences.dart';
-import '../dedup/deduplicator.dart';
-import '../dedup/review_policy.dart';
 import '../notifications/notification_service.dart';
-import '../parser/transaction_parser.dart';
 import 'ingest_processor.dart';
-import 'gmail_service.dart';
 import 'ingest_bridge.dart';
 
 typedef TransactionRefreshCallback = Future<void> Function();
@@ -21,21 +14,15 @@ typedef TransactionRefreshCallback = Future<void> Function();
 class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   IngestService({
     required TransactionRepository repository,
-    required AppDatabase database,
-    required GmailService gmailService,
     this.onTransactionsChanged,
   })  : _repository = repository,
-        _processor = IngestProcessor(repository: repository),
-        _gmail = gmailService,
-        _database = database;
+        _processor = IngestProcessor(repository: repository);
 
   /// Called after captures are saved so transaction lists refresh immediately.
   TransactionRefreshCallback? onTransactionsChanged;
 
   final TransactionRepository _repository;
   final IngestProcessor _processor;
-  final GmailService _gmail;
-  final AppDatabase _database;
 
   bool _listening = false;
   bool _notificationAccess = false;
@@ -48,7 +35,6 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   static const _foregroundDrainInterval = Duration(minutes: 15);
 
   bool get isListening => _listening;
-  bool get isGmailConnected => _gmail.isConnected;
   bool get isBatteryUnrestricted => _batteryUnrestricted;
 
   /// Whether the OS has actually granted notification-listener access. This is
@@ -65,7 +51,6 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     await NotificationService.instance.initialize();
     NotificationService.instance.onForegroundDecision = _applyDecision;
     await IngestBridge.instance.initialize();
-    await _gmail.initialize(_database);
 
     _listening = true;
 
@@ -231,8 +216,8 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     return unrestricted;
   }
 
-  Future<void> requestBatteryOptimizationExemption() =>
-      IngestBridge.instance.requestIgnoreBatteryOptimizations();
+  Future<void> openBatteryOptimizationSettings() =>
+      IngestBridge.instance.openBatteryOptimizationSettings();
 
   Future<void> _drainNotificationActionsIfQueued() async {
     if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
@@ -266,66 +251,11 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     return enabled;
   }
 
-  Future<int> syncGmail() async {
-    final messages = await _gmail.fetchTransactionEmails();
-    var count = 0;
-    final processedIds = <String>[];
-    final parser = TransactionParser();
-    final deduplicator = Deduplicator(_repository);
-    for (final msg in messages) {
-      final parsed = parser.parse(
-        msg.body,
-        source: TransactionSource.gmail,
-        fallbackTime: msg.receivedAt,
-      );
-      processedIds.add(msg.id);
-      if (parsed == null) continue;
-
-      final outcome = await deduplicator.processIncoming(
-        parsed: parsed,
-        source: TransactionSource.gmail,
-        rawText: msg.body,
-        messageTime: msg.receivedAt,
-        accountHolderName: await _accountHolderNameForReview(msg.body),
-      );
-      if (outcome.result == DedupResult.created) {
-        count++;
-        final captured = outcome.transaction;
-        if (captured != null) {
-          await NotificationService.instance.showTransactionCaptured(captured);
-        }
-      }
-    }
-    if (processedIds.isNotEmpty) {
-      await _gmail.markProcessed(processedIds);
-    }
-    await _notifyTransactionDataChanged();
-    return count;
-  }
-
-  Future<bool> connectGmail() async {
-    final ok = await _gmail.signIn();
-    if (ok) notifyListeners();
-    return ok;
-  }
-
-  Future<void> disconnectGmail() async {
-    await _gmail.signOut();
-    notifyListeners();
-  }
-
-  Future<void> openNotificationSettings() =>
+  Future<NotificationAccessOpenResult> openNotificationSettings() =>
       IngestBridge.instance.openNotificationAccessSettings();
 
   Future<bool> hasNotificationAccess() =>
       IngestBridge.instance.isNotificationAccessEnabled();
-
-  Future<String> _accountHolderNameForReview(String rawText) async {
-    await AppPreferences.instance.learnAccountHolderName(
-      ReviewPolicy.extractAccountHolderName(rawText),
-    );
-    return AppPreferences.instance.accountHolderName;
-  }
 
   @override
   void dispose() {

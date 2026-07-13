@@ -364,4 +364,35 @@ void main() {
       'ALI IBRAHIM MUHAMMAD',
     );
   });
+
+  test('stores failed online transaction with failed status', () async {
+    const text =
+        'Online transaction failed — Your online transaction at GOOGLE *Play '
+        'g.co/helppay#US failed due to online transactions disabled on your '
+        'Visa — 3865 card.';
+    final when = DateTime(2026, 7, 10, 3, 13);
+
+    final parsed = parser.parse(
+      text,
+      source: TransactionSource.notification,
+      fallbackTime: when,
+      packageName: 'com.ubluk.dc',
+    );
+    expect(parsed, isNotNull);
+    expect(parsed!.isFailed, isTrue);
+
+    final outcome = await deduplicator.processIncoming(
+      parsed: parsed,
+      source: TransactionSource.notification,
+      rawText: text,
+      messageTime: when,
+    );
+
+    expect(outcome.result, DedupResult.created);
+    expect(outcome.transaction?.status, TransactionStatus.failed);
+    expect(outcome.transaction?.amount, 0);
+
+    final confirmed = await repository.getAll();
+    expect(confirmed.single.status, TransactionStatus.failed);
+  });
 }

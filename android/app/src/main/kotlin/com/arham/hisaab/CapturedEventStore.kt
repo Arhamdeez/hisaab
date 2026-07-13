@@ -1,9 +1,8 @@
-package com.example.spend_tracker
+package com.arham.hisaab
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
-import android.util.Log
 
 /**
  * Durable queue for payment alerts captured while Flutter is not running.
@@ -93,7 +92,11 @@ object CapturedEventStore {
                 )
                 trimOldRows(db)
                 db.setTransactionSuccessful()
-                Log.d(TAG, "queued capture (${text.take(48)}…)")
+                PrivacyLog.captureQueued(
+                    TAG,
+                    event["source"] as? String ?: "notification",
+                    text.length,
+                )
                 if (!IngestPlugin.isLiveIngestAttached()) {
                     BackgroundIngestRunner.schedule(context)
                 }
@@ -102,7 +105,7 @@ object CapturedEventStore {
                 db.close()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "enqueue failed", e)
+            PrivacyLog.e(TAG, "enqueue failed", e)
         }
     }
 
@@ -133,14 +136,14 @@ object CapturedEventStore {
                 cursor.close()
                 db.execSQL("DELETE FROM captured_events")
                 db.setTransactionSuccessful()
-                Log.d(TAG, "drained ${out.size} queued capture(s)")
+                PrivacyLog.d(TAG, "drained ${out.size} queued capture(s)")
                 out
             } finally {
                 db.endTransaction()
                 db.close()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "drain failed", e)
+            PrivacyLog.e(TAG, "drain failed", e)
             emptyList()
         }
     }
