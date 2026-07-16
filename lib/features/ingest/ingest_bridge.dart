@@ -105,8 +105,10 @@ class IngestBridge {
         final map = Map<String, dynamic>.from(event);
         final sourceKey = map['source'] as String? ?? 'notification';
         final source = TransactionSourceX.fromKey(sourceKey);
-        final timestampMs = map['timestamp'] as int? ??
-            DateTime.now().millisecondsSinceEpoch;
+        final rawTs = map['timestamp'] as int?;
+        final timestampMs = (rawTs == null || rawTs <= 0)
+            ? DateTime.now().millisecondsSinceEpoch
+            : rawTs;
 
         _controller.add(
           IngestEvent(
@@ -137,8 +139,10 @@ class IngestBridge {
       return raw.whereType<Map>().map((item) {
         final map = Map<String, dynamic>.from(item);
         final sourceKey = map['source'] as String? ?? 'notification';
-        final timestampMs = (map['timestamp'] as num?)?.toInt() ??
-            DateTime.now().millisecondsSinceEpoch;
+        final rawTs = (map['timestamp'] as num?)?.toInt();
+        final timestampMs = (rawTs == null || rawTs <= 0)
+            ? DateTime.now().millisecondsSinceEpoch
+            : rawTs;
         final package = map['package'] as String?;
         return IngestEvent(
           text: map['text'] as String? ?? '',

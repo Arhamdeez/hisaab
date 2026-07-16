@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/brand.dart';
+import '../core/motion.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart' show AppRadius;
@@ -42,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final month = provider.selectedMonth;
         final summary = provider.summaryForMonth(month);
         final pendingTotal = provider.pendingCount;
-        final income = prefs.resolveIncome(summary);
+        final income = prefs.resolveIncome(summary, month);
         final recent = provider.recentForMonth(month);
 
         return SafeArea(
@@ -246,18 +247,26 @@ class _MonthSelector extends StatelessWidget {
                   onTap: () => _shiftMonth(provider, -1),
                 ),
                 Expanded(
-                  child: Text(
-                    formatMonthYear(month),
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.2,
-                      shadows: [
-                        Shadow(
-                          color: AppColors.ui.withValues(alpha: 0.15),
-                          blurRadius: 12,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _pickMonth(context, provider),
+                    child: AppMotion.softSwap(
+                      key: ValueKey('${month.year}-${month.month}'),
+                      duration: AppMotion.fast,
+                      child: Text(
+                        formatMonthYear(month),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
+                          shadows: [
+                            Shadow(
+                              color: AppColors.ui.withValues(alpha: 0.15),
+                              blurRadius: 12,
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -279,6 +288,211 @@ class _MonthSelector extends StatelessWidget {
     if (next.isAfter(DateTime.now())) return;
     HapticFeedback.selectionClick();
     provider.setSelectedMonth(next);
+  }
+
+  Future<void> _pickMonth(
+    BuildContext context,
+    TransactionProvider provider,
+  ) async {
+    HapticFeedback.selectionClick();
+    final picked = await showModalBottomSheet<DateTime>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      isScrollControlled: true,
+      builder: (_) => _MonthPickerSheet(selected: provider.selectedMonth),
+    );
+    if (picked != null) {
+      HapticFeedback.selectionClick();
+      provider.setSelectedMonth(picked);
+    }
+  }
+}
+
+/// Bottom sheet to jump to any month up to the current one.
+class _MonthPickerSheet extends StatefulWidget {
+  const _MonthPickerSheet({required this.selected});
+
+  final DateTime selected;
+
+  @override
+  State<_MonthPickerSheet> createState() => _MonthPickerSheetState();
+}
+
+class _MonthPickerSheetState extends State<_MonthPickerSheet> {
+  static const _monthLabels = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  late int _year;
+
+  @override
+  void initState() {
+    super.initState();
+    _year = widget.selected.year;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final now = DateTime.now();
+    final canGoNextYear = _year < now.year;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.backgroundElevated,
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.shadow.withValues(alpha: 0.5),
+                blurRadius: 30,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  _YearArrow(
+                    icon: Icons.chevron_left_rounded,
+                    onTap: () => setState(() => _year -= 1),
+                  ),
+                  Expanded(
+                    child: Text(
+                      '$_year',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  _YearArrow(
+                    icon: Icons.chevron_right_rounded,
+                    onTap: canGoNextYear
+                        ? () => setState(() => _year += 1)
+                        : null,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              GridView.count(
+                crossAxisCount: 3,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 2.1,
+                children: List.generate(12, (index) {
+                  final monthDate = DateTime(_year, index + 1);
+                  final isFuture = monthDate.isAfter(DateTime(now.year, now.month));
+                  final isSelected = _year == widget.selected.year &&
+                      index + 1 == widget.selected.month;
+                  return _MonthChip(
+                    label: _monthLabels[index],
+                    selected: isSelected,
+                    enabled: !isFuture,
+                    onTap: () => Navigator.of(context).pop(monthDate),
+                  );
+                }),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _YearArrow extends StatelessWidget {
+  const _YearArrow({required this.icon, this.onTap});
+
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: AppDecorations.iconButton(),
+        child: Icon(
+          icon,
+          size: 24,
+          color: disabled ? AppColors.textMuted : AppColors.textPrimary,
+        ),
+      ),
+    );
+  }
+}
+
+class _MonthChip extends StatelessWidget {
+  const _MonthChip({
+    required this.label,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          color: selected
+              ? AppColors.ui.withValues(alpha: 0.9)
+              : AppColors.glassFillStrong,
+          border: Border.all(
+            color: selected
+                ? AppColors.ui
+                : AppColors.border.withValues(alpha: 0.6),
+          ),
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: !enabled
+                ? AppColors.textMuted.withValues(alpha: 0.5)
+                : selected
+                    ? AppColors.textOnPrimary
+                    : AppColors.textPrimary,
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -17,6 +16,10 @@ const refreshScrollPhysics = AlwaysScrollableScrollPhysics(
   parent: BouncingScrollPhysics(),
 );
 
+/// True while the full-screen refresh curtain is showing. Lets chrome outside
+/// the scroll view (e.g. the bottom nav bar) hide during a refresh.
+final ValueNotifier<bool> appRefreshActive = ValueNotifier<bool>(false);
+
 /// Rescans captures and refreshes local transaction data.
 Future<void> refreshAppData(BuildContext context) async {
   final provider = context.read<TransactionProvider>();
@@ -27,7 +30,7 @@ Future<void> refreshAppData(BuildContext context) async {
   await provider.reload();
 
   // Keep the logo on screen long enough to read as a deliberate refresh.
-  const minVisible = Duration(milliseconds: 700);
+  const minVisible = Duration(milliseconds: 260);
   final elapsed = DateTime.now().difference(started);
   if (elapsed < minVisible) {
     await Future.delayed(minVisible - elapsed);
@@ -77,22 +80,25 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
 
   bool _armed = false;
   bool _inFlight = false;
+  OverlayEntry? _curtainEntry;
 
   @override
   void initState() {
     super.initState();
     _cover = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 420),
+      duration: const Duration(milliseconds: 340),
+      reverseDuration: const Duration(milliseconds: 200),
     );
     _logoOpacity = CurvedAnimation(
       parent: _cover,
-      curve: const Interval(0.06, 0.58, curve: Curves.easeOut),
+      curve: const Interval(0.04, 0.4, curve: Curves.easeOut),
     );
-    _logoScale = Tween<double>(begin: 0.52, end: 1.0).animate(
+    // Springy entrance — logo pops in and bounces before settling.
+    _logoScale = Tween<double>(begin: 0.35, end: 1.0).animate(
       CurvedAnimation(
         parent: _cover,
-        curve: const Interval(0.0, 0.65, curve: Curves.easeOutBack),
+        curve: const Interval(0.0, 1.0, curve: Curves.elasticOut),
       ),
     );
   }
@@ -111,11 +117,32 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
 
   @override
   void dispose() {
+    _hideCurtain();
     _pull.dispose();
     _refreshing.dispose();
     _cover.dispose();
     _settle?.dispose();
     super.dispose();
+  }
+
+  /// Inserts the black curtain into the app's [Overlay] so it paints above
+  /// everything — including the bottom nav bar — the instant refresh starts,
+  /// instead of waiting for that chrome's own fade-out to finish underneath.
+  void _showCurtain() {
+    if (_curtainEntry != null) return;
+    _curtainEntry = OverlayEntry(
+      builder: (_) => _RefreshCurtain(
+        cover: _cover,
+        logoOpacity: _logoOpacity,
+        logoScale: _logoScale,
+      ),
+    );
+    Overlay.of(context, rootOverlay: true).insert(_curtainEntry!);
+  }
+
+  void _hideCurtain() {
+    _curtainEntry?.remove();
+    _curtainEntry = null;
   }
 
   void _onSettleTick() {
@@ -141,21 +168,18 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     if (n.metrics.axis != Axis.vertical) return false;
     if (_inFlight) return false;
 
-    final overscroll = n.metrics.pixels < 0 ? -n.metrics.pixels : 0.0;
-    _pull.value = overscroll;
-
-    final armedNow = overscroll >= _trigger;
-    if (armedNow && !_armed) {
-      _armed = true;
-      HapticFeedback.lightImpact();
-    } else if (!armedNow && _armed) {
+    // A fresh drag disarms; arming then persists through the release bounce.
+    if (n is ScrollStartNotification) {
       _armed = false;
     }
 
-    final shouldStart = _armed &&
-        (n is UserScrollNotification && n.direction == ScrollDirection.idle ||
-            n is ScrollEndNotification);
-    if (shouldStart) {
+    final overscroll = n.metrics.pixels < 0 ? -n.metrics.pixels : 0.0;
+    _pull.value = overscroll;
+
+    // Fire the instant the pull passes the trigger — no waiting for the finger
+    // to lift or the bounce-back to settle, so the curtain appears immediately.
+    if (overscroll >= _trigger && !_armed) {
+      _armed = true;
       _startRefresh();
     }
 
@@ -167,15 +191,13 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     _inFlight = true;
     _armed = false;
     _refreshing.value = true;
+    appRefreshActive.value = true;
+    _showCurtain();
 
     HapticFeedback.mediumImpact();
-    await _animatePullTo(0, ms: 200);
-
-    if (!mounted) {
-      _inFlight = false;
-      return;
-    }
-
+    // Raise the curtain immediately; slide the pull indicator away underneath
+    // it so there's no dead time between the haptic and the logo appearing.
+    _animatePullTo(0, ms: 140);
     await _cover.forward().orCancel.catchError((_) {});
 
     try {
@@ -183,12 +205,15 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     } catch (_) {}
 
     if (!mounted) {
+      _hideCurtain();
       _inFlight = false;
       return;
     }
 
     await _cover.reverse().orCancel.catchError((_) {});
+    _hideCurtain();
     _refreshing.value = false;
+    appRefreshActive.value = false;
     _inFlight = false;
   }
 
@@ -203,8 +228,10 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     _settle = null;
     _cover.stop();
     _cover.value = 0;
+    _hideCurtain();
     _pull.value = 0;
     _refreshing.value = false;
+    appRefreshActive.value = false;
     _armed = false;
     _inFlight = false;
   }
@@ -226,41 +253,6 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
         fit: StackFit.expand,
         children: [
           widget.child,
-          if (_cover.isAnimating || _cover.value > 0)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: AnimatedBuilder(
-                  animation: _cover,
-                  builder: (context, _) {
-                    final t = _cover.value;
-                    if (t <= 0) return const SizedBox.shrink();
-
-                    // Snap to solid black quickly so content never bleeds through.
-                    final shell = Curves.easeOut
-                        .transform((t / 0.28).clamp(0.0, 1.0));
-
-                    return Opacity(
-                      opacity: shell.clamp(0.0, 1.0),
-                      child: ColoredBox(
-                        color: AppColors.background,
-                        child: Center(
-                          child: Opacity(
-                            opacity: _logoOpacity.value.clamp(0.0, 1.0),
-                            child: Transform.scale(
-                              scale: _logoScale.value,
-                              child: AppLogoMark(
-                                size: SplashTiming.logoSize,
-                                emphasized: true,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
           Positioned(
             top: 0,
             left: 0,
@@ -272,6 +264,65 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
               trigger: _trigger,
               topOffset: widget.orbTopOffset,
               minPull: widget.orbMinPull,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Full-screen black curtain + bouncing logo, painted via [Overlay] so it
+/// covers the bottom nav bar and everything else the instant refresh starts.
+class _RefreshCurtain extends StatelessWidget {
+  const _RefreshCurtain({
+    required this.cover,
+    required this.logoOpacity,
+    required this.logoScale,
+  });
+
+  final Animation<double> cover;
+  final Animation<double> logoOpacity;
+  final Animation<double> logoScale;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Blocks all interaction with anything behind the curtain.
+          const ModalBarrier(dismissible: false),
+          IgnorePointer(
+            child: AnimatedBuilder(
+              animation: cover,
+              builder: (context, _) {
+                final t = cover.value;
+                if (t <= 0) return const SizedBox.shrink();
+
+                // Snap to solid black quickly so content never bleeds through.
+                final shell =
+                    Curves.easeOut.transform((t / 0.2).clamp(0.0, 1.0));
+
+                return Opacity(
+                  opacity: shell.clamp(0.0, 1.0),
+                  child: ColoredBox(
+                    color: AppColors.background,
+                    child: Center(
+                      child: Opacity(
+                        opacity: logoOpacity.value.clamp(0.0, 1.0),
+                        child: Transform.scale(
+                          scale: logoScale.value,
+                          child: AppLogoMark(
+                            size: SplashTiming.logoSize,
+                            emphasized: true,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ],

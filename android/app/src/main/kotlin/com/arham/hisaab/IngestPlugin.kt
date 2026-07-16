@@ -217,11 +217,24 @@ class IngestPlugin(
                 "\\b(?:missed\\s+call|incoming\\s+call|voice\\s+mail)\\b|" +
                 "\\b(?:weather|forecast|rain\\s+alert)\\b|" +
                 "\\b(?:match\\s+score|full\\s+time)\\b|" +
-                "\\b(?:get\\s+a\\s+chance|chance\\s+to\\s+win|win\\s+(?:\\d+|a\\s+|1\\s)|" +
+                "\\b(?:get\\s+a\\s+chance|chance\\s+to\\s+(?:win|earn)|for\\s+a\\s+chance|" +
+                "win\\s+(?:\\d+|a\\s+|1\\s)|" +
                 "(?:\\d+\\s+)?crore|(?:\\d+\\s+)?lakh|(?:\\d+\\s+)?lac)\\b|" +
+                // Bank/card spend-and-win promos (English + Roman Urdu).
+                "\\bwin\\s+big\\b|" +
+                "\\bt\\s*&\\s*cs?\\s+apply\\b|\\bterms\\s+(?:and|&)\\s+conditions\\s+apply\\b|" +
+                "\\bjeet(?:ne|ein|o)\\b|\\bmauqa\\s+hasil\\b|\\bka\\s+mauqa\\b|" +
+                "\\b(?:spend|shopping|istemal|use)\\s+karein\\b|" +
+                "\\bspend\\s+globally\\b|" +
+                "\\boffer\\s+valid\\b|\\bvalid\\s+(?:till|until)\\b|" +
                 "\\bmaintain\\s+(?:rs\\.?|pkr)\\b|" +
                 "\\b(?:refer(?:ral)?|invite\\s+(?:friends?|and\\s+earn))\\b|" +
                 "\\b\\d+\\s*(?:mb|gb|kb|tb)\\s+of\\s+\\d+\\s*(?:mb|gb|kb|tb)\\b|" +
+                // Crypto / token marketing pushes that mention \$ amounts.
+                "\\bbuy\\s+any\\s+amount\\b|" +
+                "\\bfor\\s+a\\s+chance\\s+to\\s+earn\\b|" +
+                "\\bearn\\s+\\$\\s*[\\d,]+|" +
+                "\\bturn\\s+your\\b.{0,40}\\binto\\s+more\\b|" +
                 // Platform payout notices — not local wallet/bank alerts.
                 "\\bupwork\\b|" +
                 "withdrawal\\s+of\\s+your\\s+upwork\\s+balance|" +
@@ -262,6 +275,50 @@ class IngestPlugin(
             RegexOption.IGNORE_CASE,
         )
 
+        /** Marketing / promotional wording (English + Roman Urdu). */
+        private val promoSignalRegex = Regex(
+            "\\bwin\\b|\\bprizes?\\b|\\blucky\\s+draw\\b|\\bbumper\\s+(?:prize|offer|draw)\\b|" +
+                "\\binaam\\b|\\bjeet(?:ne|ein|ain|o)?\\b|\\bmauqa\\b|\\bmuft\\b|" +
+                "\\bdiscounts?\\b|\\bvouchers?\\b|\\bpromo\\b|\\bcoupons?\\b|" +
+                "\\b(?:mega|flash|grand|big)\\s+sale\\b|\\bsale\\s+is\\s+live\\b|" +
+                "\\b(?:exclusive|special|exciting|amazing)\\s+offer\\b|" +
+                "\\boffer\\s+(?:valid|ends?|expires?)\\b|\\bvalid\\s+(?:till|until|upto)\\b|" +
+                "\\bavail\\s+(?:now|this|the|exciting|amazing|karein)\\b|" +
+                "\\bapply\\s+now\\b|\\bregister\\s+(?:now|today)\\b|\\bsign\\s+up\\b|" +
+                "\\bdownload\\s+(?:now|the\\s+app)\\b|" +
+                "\\bhurry\\b|\\blimited\\s+time\\b|\\bdon.?t\\s+miss\\b|\\blast\\s+chance\\b|" +
+                "\\bstand\\s+a\\s+chance\\b|\\bfor\\s+a\\s+chance\\b|" +
+                "\\bchance\\s+to\\s+(?:win|earn)\\b|" +
+                "\\bget\\s+(?:up\\s*to|a\\s+free|your\\s+free)\\b|" +
+                "\\bearn\\s+(?:up\\s*to|points|rewards|\\$)\\b|" +
+                "\\bbuy\\s+any\\s+amount\\b|" +
+                "\\bupgrade\\s+(?:your|to|now)\\b|\\bshop\\s+(?:now|and\\s+win|&\\s+win)\\b|" +
+                "\\bfree\\s+(?:delivery|gift|voucher|coupon|tickets?|entry)\\b|" +
+                "\\b(?:spend|shopping|istemal|use|recharge|load)\\s+kar(?:ein|o|iye)\\b|" +
+                "\\bkarein\\s+aur\\b|\\bhasil\\s+kar(?:ein|o|iye)\\b|\\bkijiye\\b|" +
+                "\\buthayein\\b|\\bbanayein\\b|\\bpayein\\b|" +
+                "\\bt\\s*&\\s*cs?\\b|\\bterms\\s+(?:and|&)\\s+conditions\\b|" +
+                "\\bfx\\s+fee\\b|\\bbachat\\b|\\bfaida\\b|\\bmoassar\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Completed money-movement evidence — overrides promo wording. */
+        private val completedTxnEvidenceRegex = Regex(
+            "has\\s+been\\s+(?:debited|credited|deducted|withdrawn|transferred|sent|paid|received|reversed)|" +
+                "(?:debited|credited|deducted|withdrawn)\\s+(?:by|with|from|for)\\b|" +
+                "\\byou\\s+(?:have\\s+)?(?:sent|paid|received|transferred)\\b|" +
+                "\\bsuccessfully\\s+(?:sent|received|transferred|paid|credited|debited)|" +
+                "\\b(?:transaction|transfer|payment|txn)\\s+(?:successful|completed?)\\b|" +
+                "\\b(?:trx|txn|trxn|transaction)\\s*(?:id|no|#)|" +
+                "\\bref(?:erence)?\\s*(?:id|no|#|:)|" +
+                "\\b(?:available|remaining|current|new)\\s+balance\\b|\\bbal(?:ance)?\\s*[:=]|" +
+                "\\breceived\\s+from\\b|\\b(?:paid|sent|transferred)\\s+to\\b|" +
+                "\\bpurchase\\s+(?:of|at)\\b|\\b(?:pos|atm)\\s+(?:purchase|withdrawal|transaction)\\b|" +
+                "\\bvia\\s+(?:raast|ibft|pos|atm|1link)\\b|" +
+                "\\b(?:is\\s+)?charged\\b.*?\\bfor\\s+(?:pkr|rs\\.?)",
+            RegexOption.IGNORE_CASE,
+        )
+
         private val metadataSegmentRegex = Regex(
             "(?:android\\.(?:app|x)\\.|androidx\\.|Notification\\\$|NotificationCompat|" +
                 "FCM-Notification|BigTextStyle|MessagingStyle|InboxStyle|" +
@@ -272,6 +329,7 @@ class IngestPlugin(
         /** Strong money-movement wording — required for unknown apps (with currency). */
         private val strongFinanceRegex = Regex(
             "debited|credited|withdrawn|deducted|spent|transferred|purchase|" +
+                "\\bcharged\\b|\\bis\\s+charged\\b|" +
                 "(?:debited|deducted|withdrawn|credited)\\s+by\\s+(?:pkr|rs\\.?)|" +
                 "fund\\s+transfer|funds?\\s+transfer|transfer\\s+to|transfer\\s+successful|" +
                 "mobile\\s+wallet|wallet\\s+a/c|" +
@@ -379,6 +437,7 @@ class IngestPlugin(
 
         private val walletSmsTxnKeywords = listOf(
             "paid", "debited", "credited", "transferred", "withdrawn",
+            "charged", "is charged",
             "txn id", "trx id", "tid:", "tid ", "debit card",
             "received from", "sent to", "successfully sent", "you just sent",
             "amount of rs", "amount of pkr", "has been sent", "has been debited",
@@ -574,6 +633,12 @@ class IngestPlugin(
         /** EasyPaisa card SMS: "You have paid Rs. 330.00 at MERCHANT" */
         private val youPaidAtRegex = Regex(
             "you\\s+(?:have\\s+)?paid\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+at\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** UBL debit-card SMS: "… is charged … for PKR 5,000.00 at MERCHANT" */
+        private val cardChargedForRegex = Regex(
+            "(?:is\\s+)?charged\\b.*?\\bfor\\s+(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?",
             RegexOption.IGNORE_CASE,
         )
 
@@ -838,7 +903,13 @@ class IngestPlugin(
         fun hasCurrencyLabel(text: String): Boolean = amountRegex.containsMatchIn(text)
 
         fun isNoiseNotification(text: String): Boolean =
-            noiseNotificationRegex.containsMatchIn(text)
+            noiseNotificationRegex.containsMatchIn(text) || isPromotionalContent(text)
+
+        /** Promo wording with no completed-transaction evidence — never cash. */
+        private fun isPromotionalContent(text: String): Boolean =
+            promoSignalRegex.containsMatchIn(text) &&
+                !isHighConfidenceTxn(text) &&
+                !completedTxnEvidenceRegex.containsMatchIn(text)
 
         fun isHighConfidenceTxn(text: String): Boolean {
             if (youSentRsRegex.containsMatchIn(text)) return true
@@ -849,6 +920,7 @@ class IngestPlugin(
             if (rsReceivedFromRegex.containsMatchIn(text)) return true
             if (walletCardPaymentRegex.containsMatchIn(text)) return true
             if (youPaidAtRegex.containsMatchIn(text)) return true
+            if (cardChargedForRegex.containsMatchIn(text)) return true
             if (amountOfRsRegex.containsMatchIn(text)) return true
             if (moneyTransferOfRsRegex.containsMatchIn(text)) return true
             if (successfullyTransferredRegex.containsMatchIn(text)) return true
@@ -941,10 +1013,10 @@ class IngestPlugin(
             if (isGenericAlertTitle(t)) return false
             if (amountRegex.containsMatchIn(t)) return false
             if (!hasFinanceAmount(text)) return false
+            // Require real money-movement wording — bare "$10" in marketing is not enough.
             return walletCardPaymentRegex.containsMatchIn(text) ||
-                walletTxnRegex.containsMatchIn(text) ||
-                strongFinanceRegex.containsMatchIn(text) ||
-                hasCurrencyLabel(text)
+                isHighConfidenceTxn(text) ||
+                strongFinanceRegex.containsMatchIn(text)
         }
 
         fun shouldCapture(packageName: String, text: String, title: String = ""): Boolean {

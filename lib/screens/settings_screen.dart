@@ -18,6 +18,7 @@ import '../features/ingest/notification_access.dart';
 import '../features/ingest/sms_permission.dart';
 import '../providers/app_preferences.dart';
 import '../providers/category_catalog.dart';
+import '../providers/transaction_provider.dart';
 import 'about_screen.dart';
 import 'categories_screen.dart';
 import 'month_end_screen.dart';
@@ -25,11 +26,11 @@ import 'month_end_screen.dart';
 Future<void> _editMonthlyIncome(
   BuildContext context,
   AppPreferences prefs,
+  DateTime month,
 ) async {
+  final current = prefs.incomeForMonth(month);
   final controller = TextEditingController(
-    text: prefs.hasMonthlyIncome
-        ? formatAmountInput(prefs.monthlyIncome)
-        : '',
+    text: current > 0 ? formatAmountInput(current) : '',
   );
 
   final value = await showDialog<double>(
@@ -40,13 +41,14 @@ Future<void> _editMonthlyIncome(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.lg),
         ),
-        title: const Text('Monthly income'),
+        title: Text('Income for ${formatMonthYear(month)}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Used as your income baseline for budget and savings.',
+              'Applies to ${formatMonthYear(month)} and later months until you '
+              'change it again. Earlier months keep their own amounts.',
               style: Theme.of(
                 dialogContext,
               ).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
@@ -65,7 +67,7 @@ Future<void> _editMonthlyIncome(
           ],
         ),
         actions: [
-          if (prefs.hasMonthlyIncome)
+          if (prefs.hasIncomeOverrideForMonth(month))
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, 0.0),
               style: TextButton.styleFrom(
@@ -80,7 +82,7 @@ Future<void> _editMonthlyIncome(
           FilledButton(
             onPressed: () {
               final parsed = parseAmountInput(controller.text);
-              Navigator.pop(dialogContext, parsed ?? prefs.monthlyIncome);
+              Navigator.pop(dialogContext, parsed ?? current);
             },
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.ui,
@@ -94,7 +96,7 @@ Future<void> _editMonthlyIncome(
   );
 
   if (value != null) {
-    await prefs.setMonthlyIncome(value);
+    await prefs.setMonthlyIncomeForMonth(value, month);
   }
 }
 
@@ -529,17 +531,17 @@ class _CashFlowSettingsGroup extends StatelessWidget {
               },
             ),
             if (showIncome)
-              Selector<AppPreferences, (bool, double)>(
-                selector: (_, prefs) =>
-                    (prefs.hasMonthlyIncome, prefs.monthlyIncome),
-                builder: (context, data, _) {
-                  final (hasIncome, income) = data;
+              Consumer2<AppPreferences, TransactionProvider>(
+                builder: (context, prefs, provider, _) {
+                  final month = provider.selectedMonth;
+                  final income = prefs.incomeForMonth(month);
+                  final hasIncome = income > 0;
                   return _SettingsTile(
                     icon: Icons.payments_outlined,
                     title: 'Monthly income',
                     subtitle: hasIncome
-                        ? formatCurrency(income)
-                        : 'Tap to set your monthly income',
+                        ? '${formatCurrency(income)} · ${formatMonthYear(month)}'
+                        : 'Tap to set income for ${formatMonthYear(month)}',
                     trailing: hasIncome
                         ? Text(
                             formatCompactCurrency(income),
@@ -555,6 +557,7 @@ class _CashFlowSettingsGroup extends StatelessWidget {
                     onTap: () => _editMonthlyIncome(
                       context,
                       context.read<AppPreferences>(),
+                      context.read<TransactionProvider>().selectedMonth,
                     ),
                   );
                 },

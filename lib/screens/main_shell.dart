@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +9,7 @@ import '../core/splash_timing.dart';
 import '../core/theme/app_colors.dart';
 import '../core/motion.dart';
 import '../core/theme/app_spacing.dart' show AppRadius;
+import '../core/utils/app_refresh.dart' show appRefreshActive;
 import '../core/utils/formatters.dart';
 import '../features/notifications/notification_service.dart';
 import '../models/transaction.dart';
@@ -16,6 +19,7 @@ import '../providers/transaction_provider.dart';
 import '../widgets/category_selector.dart';
 import '../widgets/glass_bottom_nav_bar.dart';
 import '../widgets/glass_container.dart';
+import '../widgets/performant_tab_view.dart';
 import '../widgets/settings_tour_overlay.dart';
 import '../widgets/spend_focus_hero.dart' show kHeroIntroDuration;
 import '../navigation/shell_scope.dart';
@@ -126,14 +130,31 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   void _selectTab(int index) {
     if (index == _index) return;
+    HapticFeedback.selectionClick();
     setState(() {
       _history.add(_index);
       _index = index;
     });
+    // Transactions tab shares Home's selected month and may be stale after
+    // background captures — refresh and land on the current month.
+    if (index == 1) {
+      unawaited(_revealLatestTransactions());
+    }
   }
 
   void _selectPrimaryTab(int index) {
     _selectTab(index);
+  }
+
+  Future<void> _revealLatestTransactions() async {
+    final provider = context.read<TransactionProvider>();
+    final now = DateTime.now();
+    final current = DateTime(now.year, now.month);
+    if (provider.selectedMonth.year != current.year ||
+        provider.selectedMonth.month != current.month) {
+      provider.setSelectedMonth(current);
+    }
+    await provider.reload();
   }
 
   void _handleBack() {
@@ -168,26 +189,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             children: [
               const AppBackground(),
               RepaintBoundary(
-                child: IndexedStack(
+                child: PerformantTabView(
                   index: _index,
-                  sizing: StackFit.expand,
                   children: [
-                    RepaintBoundary(
-                      child: TickerMode(
-                        enabled: _index == 0,
-                        child: HomeScreen(
-                          netBalanceToggleKey: _netBalanceToggleKey,
-                          scrollController: _homeScrollController,
-                          onHeroIntroComplete: _onHeroIntroComplete,
-                        ),
-                      ),
+                    HomeScreen(
+                      netBalanceToggleKey: _netBalanceToggleKey,
+                      scrollController: _homeScrollController,
+                      onHeroIntroComplete: _onHeroIntroComplete,
                     ),
-                    RepaintBoundary(
-                      child: TickerMode(
-                        enabled: _index == 1,
-                        child: const TransactionsScreen(),
-                      ),
-                    ),
+                    const TransactionsScreen(),
                   ],
                 ),
               ),
@@ -195,22 +205,36 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: RepaintBoundary(
-                  child: GlassBottomNavBar(
-                    selectedIndex: _index,
-                    onSelected: _selectPrimaryTab,
-                    destinations: const [
-                      GlassNavDestination(
-                        icon: Icons.home_outlined,
-                        selectedIcon: Icons.home_rounded,
-                        label: 'Home',
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: appRefreshActive,
+                  builder: (context, refreshing, child) {
+                    return IgnorePointer(
+                      ignoring: refreshing,
+                      child: AnimatedOpacity(
+                        opacity: refreshing ? 0 : 1,
+                        duration: const Duration(milliseconds: 140),
+                        curve: Curves.easeOut,
+                        child: child,
                       ),
-                      GlassNavDestination(
-                        icon: Icons.receipt_long_outlined,
-                        selectedIcon: Icons.receipt_long_rounded,
-                        label: 'Transactions',
-                      ),
-                    ],
+                    );
+                  },
+                  child: RepaintBoundary(
+                    child: GlassBottomNavBar(
+                      selectedIndex: _index,
+                      onSelected: _selectPrimaryTab,
+                      destinations: const [
+                        GlassNavDestination(
+                          icon: Icons.home_outlined,
+                          selectedIcon: Icons.home_rounded,
+                          label: 'Home',
+                        ),
+                        GlassNavDestination(
+                          icon: Icons.receipt_long_outlined,
+                          selectedIcon: Icons.receipt_long_rounded,
+                          label: 'Transactions',
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -225,11 +249,19 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 ),
             ],
           ),
-          floatingActionButton: AnimatedSwitcher(
+          floatingActionButton: ValueListenableBuilder<bool>(
+            valueListenable: appRefreshActive,
+            builder: (context, refreshing, _) => AnimatedSwitcher(
             duration: AppMotion.fast,
             switchInCurve: AppMotion.easeOut,
-            switchOutCurve: AppMotion.easeOut,
-            child: _index == 1
+            switchOutCurve: AppMotion.easeIn,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(
+                opacity: animation,
+                child: child,
+              );
+            },
+            child: _index == 1 && !refreshing
                 ? Padding(
                     key: const ValueKey('add_fab'),
                     padding: EdgeInsets.only(
@@ -246,6 +278,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     ),
                   )
                 : const SizedBox.shrink(key: ValueKey('no_fab')),
+          ),
           ),
         ),
       ),

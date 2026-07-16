@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -118,6 +119,9 @@ abstract final class AppTheme {
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: AppColors.backgroundElevated.withValues(alpha: 0.96),
+        modalBarrierColor: AppColors.shadow.withValues(alpha: 0.55),
+        elevation: 0,
+        clipBehavior: Clip.antiAlias,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xxl)),
         ),

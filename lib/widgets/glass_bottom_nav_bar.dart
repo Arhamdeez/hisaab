@@ -226,32 +226,44 @@ class _NavItem extends StatelessWidget {
           height: double.infinity,
           child: FittedBox(
             fit: BoxFit.scaleDown,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _NavIcon(
-                  icon: selected ? destination.selectedIcon : destination.icon,
-                  color: selected ? AppColors.textOnPrimary : color,
-                  selected: selected,
-                  badgeCount: destination.badgeCount,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  destination.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                        fontSize: 10,
-                        height: 1.0,
-                        fontWeight:
-                            selected ? FontWeight.w700 : FontWeight.w500,
-                        color: selected ? AppColors.textOnPrimary : color,
-                        letterSpacing: selected ? 0.12 : 0.04,
-                      ),
-                ),
-              ],
+            child: AnimatedScale(
+              scale: selected ? 1.0 : 0.96,
+              duration: AppMotion.fast,
+              curve: AppMotion.easeOut,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _NavIcon(
+                    icon: selected
+                        ? destination.selectedIcon
+                        : destination.icon,
+                    color: selected ? AppColors.textOnPrimary : color,
+                    selected: selected,
+                    badgeCount: destination.badgeCount,
+                  ),
+                  const SizedBox(height: 2),
+                  AnimatedDefaultTextStyle(
+                    duration: AppMotion.fast,
+                    curve: AppMotion.easeOut,
+                    style: (theme.textTheme.bodySmall ?? const TextStyle())
+                        .copyWith(
+                      fontSize: 10,
+                      height: 1.0,
+                      fontWeight:
+                          selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? AppColors.textOnPrimary : color,
+                      letterSpacing: selected ? 0.12 : 0.04,
+                    ),
+                    child: Text(
+                      destination.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -284,10 +296,30 @@ class _NavIcon extends StatelessWidget {
         clipBehavior: Clip.hardEdge,
         alignment: Alignment.center,
         children: [
-          Icon(
-            icon,
-            size: GlassBottomNavBar._iconSize,
-            color: color,
+          AnimatedSwitcher(
+            duration: AppMotion.fast,
+            switchInCurve: AppMotion.easeOut,
+            switchOutCurve: AppMotion.easeIn,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.85, end: 1).animate(
+                    CurvedAnimation(
+                      parent: animation,
+                      curve: AppMotion.easeOut,
+                    ),
+                  ),
+                  child: child,
+                ),
+              );
+            },
+            child: Icon(
+              icon,
+              key: ValueKey(icon.codePoint),
+              size: GlassBottomNavBar._iconSize,
+              color: color,
+            ),
           ),
           if (showBadge)
             Positioned(

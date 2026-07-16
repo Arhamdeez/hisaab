@@ -396,20 +396,6 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                               value: _StatusChip(status: tx.status),
                             ),
                           ],
-                          if (tx.confidence < 1.0) ...[
-                            const _DetailDivider(),
-                            _DetailRow(
-                              label: 'Match confidence',
-                              value: Text(
-                                '${(tx.confidence * 100).toStringAsFixed(0)}%',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  color: tx.confidence >= 0.8
-                                      ? AppColors.accent
-                                      : AppColors.warning,
-                                ),
-                              ),
-                            ),
-                          ],
                           const _DetailDivider(),
                           _NoteRow(
                             description: _description,

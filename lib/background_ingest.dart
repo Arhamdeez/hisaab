@@ -9,6 +9,9 @@ import 'features/notifications/notification_service.dart';
 import 'providers/app_preferences.dart';
 
 const _bgRescanKey = 'bg_ingest_rescan';
+
+/// Set by headless ingest when rows are written so the UI isolate reloads on resume.
+const bgIngestDirtyKey = 'bg_ingest_ui_dirty';
 const _doneChannel = MethodChannel('com.arham.hisaab/background_ingest');
 
 /// Headless Android entry — processes queued payment alerts without opening the UI.
@@ -30,6 +33,9 @@ Future<void> ingestBackgroundMain() async {
         repository: TransactionRepository(database),
       );
       created = await processor.processPendingQueue(rescanSources: rescan);
+      if (created > 0) {
+        await prefs.setBool(bgIngestDirtyKey, true);
+      }
     } finally {
       await database.close();
     }

@@ -3,7 +3,9 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../background_ingest.dart' show bgIngestDirtyKey;
 import '../../core/repositories/transaction_repository.dart';
 import '../notifications/notification_service.dart';
 import 'ingest_processor.dart';
@@ -155,6 +157,13 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       await _drainPendingQueue();
     }
     await _drainNotificationActionsIfQueued();
+
+    // Background ingest can write rows and clear the native queue while the UI
+    // isolate is suspended. Always reload so Home / Transactions show them
+    // without requiring pull-to-refresh.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(bgIngestDirtyKey, false);
+    await _notifyTransactionDataChanged();
   }
 
   Future<void> _onBackground() async {

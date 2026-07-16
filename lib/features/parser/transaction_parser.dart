@@ -442,11 +442,24 @@ class TransactionParser {
     r'\b(?:missed\s+call|incoming\s+call|voice\s+mail)\b|'
     r'\b(?:weather|forecast|rain\s+alert)\b|'
     r'\b(?:match\s+score|full\s+time)\b|'
-    r'\b(?:get\s+a\s+chance|chance\s+to\s+win|win\s+(?:\d+|a\s+|1\s)|'
+    r'\b(?:get\s+a\s+chance|chance\s+to\s+(?:win|earn)|for\s+a\s+chance|'
+    r'win\s+(?:\d+|a\s+|1\s)|'
     r'(?:\d+\s+)?crore|(?:\d+\s+)?lakh|(?:\d+\s+)?lac)\b|'
+    // Bank/card spend-and-win promos (English + Roman Urdu).
+    r'\bwin\s+big\b|'
+    r'\bt\s*&\s*cs?\s+apply\b|\bterms\s+(?:and|&)\s+conditions\s+apply\b|'
+    r'\bjeet(?:ne|ein|o)\b|\bmauqa\s+hasil\b|\bka\s+mauqa\b|'
+    r'\b(?:spend|shopping|istemal|use)\s+karein\b|'
+    r'\bspend\s+globally\b|'
+    r'\boffer\s+valid\b|\bvalid\s+(?:till|until)\b|'
     r'\bmaintain\s+(?:rs\.?|pkr)\b|'
     r'\b(?:refer(?:ral)?|invite\s+(?:friends?|and\s+earn))\b|'
     r'\b\d+\s*(?:mb|gb|kb|tb)\s+of\s+\d+\s*(?:mb|gb|kb|tb)\b|'
+    // Crypto / token marketing pushes that mention \$ amounts.
+    r'\bbuy\s+any\s+amount\b|'
+    r'\bfor\s+a\s+chance\s+to\s+earn\b|'
+    r'\bearn\s+\$\s*[\d,]+|'
+    r'\bturn\s+your\b.{0,40}\binto\s+more\b|'
     // Platform payout notices — not local wallet/bank alerts.
     r'\bupwork\b|'
     r'withdrawal\s+of\s+your\s+upwork\s+balance|'
@@ -487,9 +500,64 @@ class TransactionParser {
     caseSensitive: false,
   );
 
+  /// Marketing / promotional wording (English + Roman Urdu). Promos use
+  /// future or imperative phrasing — "win", "avail", "spend karein" — while
+  /// genuine alerts describe completed money movement. Any app's message
+  /// matching this with no completed-transaction evidence is rejected.
+  static final _promoSignalPattern = RegExp(
+    r'\bwin\b|\bprizes?\b|\blucky\s+draw\b|\bbumper\s+(?:prize|offer|draw)\b|'
+    r'\binaam\b|\bjeet(?:ne|ein|ain|o)?\b|\bmauqa\b|\bmuft\b|'
+    r'\bdiscounts?\b|\bvouchers?\b|\bpromo\b|\bcoupons?\b|'
+    r'\b(?:mega|flash|grand|big)\s+sale\b|\bsale\s+is\s+live\b|'
+    r'\b(?:exclusive|special|exciting|amazing)\s+offer\b|'
+    r'\boffer\s+(?:valid|ends?|expires?)\b|\bvalid\s+(?:till|until|upto)\b|'
+    r'\bavail\s+(?:now|this|the|exciting|amazing|karein)\b|'
+    r'\bapply\s+now\b|\bregister\s+(?:now|today)\b|\bsign\s+up\b|'
+    r'\bdownload\s+(?:now|the\s+app)\b|'
+    r'\bhurry\b|\blimited\s+time\b|\bdon.?t\s+miss\b|\blast\s+chance\b|'
+    r'\bstand\s+a\s+chance\b|\bfor\s+a\s+chance\b|'
+    r'\bchance\s+to\s+(?:win|earn)\b|'
+    r'\bget\s+(?:up\s*to|a\s+free|your\s+free)\b|'
+    r'\bearn\s+(?:up\s*to|points|rewards|\$)\b|'
+    r'\bbuy\s+any\s+amount\b|'
+    r'\bupgrade\s+(?:your|to|now)\b|\bshop\s+(?:now|and\s+win|&\s+win)\b|'
+    r'\bfree\s+(?:delivery|gift|voucher|coupon|tickets?|entry)\b|'
+    r'\b(?:spend|shopping|istemal|use|recharge|load)\s+kar(?:ein|o|iye)\b|'
+    r'\bkarein\s+aur\b|\bhasil\s+kar(?:ein|o|iye)\b|\bkijiye\b|'
+    r'\buthayein\b|\bbanayein\b|\bpayein\b|'
+    r'\bt\s*&\s*cs?\b|\bterms\s+(?:and|&)\s+conditions\b|'
+    r'\bfx\s+fee\b|\bbachat\b|\bfaida\b|\bmoassar\b',
+    caseSensitive: false,
+  );
+
+  /// Completed money-movement evidence — overrides promo wording so genuine
+  /// alerts that happen to mention rewards or offers still parse.
+  static final _completedTxnEvidencePattern = RegExp(
+    r'has\s+been\s+(?:debited|credited|deducted|withdrawn|transferred|sent|paid|received|reversed)|'
+    r'(?:debited|credited|deducted|withdrawn)\s+(?:by|with|from|for)\b|'
+    r'\byou\s+(?:have\s+)?(?:sent|paid|received|transferred)\b|'
+    r'\bsuccessfully\s+(?:sent|received|transferred|paid|credited|debited)|'
+    r'\b(?:transaction|transfer|payment|txn)\s+(?:successful|completed?)\b|'
+    r'\b(?:trx|txn|trxn|transaction)\s*(?:id|no|#)|'
+    r'\bref(?:erence)?\s*(?:id|no|#|:)|'
+    r'\b(?:available|remaining|current|new)\s+balance\b|\bbal(?:ance)?\s*[:=]|'
+    r'\breceived\s+from\b|\b(?:paid|sent|transferred)\s+to\b|'
+    r'\bpurchase\s+(?:of|at)\b|\b(?:pos|atm)\s+(?:purchase|withdrawal|transaction)\b|'
+    r'\bvia\s+(?:raast|ibft|pos|atm|1link)\b|'
+    r'\b(?:is\s+)?charged\b.*?\bfor\s+(?:pkr|rs\.?)',
+    caseSensitive: false,
+  );
+
+  /// Promo wording with no completed-transaction evidence — never cash.
+  static bool _isPromotionalContent(String text) =>
+      _promoSignalPattern.hasMatch(text) &&
+      !_isUniversalTxnTrigger(text) &&
+      !_completedTxnEvidencePattern.hasMatch(text);
+
   /// Strong money-movement wording — required for unknown apps (with currency).
   static final _strongFinanceSignals = RegExp(
     r'debited|credited|withdrawn|deducted|spent|transferred|purchase|'
+    r'\bcharged\b|\bis\s+charged\b|'
     r'(?:debited|deducted|withdrawn|credited)\s+by\s+(?:pkr|rs\.?)|'
     r'fund\s+transfer|funds?\s+transfer|transfer\s+to|transfer\s+successful|'
     r'mobile\s+wallet|wallet\s+a/c|'
@@ -1071,6 +1139,12 @@ class TransactionParser {
     caseSensitive: false,
   );
 
+  /// UBL / bank debit-card SMS: "… is charged … for PKR 5,000.00 at MERCHANT"
+  static final _cardChargedForPattern = RegExp(
+    r'(?:is\s+)?charged\b.*?\bfor\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
   static bool _isUniversalTxnTrigger(String text) {
     return _youSentRsPattern.hasMatch(text) ||
         _youJustSentToPattern.hasMatch(text) ||
@@ -1089,6 +1163,7 @@ class TransactionParser {
         _amountHasBeenPattern.hasMatch(text) ||
         _amountWasPattern.hasMatch(text) ||
         _youPaidPattern.hasMatch(text) ||
+        _cardChargedForPattern.hasMatch(text) ||
         (_directionTransferPattern.hasMatch(text) &&
             _amountFromCurrencyLabel(text) != null) ||
         (_successfulTxnPattern.hasMatch(text) &&
@@ -1100,7 +1175,7 @@ class TransactionParser {
   }
 
   static bool _isNoiseNotification(String text) =>
-      _noiseNotificationPattern.hasMatch(text);
+      _noiseNotificationPattern.hasMatch(text) || _isPromotionalContent(text);
 
   static bool _hasCurrencyLabel(String text) =>
       _amountFromCurrencyLabel(text) != null;
@@ -1160,6 +1235,8 @@ class TransactionParser {
   }
 
   /// Merchant/person in title + amount in body (Google Wallet, JazzCash, NayaPay).
+  /// Requires real money-movement wording — a bare "$10" / "PKR 100" in marketing
+  /// copy is not enough (crypto/wallet promo pushes abuse that hole).
   static bool _isTitleWithAmountBody({
     required String? notificationTitle,
     required String text,
@@ -1178,9 +1255,8 @@ class TransactionParser {
       return false;
     }
     return _walletCardPaymentPattern.hasMatch(text) ||
-        _walletTxnSignals.hasMatch(text) ||
-        _strongFinanceSignals.hasMatch(text) ||
-        _hasCurrencyLabel(text);
+        _isUniversalTxnTrigger(text) ||
+        _strongFinanceSignals.hasMatch(text);
   }
 
   static final _genericAlertTitlePattern = RegExp(
@@ -1350,6 +1426,7 @@ class TransactionParser {
       _rsReceivedFromPattern,
       _walletCardPaymentPattern,
       _youPaidAtPattern,
+      _cardChargedForPattern,
       _paymentOfPattern,
       _amountHasBeenPattern,
       _amountWasPattern,
@@ -1512,6 +1589,7 @@ class TransactionParser {
         _walletCardPaymentPattern.hasMatch(combined) ||
         _youPaidAtPattern.hasMatch(combined) ||
         _youPaidPattern.hasMatch(combined) ||
+        _cardChargedForPattern.hasMatch(combined) ||
         _amountOfRsPattern.hasMatch(combined) ||
         _paymentOfPattern.hasMatch(combined) ||
         _youPaidPattern.hasMatch(combined) ||
@@ -1572,6 +1650,7 @@ class TransactionParser {
       'debited',
       'spent',
       'paid',
+      'charged',
       'withdrawn',
       'sent',
       'transferred',
@@ -1666,6 +1745,13 @@ class TransactionParser {
         r'at\s+' +
             _partyCaptureLazy +
             r'(?=\s+(?:on|via|at|for|from|ref|trx|txn|\d{4}-\d{2}-\d{2})|\s*[,.]|$)',
+        caseSensitive: false,
+      ),
+      // UBL card: "charged … for PKR 5,000.00 at VALENCIA S."
+      RegExp(
+        r'(?:PKR|Rs\.?|INR|₹|₨)\.?\s*[\d,]+(?:\.\d+)?\s+at\s+' +
+            _partyCaptureLazy +
+            r'(?=\s*[.…]|\s*$)',
         caseSensitive: false,
       ),
       RegExp(

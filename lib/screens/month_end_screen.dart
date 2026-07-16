@@ -37,7 +37,7 @@ class MonthEndScreen extends StatelessWidget {
             builder: (context, provider, prefs, _) {
               final summary = provider.summaryForMonth(provider.selectedMonth);
               final trend = _buildTrend(provider, provider.selectedMonth);
-              final income = prefs.resolveIncome(summary);
+              final income = prefs.resolveIncome(summary, provider.selectedMonth);
 
               return SafeArea(
                 child: AppRefreshScroll(

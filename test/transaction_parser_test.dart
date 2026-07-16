@@ -70,6 +70,20 @@ void main() {
     expect(result.type, TransactionType.debit);
   });
 
+  test('parses UBL debit card charged SMS', () {
+    final result = parser.parse(
+      'UBL Debit Card *-3895 is charged on 15/07/26 at 02:08 PM '
+      'for PKR 5,000.00 at VALENCIA S.',
+      source: TransactionSource.sms,
+      fallbackTime: DateTime(2026, 7, 15, 14, 9),
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 5000);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant.toUpperCase(), contains('VALENCIA'));
+    expect(result.occurredAt, DateTime(2026, 7, 15, 14, 8));
+  });
+
   test('builds stable fingerprint', () {
     final fp1 = TransactionParser.buildFingerprint(
       amount: 500,

@@ -108,16 +108,21 @@ String formatCurrency(double amount, {bool showDecimals = false}) {
 String formatCompactCurrency(double amount) {
   final abs = amount.abs();
   final sign = amount < 0 ? '-' : '';
+  // 7+ figures (crore) and 6-figure (lakh) amounts stay compact.
   if (abs >= 10000000) {
-    return '$sign$kCurrencySymbol ${(abs / 10000000).toStringAsFixed(1)}Cr';
+    return '$sign$kCurrencySymbol ${_trimCompact(abs / 10000000)}Cr';
   }
   if (abs >= 100000) {
-    return '$sign$kCurrencySymbol ${(abs / 100000).toStringAsFixed(0)}L';
+    return '$sign$kCurrencySymbol ${_trimCompact(abs / 100000)}L';
   }
-  if (abs >= 1000) {
-    return '$sign${(abs / 1000).toStringAsFixed(0)}k';
-  }
-  return '$sign$kCurrencySymbol ${abs.toStringAsFixed(0)}';
+  // Up to 5 figures: show the exact figure with thousands separators.
+  return '$sign$kCurrencySymbol ${NumberFormat('#,##0').format(abs.round())}';
+}
+
+/// One decimal for compact units, dropping a trailing `.0`.
+String _trimCompact(double value) {
+  final fixed = value.toStringAsFixed(1);
+  return fixed.endsWith('.0') ? fixed.substring(0, fixed.length - 2) : fixed;
 }
 
 String formatShortDate(DateTime date) {

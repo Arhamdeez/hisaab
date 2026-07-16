@@ -641,10 +641,14 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
     return GestureDetector(
       onTapDown: (_) {
         setState(() => _pressed = true);
-        // One solid click — like pressing a physical button.
-        HapticFeedback.mediumImpact();
+        // Hard, weighty click going down.
+        HapticFeedback.heavyImpact();
       },
-      onTapUp: (_) => setState(() => _pressed = false),
+      onTapUp: (_) {
+        setState(() => _pressed = false);
+        // Hard click again as it springs back out.
+        HapticFeedback.heavyImpact();
+      },
       onTapCancel: () => setState(() => _pressed = false),
       onTap: widget.onTap,
       behavior: HitTestBehavior.opaque,
@@ -826,24 +830,33 @@ class _CashFlowGauge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final flow = CashFlowMetrics(cashIn: received, cashOut: spent);
-    final inFlex = (flow.cashInBarShare * 100).round().clamp(1, 100);
-    final outFlex = (flow.cashOutBarShare * 100).round().clamp(1, 100);
+    final inShare = flow.cashInBarShare.clamp(0.0, 1.0);
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.pill),
       child: SizedBox(
         height: 8,
-        child: Row(
-          children: [
-            Expanded(
-              flex: inFlex,
-              child: const ColoredBox(color: AppColors.income),
-            ),
-            Expanded(
-              flex: outFlex,
-              child: const ColoredBox(color: AppColors.expense),
-            ),
-          ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final w = constraints.maxWidth;
+            final inW = w * inShare;
+            return Stack(
+              children: [
+                const Positioned.fill(
+                  child: ColoredBox(color: AppColors.expense),
+                ),
+                AnimatedPositioned(
+                  duration: AppMotion.hero,
+                  curve: AppMotion.easeOut,
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: inW,
+                  child: const ColoredBox(color: AppColors.income),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -877,67 +890,76 @@ class BudgetSlider extends StatelessWidget {
         LayoutBuilder(
           builder: (context, constraints) {
             final w = constraints.maxWidth;
-            final fillW = (w * barPct).clamp(_trackH, w);
-            final thumbLeft =
-                (w * barPct - _thumb / 2).clamp(0.0, w - _thumb);
 
-            return SizedBox(
-              height: _thumb,
-              child: Stack(
-                clipBehavior: Clip.none,
-                alignment: Alignment.centerLeft,
-                children: [
-                  Container(
-                    height: _trackH,
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceHigh,
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
-                  ),
-                  Container(
-                    height: _trackH,
-                    width: fillW,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          AppColors.expense.withValues(alpha: 0.85),
-                          AppColors.expense,
-                        ],
+            return TweenAnimationBuilder<double>(
+              tween: Tween(end: barPct),
+              duration: AppMotion.hero,
+              curve: AppMotion.easeOut,
+              builder: (context, animatedPct, _) {
+                final fillW = (w * animatedPct).clamp(_trackH, w);
+                final thumbLeft =
+                    (w * animatedPct - _thumb / 2).clamp(0.0, w - _thumb);
+
+                return SizedBox(
+                  height: _thumb,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.centerLeft,
+                    children: [
+                      Container(
+                        height: _trackH,
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceHigh,
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                        ),
                       ),
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.expense.withValues(alpha: 0.35),
-                          blurRadius: 12,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Positioned(
-                    left: thumbLeft,
-                    child: Container(
-                      width: _thumb,
-                      height: _thumb,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AppColors.textPrimary,
-                        border: Border.all(
-                          color: AppColors.ui,
-                          width: 3,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.shadow,
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
+                      Container(
+                        height: _trackH,
+                        width: fillW,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              AppColors.expense.withValues(alpha: 0.85),
+                              AppColors.expense,
+                            ],
                           ),
-                        ],
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                          boxShadow: [
+                            BoxShadow(
+                              color:
+                                  AppColors.expense.withValues(alpha: 0.35),
+                              blurRadius: 12,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                      Positioned(
+                        left: thumbLeft,
+                        child: Container(
+                          width: _thumb,
+                          height: _thumb,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppColors.textPrimary,
+                            border: Border.all(
+                              color: AppColors.ui,
+                              width: 3,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.shadow,
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             );
           },
         ),

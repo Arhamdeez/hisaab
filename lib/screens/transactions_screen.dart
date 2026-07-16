@@ -7,6 +7,7 @@ import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/app_refresh.dart';
+import '../core/utils/cash_flow.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/glass_container.dart';
 import '../core/utils/formatters.dart';
@@ -49,35 +50,137 @@ enum _TxSort {
       };
 }
 
-class _TransactionsScreenState extends State<TransactionsScreen> {
+class _TransactionsScreenState extends State<TransactionsScreen>
+    with SingleTickerProviderStateMixin {
+  static const _searchMotion = AppMotion.medium;
+  static const _bodyMotion = AppMotion.medium;
+
   String _query = '';
   String? _filterCategoryId;
   _TxSort _sort = _TxSort.timeDesc;
+  final _searchFocus = FocusNode();
+  final _searchController = TextEditingController();
+  bool _searchFocused = false;
+
+  late final AnimationController _searchCtrl;
+  late final Animation<double> _chromeFade;
+  late final Animation<double> _chromeSize;
+  late final Animation<Offset> _chromeSlide;
+  late final Animation<double> _cancelReveal;
+
+  /// Search mode: hide chrome and only show matching transactions.
+  bool get _isSearching => _searchFocused || _query.trim().isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchCtrl = AnimationController(vsync: this, duration: _searchMotion);
+    final curve = CurvedAnimation(
+      parent: _searchCtrl,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    _chromeFade = Tween<double>(begin: 1, end: 0).animate(curve);
+    _chromeSize = Tween<double>(begin: 1, end: 0).animate(curve);
+    _chromeSlide = Tween<Offset>(
+      begin: Offset.zero,
+      end: const Offset(0, -0.06),
+    ).animate(curve);
+    _cancelReveal = Tween<double>(begin: 0, end: 1).animate(curve);
+    _searchFocus.addListener(_onSearchFocusChanged);
+  }
+
+  void _onSearchFocusChanged() {
+    final focused = _searchFocus.hasFocus;
+    if (_searchFocused == focused) return;
+    setState(() => _searchFocused = focused);
+    _syncSearchAnimation();
+    if (focused) HapticFeedback.selectionClick();
+  }
+
+  void _syncSearchAnimation() {
+    if (_isSearching) {
+      if (_searchCtrl.status != AnimationStatus.forward &&
+          _searchCtrl.status != AnimationStatus.completed) {
+        _searchCtrl.forward();
+      }
+    } else if (_searchCtrl.status != AnimationStatus.reverse &&
+        _searchCtrl.status != AnimationStatus.dismissed) {
+      _searchCtrl.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchFocus.removeListener(_onSearchFocusChanged);
+    _searchFocus.dispose();
+    _searchController.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onQueryChanged(String value) {
+    setState(() => _query = value);
+    _syncSearchAnimation();
+  }
+
+  void _exitSearch() {
+    HapticFeedback.lightImpact();
+    _searchController.clear();
+    _query = '';
+    _searchFocus.unfocus();
+    setState(() => _searchFocused = false);
+    _searchCtrl.reverse();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Consumer3<TransactionProvider, AppPreferences, CategoryCatalog>(
       builder: (context, provider, prefs, catalog, _) {
         final selected = provider.selectedMonth;
-        final summary = provider.summaryForMonth(selected);
+        final searching = _isSearching;
+        final hasQuery = _query.trim().isNotEmpty;
+        final categoryId = searching ? null : _filterCategoryId;
 
-        // Daily average for the selected month (uses days elapsed for the
-        // current month, full days otherwise).
         final now = DateTime.now();
         final isCurrentMonth =
             selected.year == now.year && selected.month == now.month;
         final daysInMonth = DateTime(selected.year, selected.month + 1, 0).day;
         final daysSoFar = isCurrentMonth ? now.day : daysInMonth;
-        final dailyAvg = summary.totalDebit / (daysSoFar == 0 ? 1 : daysSoFar);
 
-        // Monthly average across the trailing 6 months that had spending.
+        double scopedCashOut(DateTime month) {
+          if (categoryId == null) {
+            return provider.summaryForMonth(month).totalDebit;
+          }
+          return CashFlowMetrics.fromTransactions(
+            provider
+                .historyForMonth(month)
+                .where((t) => t.categoryId == categoryId),
+          ).cashOut;
+        }
+
+        double scopedCashIn(DateTime month) {
+          if (categoryId == null) {
+            return provider.summaryForMonth(month).totalCredit;
+          }
+          return CashFlowMetrics.fromTransactions(
+            provider
+                .historyForMonth(month)
+                .where((t) => t.categoryId == categoryId),
+          ).cashIn;
+        }
+
+        final spent = scopedCashOut(selected);
+        final received = scopedCashIn(selected);
+        final dailyAvg = spent / (daysSoFar == 0 ? 1 : daysSoFar);
+
         var monthlySum = 0.0;
         var monthsWithSpend = 0;
         for (var i = 0; i < 6; i++) {
           final m = DateTime(selected.year, selected.month - i);
-          final s = provider.summaryForMonth(m);
-          if (s.totalDebit > 0) {
-            monthlySum += s.totalDebit;
+          final out = scopedCashOut(m);
+          if (out > 0) {
+            monthlySum += out;
             monthsWithSpend++;
           }
         }
@@ -85,21 +188,23 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             monthsWithSpend == 0 ? 0.0 : monthlySum / monthsWithSpend;
 
         var txs = provider.historyForMonth(selected);
-        if (_query.isNotEmpty) {
+
+        if (hasQuery) {
+          final q = _query.trim().toLowerCase();
           txs = txs
               .where(
                 (t) =>
-                    t.merchant.toLowerCase().contains(_query.toLowerCase()) ||
+                    t.merchant.toLowerCase().contains(q) ||
                     catalog
                         .resolve(t.categoryId)
                         .label
                         .toLowerCase()
-                        .contains(_query.toLowerCase()),
+                        .contains(q),
               )
               .toList();
         }
-        if (_filterCategoryId != null) {
-          txs = txs.where((t) => t.categoryId == _filterCategoryId).toList();
+        if (categoryId != null) {
+          txs = txs.where((t) => t.categoryId == categoryId).toList();
         }
 
         txs = [...txs];
@@ -114,7 +219,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             txs.sort((a, b) => a.amount.compareTo(b.amount));
         }
 
-        final hasFilters = _query.isNotEmpty || _filterCategoryId != null;
+        final hasFilters = hasQuery || categoryId != null;
+        final resultsKey = ValueKey(
+          'tx-${selected.year}-${selected.month}-'
+          '${categoryId ?? 'all'}-${_query.trim()}-$_sort-${txs.length}',
+        );
 
         return SafeArea(
           child: AppRefreshScroll(
@@ -122,171 +231,359 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             orbMinPull: 44,
             child: CustomScrollView(
               physics: refreshScrollPhysics,
+              keyboardDismissBehavior:
+                  ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
                 SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.pageH,
-                      16,
-                      AppSpacing.pageH,
-                      0,
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const AppAccentBar(height: 28),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
+                  child: SizeTransition(
+                    sizeFactor: _chromeSize,
+                    alignment: AlignmentDirectional(-1, -1),
+                    child: FadeTransition(
+                      opacity: _chromeFade,
+                      child: SlideTransition(
+                        position: _chromeSlide,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.pageH,
+                            16,
+                            AppSpacing.pageH,
+                            0,
+                          ),
+                          child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'Transactions',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineLarge
-                                    ?.copyWith(
-                                      letterSpacing: -0.4,
+                              const AppAccentBar(height: 28),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Transactions',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .headlineLarge
+                                          ?.copyWith(
+                                            letterSpacing: -0.4,
+                                          ),
                                     ),
+                                    const SizedBox(height: 2),
+                                    GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () {
+                                        final now = DateTime.now();
+                                        final current =
+                                            DateTime(now.year, now.month);
+                                        if (selected.year != current.year ||
+                                            selected.month != current.month) {
+                                          HapticFeedback.selectionClick();
+                                          provider.setSelectedMonth(current);
+                                        }
+                                      },
+                                      child: Text(
+                                        formatMonthYear(selected),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: AppColors.textMuted,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                formatMonthYear(selected),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: AppColors.textMuted,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                              _SortButton(
+                                sort: _sort,
+                                onChanged: (s) => setState(() => _sort = s),
                               ),
                             ],
                           ),
                         ),
-                        _SortButton(
-                          sort: _sort,
-                          onChanged: (s) => setState(() => _sort = s),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.pageH,
-                      16,
-                      AppSpacing.pageH,
-                      0,
-                    ),
-                    child: TextField(
-                      onChanged: (v) => setState(() => _query = v),
-                      decoration: const InputDecoration(
-                        hintText: 'Search merchant or category',
-                        prefixIcon: Icon(Icons.search_rounded),
                       ),
                     ),
                   ),
                 ),
                 SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: SizedBox(
-                      height: 40,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.pageH,
+                  child: AnimatedBuilder(
+                    animation: _searchCtrl,
+                    builder: (context, _) {
+                      final t =
+                          Curves.easeOutCubic.transform(_searchCtrl.value);
+                      return Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          AppSpacing.pageH,
+                          16 - (4 * t),
+                          AppSpacing.pageH,
+                          0,
                         ),
-                        children: [
-                          _FilterChip(
-                            label: 'All',
-                            selected: _filterCategoryId == null,
-                            onTap: () => setState(() => _filterCategoryId = null),
-                          ),
-                          ...catalog.all.map(
-                            (c) => _FilterChip(
-                              label: c.label,
-                              selected: _filterCategoryId == c.id,
-                              color: c.color,
-                              onTap: () => setState(() => _filterCategoryId = c.id),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _searchController,
+                                focusNode: _searchFocus,
+                                onChanged: _onQueryChanged,
+                                textInputAction: TextInputAction.search,
+                                decoration: InputDecoration(
+                                  hintText: 'Search merchant or category',
+                                  prefixIcon:
+                                      const Icon(Icons.search_rounded),
+                                  suffixIcon: searching
+                                      ? IconButton(
+                                          tooltip:
+                                              hasQuery ? 'Clear' : 'Close',
+                                          onPressed: !hasQuery
+                                              ? _exitSearch
+                                              : () {
+                                                  _searchController.clear();
+                                                  _onQueryChanged('');
+                                                },
+                                          icon: AnimatedSwitcher(
+                                            duration: AppMotion.fast,
+                                            child: Icon(
+                                              hasQuery
+                                                  ? Icons.clear_rounded
+                                                  : Icons.close_rounded,
+                                              key: ValueKey(hasQuery),
+                                            ),
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                if (txs.isEmpty)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(
-                      child: EmptyStateView(
-                        icon: Icons.receipt_long_rounded,
-                        title: hasFilters
-                            ? 'No transactions found'
-                            : 'No transactions yet',
-                        subtitle: hasFilters
-                            ? 'Try a different search or category filter'
-                            : 'Confirmed payments for this month will appear here',
-                      ),
-                    ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.pageH,
-                      12,
-                      AppSpacing.pageH,
-                      AppSpacing.navBottom,
-                    ),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate([
-                        if (prefs.trackInwardFlow) ...[
-                          _CashFlowSummary(
-                            spent: summary.totalDebit,
-                            received: summary.totalCredit,
-                          ),
-                          const SizedBox(height: 12),
-                        ] else if (summary.totalDebit > 0) ...[
-                          _AveragesCard(
-                            dailyAvg: dailyAvg,
-                            monthlyAvg: monthlyAvg,
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                        GlassCard(
-                          child: Column(
-                            children: [
-                              for (var i = 0; i < txs.length; i++) ...[
-                                TransactionTile(
-                                  transaction: txs[i],
-                                  showSource: true,
-                                  compact: true,
-                                  onTap: () => TransactionDetailScreen.open(
-                                    context,
-                                    txs[i],
+                            ClipRect(
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                widthFactor:
+                                    _cancelReveal.value.clamp(0.0, 1.0),
+                                child: Opacity(
+                                  opacity:
+                                      _cancelReveal.value.clamp(0.0, 1.0),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const SizedBox(width: 4),
+                                      TextButton(
+                                        onPressed: _exitSearch,
+                                        child: const Text('Cancel'),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                if (i < txs.length - 1)
-                                  const Divider(
-                                    height: 1,
-                                    indent: 72,
-                                    endIndent: 16,
-                                    color: AppColors.border,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: SizeTransition(
+                    sizeFactor: _chromeSize,
+                    alignment: AlignmentDirectional(-1, -1),
+                    child: FadeTransition(
+                      opacity: _chromeFade,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: SizedBox(
+                          // Tall enough for chip + selected glow (blur/offset).
+                          height: 60,
+                          child: ListView(
+                            scrollDirection: Axis.horizontal,
+                            clipBehavior: Clip.none,
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.pageH,
+                              10,
+                              AppSpacing.pageH,
+                              10,
+                            ),
+                            children: [
+                              _FilterChip(
+                                label: 'All',
+                                selected: _filterCategoryId == null,
+                                onTap: () => setState(
+                                  () => _filterCategoryId = null,
+                                ),
+                              ),
+                              ...catalog.all.map(
+                                (c) => _FilterChip(
+                                  label: c.label,
+                                  selected: _filterCategoryId == c.id,
+                                  color: c.color,
+                                  onTap: () => setState(
+                                    () => _filterCategoryId = c.id,
                                   ),
-                              ],
+                                ),
+                              ),
                             ],
                           ),
                         ),
-                      ]),
+                      ),
                     ),
                   ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.pageH,
+                    12,
+                    AppSpacing.pageH,
+                    AppSpacing.navBottom,
+                  ),
+                  sliver: _SoftFadeResults(
+                    animation: _bodyMotion,
+                    resultsKey: resultsKey,
+                    child: txs.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 48),
+                            child: EmptyStateView(
+                              icon: searching
+                                  ? Icons.search_off_rounded
+                                  : Icons.receipt_long_rounded,
+                              title: searching && !hasQuery
+                                  ? 'Search transactions'
+                                  : hasFilters
+                                      ? 'No transactions found'
+                                      : 'No transactions yet',
+                              subtitle: searching && !hasQuery
+                                  ? 'Type a merchant or category'
+                                  : hasFilters
+                                      ? 'Try a different search or category filter'
+                                      : 'Confirmed payments for this month will appear here',
+                            ),
+                          )
+                        : Column(
+                            children: [
+                              SizeTransition(
+                                sizeFactor: _chromeSize,
+                                alignment: AlignmentDirectional(-1, -1),
+                                child: FadeTransition(
+                                  opacity: _chromeFade,
+                                  child: Column(
+                                    children: [
+                                      AnimatedSwitcher(
+                                        duration: _bodyMotion,
+                                        switchInCurve: Curves.easeOutCubic,
+                                        switchOutCurve: Curves.easeInCubic,
+                                        child: prefs.trackInwardFlow
+                                            ? _CashFlowSummary(
+                                                key: ValueKey(
+                                                  'flow-${categoryId ?? 'all'}',
+                                                ),
+                                                spent: spent,
+                                                received: received,
+                                              )
+                                            : spent > 0
+                                                ? _AveragesCard(
+                                                    key: ValueKey(
+                                                      'avg-${categoryId ?? 'all'}',
+                                                    ),
+                                                    dailyAvg: dailyAvg,
+                                                    monthlyAvg: monthlyAvg,
+                                                  )
+                                                : const SizedBox.shrink(
+                                                    key: ValueKey('none'),
+                                                  ),
+                                      ),
+                                      if (prefs.trackInwardFlow || spent > 0)
+                                        const SizedBox(height: 12),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              GlassCard(
+                                child: Column(
+                                  children: [
+                                    for (var i = 0; i < txs.length; i++) ...[
+                                      TransactionTile(
+                                        transaction: txs[i],
+                                        showSource: true,
+                                        compact: true,
+                                        onTap: () =>
+                                            TransactionDetailScreen.open(
+                                          context,
+                                          txs[i],
+                                        ),
+                                      ),
+                                      if (i < txs.length - 1)
+                                        const Divider(
+                                          height: 1,
+                                          indent: 72,
+                                          endIndent: 16,
+                                          color: AppColors.border,
+                                        ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// Soft fade + slight rise when filter / search results change.
+class _SoftFadeResults extends StatelessWidget {
+  const _SoftFadeResults({
+    required this.animation,
+    required this.resultsKey,
+    required this.child,
+  });
+
+  final Duration animation;
+  final Key resultsKey;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverToBoxAdapter(
+      child: AnimatedSwitcher(
+        duration: animation,
+        reverseDuration: const Duration(milliseconds: 200),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (current, previous) {
+          return Stack(
+            alignment: Alignment.topCenter,
+            children: [
+              ...previous,
+              ?current,
+            ],
+          );
+        },
+        transitionBuilder: (child, animation) {
+          final fade = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          final slide = Tween<Offset>(
+            begin: const Offset(0, 0.03),
+            end: Offset.zero,
+          ).animate(fade);
+          return FadeTransition(
+            opacity: fade,
+            child: SlideTransition(
+              position: slide,
+              child: child,
+            ),
+          );
+        },
+        child: KeyedSubtree(
+          key: resultsKey,
+          child: child,
+        ),
+      ),
     );
   }
 }
@@ -326,11 +623,8 @@ class _SortButton extends StatelessWidget {
                 child: Text(
                   s.label,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: selected
-                        ? AppColors.ui
-                        : AppColors.textPrimary,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected ? AppColors.ui : AppColors.textPrimary,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                   ),
                 ),
               ),
@@ -356,7 +650,6 @@ class _SortButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Flip the arrow for ascending orders so the toggle feels physical.
             AnimatedRotation(
               turns: _isAscending ? 0.5 : 0.0,
               duration: const Duration(milliseconds: 280),
@@ -378,7 +671,7 @@ class _SortButton extends StatelessWidget {
                   child: SizeTransition(
                     axis: Axis.horizontal,
                     sizeFactor: animation,
-                    axisAlignment: -1,
+                    alignment: AlignmentDirectional(-1, -1),
                     child: child,
                   ),
                 );
@@ -404,6 +697,7 @@ class _SortButton extends StatelessWidget {
 
 class _CashFlowSummary extends StatelessWidget {
   const _CashFlowSummary({
+    super.key,
     required this.spent,
     required this.received,
   });
@@ -503,7 +797,11 @@ class _CashFlowSummary extends StatelessWidget {
 }
 
 class _AveragesCard extends StatelessWidget {
-  const _AveragesCard({required this.dailyAvg, required this.monthlyAvg});
+  const _AveragesCard({
+    super.key,
+    required this.dailyAvg,
+    required this.monthlyAvg,
+  });
 
   final double dailyAvg;
   final double monthlyAvg;
@@ -666,9 +964,9 @@ class _FilterChip extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
             ),
-            ),
           ),
         ),
+      ),
     );
   }
 }

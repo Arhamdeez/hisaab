@@ -190,7 +190,6 @@ class _ReviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final confidence = transaction.confidence * 100;
     final catalog = context.watch<CategoryCatalog>();
     final displayCategory = suggestion.isConfident
         ? catalog.resolve(suggestion.categoryId)
@@ -202,30 +201,7 @@ class _ReviewCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              SourceBadge(source: transaction.source),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: confidence >= 80
-                      ? AppColors.accent.withValues(alpha: 0.12)
-                      : AppColors.warning.withValues(alpha: 0.12),
-                  borderRadius: AppRadius.borderXs,
-                ),
-                child: Text(
-                  '${confidence.toStringAsFixed(0)}% match',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: confidence >= 80
-                        ? AppColors.accent
-                        : AppColors.warning,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          SourceBadge(source: transaction.source),
           const SizedBox(height: 14),
           Row(
             children: [
