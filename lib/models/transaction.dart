@@ -12,9 +12,12 @@ enum SpendingCategory {
   food,
   transport,
   shopping,
+  clothing,
+  shoes,
   bills,
   entertainment,
   health,
+  pharmacy,
   other,
 }
 
@@ -23,10 +26,13 @@ extension SpendingCategoryX on SpendingCategory {
         SpendingCategory.food => 'Food',
         SpendingCategory.transport => 'Transport',
         SpendingCategory.shopping => 'Shopping',
+        SpendingCategory.clothing => 'Clothing',
+        SpendingCategory.shoes => 'Shoes',
         SpendingCategory.bills => 'Housing',
         SpendingCategory.entertainment => 'Entertainment',
         SpendingCategory.health => 'Health',
-        SpendingCategory.other => 'Other',
+        SpendingCategory.pharmacy => 'Pharmacy',
+        SpendingCategory.other => 'Others',
       };
 
   String get storageKey => name;
@@ -41,9 +47,12 @@ extension SpendingCategoryX on SpendingCategory {
         SpendingCategory.food => Icons.restaurant_rounded,
         SpendingCategory.transport => Icons.directions_car_rounded,
         SpendingCategory.shopping => Icons.shopping_bag_rounded,
+        SpendingCategory.clothing => Icons.checkroom_rounded,
+        SpendingCategory.shoes => Icons.hiking_rounded,
         SpendingCategory.bills => Icons.receipt_long_rounded,
         SpendingCategory.entertainment => Icons.movie_rounded,
         SpendingCategory.health => Icons.favorite_rounded,
+        SpendingCategory.pharmacy => Icons.local_pharmacy_rounded,
         SpendingCategory.other => Icons.more_horiz_rounded,
       };
 
@@ -52,9 +61,12 @@ extension SpendingCategoryX on SpendingCategory {
         SpendingCategory.food => const Color(0xFFD98E52),
         SpendingCategory.transport => const Color(0xFF9DB0A6),
         SpendingCategory.shopping => const Color(0xFFC79AB2),
+        SpendingCategory.clothing => const Color(0xFFB8956C),
+        SpendingCategory.shoes => const Color(0xFF8B7E74),
         SpendingCategory.bills => const Color(0xFFD97A6E),
         SpendingCategory.entertainment => const Color(0xFFCE8AA4),
         SpendingCategory.health => const Color(0xFF7FC0A8),
+        SpendingCategory.pharmacy => const Color(0xFF6BA3C4),
         SpendingCategory.other => const Color(0xFFAEA6A0),
       };
 }

@@ -352,6 +352,8 @@ class TransactionParser {
   static final _dateProtectPatterns = [
     RegExp(r'\b\d{4}-\d{2}-\d{2}\b'),
     RegExp(r'\b\d{2}-[A-Za-z]{3}-\d{4}\b'),
+    // Numeric PK bank dates — otherwise sanitize splits "15/07/26" / "16-06-26".
+    RegExp(r'\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b'),
   ];
 
   static final _metadataSegmentPattern = RegExp(
@@ -712,10 +714,11 @@ class TransactionParser {
 
     final accountRef = _extractAccountRef(normalized);
     final referenceId = extractReferenceId(text);
-    // Read the date from the raw text first: sanitization splits on hyphens and
-    // would turn "16-06-26" into "16 — 06 — 26", hiding the real date.
-    final occurredAt =
-        _extractDate(text) ?? _extractDate(normalized) ?? fallbackTime;
+    // Read the date from the raw text first: sanitization can still mangle
+    // unusual date shapes, so raw wins over the normalized title+body merge.
+    final occurredAt = _extractOccurredAt(text, fallbackTime: fallbackTime) ??
+        _extractOccurredAt(normalized, fallbackTime: fallbackTime) ??
+        fallbackTime;
     final category = CategoryGuesser.guess('$merchant $normalized');
 
     var confidence = 0.55;
@@ -776,8 +779,9 @@ class TransactionParser {
     final merchant = _extractFailedMerchant(normalized, notificationTitle);
     final accountRef = _extractAccountRef(normalized);
     final referenceId = extractReferenceId(text);
-    final occurredAt =
-        _extractDate(text) ?? _extractDate(normalized) ?? fallbackTime;
+    final occurredAt = _extractOccurredAt(text, fallbackTime: fallbackTime) ??
+        _extractOccurredAt(normalized, fallbackTime: fallbackTime) ??
+        fallbackTime;
     final category = CategoryGuesser.guess('$merchant $normalized');
 
     return ParsedTransaction(
@@ -2037,35 +2041,211 @@ class TransactionParser {
     return (null, null);
   }
 
-  DateTime? _extractDate(String text) {
-    final date = _extractDatePart(text);
-    if (date == null) return null;
-    final time = _extractTimeOfDay(text);
-    if (time == null) return date;
-    return DateTime(date.year, date.month, date.day, time.$1, time.$2);
+  /// Combines a message date/time with [fallbackTime] (notification/SMS stamp).
+  DateTime? _extractOccurredAt(String text, {DateTime? fallbackTime}) {
+    final dateHit = _findDateMatch(text);
+    final time = _extractTimeOfDay(
+      text,
+      preferAfterIndex: dateHit?.end,
+      fallbackTime: fallbackTime,
+    );
+
+    if (dateHit != null) {
+      final date = dateHit.date;
+      if (time != null) {
+        return DateTime(date.year, date.month, date.day, time.$1, time.$2);
+      }
+      // Body has a calendar day but no usable clock — keep the notification
+      // clock when it lands on/near that day so list order stays correct.
+      if (fallbackTime != null &&
+          _isSameOrNearbyDay(date, fallbackTime)) {
+        return DateTime(
+          date.year,
+          date.month,
+          date.day,
+          fallbackTime.hour,
+          fallbackTime.minute,
+        );
+      }
+      return date;
+    }
+
+    // Date missing (e.g. em-dash mangled) but body has a clock — use notify day.
+    if (time != null && fallbackTime != null) {
+      return DateTime(
+        fallbackTime.year,
+        fallbackTime.month,
+        fallbackTime.day,
+        time.$1,
+        time.$2,
+      );
+    }
+    return null;
   }
 
-  /// Extracts an HH:MM (24h or AM/PM) clock time. Seconds are intentionally
-  /// dropped so the same payment reported by two channels lands on the same
-  /// minute. Returns null when no plausible time is present.
-  (int, int)? _extractTimeOfDay(String text) {
-    final match = RegExp(
-      r'\b(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(am|pm)?',
+  static bool _isSameOrNearbyDay(DateTime date, DateTime fallback) {
+    final dayOnly = DateTime(date.year, date.month, date.day);
+    final fallbackDay = DateTime(fallback.year, fallback.month, fallback.day);
+    return fallbackDay.difference(dayOnly).abs() <= const Duration(hours: 36);
+  }
+
+  /// Extracts an HH:MM clock. Seconds are dropped so cross-channel alerts
+  /// land on the same minute. Prefers the txn clock over balance/as-of times.
+  (int, int)? _extractTimeOfDay(
+    String text, {
+    int? preferAfterIndex,
+    DateTime? fallbackTime,
+  }) {
+    final pattern = RegExp(
+      r'\b(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(a\.?m\.?|p\.?m\.?)?',
       caseSensitive: false,
-    ).firstMatch(text);
-    if (match == null) return null;
+    );
+
+    final candidates = <_ClockCandidate>[];
+    for (final match in pattern.allMatches(text)) {
+      final parsed = _parseClockMatch(match);
+      if (parsed == null) continue;
+      final beforeStart = (match.start - 28).clamp(0, text.length);
+      final before = text.substring(beforeStart, match.start).toLowerCase();
+      final isBalanceClock = RegExp(
+        r'(?:available|avl|current|new)?\s*bal(?:ance)?|as\s+of\b',
+        caseSensitive: false,
+      ).hasMatch(before);
+      final nearTxnVerb = RegExp(
+        r'(?:charged|debited|credited|paid|sent|received|withdrawn|'
+        r'transferred|purchase|on)\b',
+        caseSensitive: false,
+      ).hasMatch(before);
+      candidates.add(
+        _ClockCandidate(
+          hour: parsed.$1,
+          minute: parsed.$2,
+          start: match.start,
+          hasMeridiem: match.group(3) != null,
+          isBalanceClock: isBalanceClock,
+          nearTxnVerb: nearTxnVerb,
+        ),
+      );
+    }
+    if (candidates.isEmpty) return null;
+
+    // Prefer a clock shortly after the matched transaction date ("on … at …").
+    final afterIndex = preferAfterIndex;
+    if (afterIndex != null) {
+      final afterDate = candidates.where((c) {
+        final delta = c.start - afterIndex;
+        return delta >= 0 && delta <= 48;
+      }).toList();
+      final pick = _bestClock(afterDate, fallbackTime);
+      if (pick != null) return (pick.hour, pick.minute);
+    }
+
+    // Explicit "at HH:MM" near a money-movement verb.
+    final atClocks = candidates.where((c) {
+      if (c.isBalanceClock) return false;
+      final from = (c.start - 4).clamp(0, text.length);
+      return RegExp(r'\bat\s+$', caseSensitive: false)
+          .hasMatch(text.substring(from, c.start));
+    }).toList();
+    final atPick = _bestClock(atClocks, fallbackTime);
+    if (atPick != null) return (atPick.hour, atPick.minute);
+
+    final nonBalance = candidates.where((c) => !c.isBalanceClock).toList();
+    final pick = _bestClock(
+      nonBalance.isNotEmpty ? nonBalance : candidates,
+      fallbackTime,
+    );
+    if (pick == null) return null;
+    return (pick.hour, pick.minute);
+  }
+
+  static _ClockCandidate? _bestClock(
+    List<_ClockCandidate> candidates,
+    DateTime? fallbackTime,
+  ) {
+    if (candidates.isEmpty) return null;
+    candidates = [...candidates]..sort((a, b) {
+        // Prefer clocks with AM/PM and near txn wording.
+        final scoreA = (a.hasMeridiem ? 4 : 0) +
+            (a.nearTxnVerb ? 2 : 0) -
+            (a.isBalanceClock ? 6 : 0);
+        final scoreB = (b.hasMeridiem ? 4 : 0) +
+            (b.nearTxnVerb ? 2 : 0) -
+            (b.isBalanceClock ? 6 : 0);
+        if (scoreA != scoreB) return scoreB.compareTo(scoreA);
+        if (fallbackTime != null) {
+          final fa = _minutesFromMidnight(a.hour, a.minute);
+          final fb = _minutesFromMidnight(b.hour, b.minute);
+          final fr = fallbackTime.hour * 60 + fallbackTime.minute;
+          final da = (fa - fr).abs();
+          final db = (fb - fr).abs();
+          // Also consider +12h for bare 1–12 clocks without meridiem.
+          final daAlt = a.hasMeridiem
+              ? da
+              : [da, (fa + 12 * 60 - fr).abs() % (24 * 60)].reduce(
+                  (x, y) => x < y ? x : y,
+                );
+          final dbAlt = b.hasMeridiem
+              ? db
+              : [db, (fb + 12 * 60 - fr).abs() % (24 * 60)].reduce(
+                  (x, y) => x < y ? x : y,
+                );
+          if (daAlt != dbAlt) return daAlt.compareTo(dbAlt);
+        }
+        return b.start.compareTo(a.start);
+      });
+
+    var best = candidates.first;
+    // Bare afternoon clocks often omit AM/PM — snap to the notify half-day.
+    if (!best.hasMeridiem &&
+        fallbackTime != null &&
+        best.hour >= 1 &&
+        best.hour <= 12) {
+      final asIs = DateTime(
+        fallbackTime.year,
+        fallbackTime.month,
+        fallbackTime.day,
+        best.hour,
+        best.minute,
+      );
+      final plus12 = DateTime(
+        fallbackTime.year,
+        fallbackTime.month,
+        fallbackTime.day,
+        best.hour == 12 ? 12 : best.hour + 12,
+        best.minute,
+      );
+      if ((plus12.difference(fallbackTime).abs()) <
+          (asIs.difference(fallbackTime).abs())) {
+        best = _ClockCandidate(
+          hour: plus12.hour,
+          minute: best.minute,
+          start: best.start,
+          hasMeridiem: true,
+          isBalanceClock: best.isBalanceClock,
+          nearTxnVerb: best.nearTxnVerb,
+        );
+      }
+    }
+    return best;
+  }
+
+  static int _minutesFromMidnight(int hour, int minute) => hour * 60 + minute;
+
+  static (int, int)? _parseClockMatch(RegExpMatch match) {
     var hour = int.tryParse(match.group(1)!);
     final minute = int.tryParse(match.group(2)!);
     if (hour == null || minute == null) return null;
     if (minute > 59) return null;
-    final meridiem = match.group(3)?.toLowerCase();
-    if (meridiem == 'pm' && hour < 12) hour += 12;
-    if (meridiem == 'am' && hour == 12) hour = 0;
+    final rawMeridiem = match.group(3)?.toLowerCase().replaceAll('.', '');
+    if (rawMeridiem == 'pm' && hour < 12) hour += 12;
+    if (rawMeridiem == 'am' && hour == 12) hour = 0;
     if (hour > 23) return null;
     return (hour, minute);
   }
 
-  DateTime? _extractDatePart(String text) {
+  /// First plausible calendar date in [text], with its match end index.
+  _DateHit? _findDateMatch(String text) {
     final monthNames = {
       'jan': 1,
       'feb': 2,
@@ -2081,6 +2261,7 @@ class TransactionParser {
       'dec': 12,
     };
 
+    // 15-Jul-26 / 15/Jul/2026
     final named = RegExp(
       r'(\d{1,2})[-/](\w{3})[-/](\d{2,4})',
       caseSensitive: false,
@@ -2092,7 +2273,27 @@ class TransactionParser {
       if (d != null && m != null && y != null) {
         if (y < 100) y += 2000;
         final date = _validDate(y, m, d);
-        if (date != null) return date;
+        if (date != null) {
+          return _DateHit(date: date, end: named.end);
+        }
+      }
+    }
+
+    // Meezan / sanitized: "13 — Jul — 2026"
+    final spacedNamed = RegExp(
+      r'(\d{1,2})\s*[—–\-]\s*([A-Za-z]{3})\s*[—–\-]\s*(\d{2,4})',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (spacedNamed != null) {
+      final d = int.tryParse(spacedNamed.group(1)!);
+      final m = monthNames[spacedNamed.group(2)!.toLowerCase()];
+      var y = int.tryParse(spacedNamed.group(3)!);
+      if (d != null && m != null && y != null) {
+        if (y < 100) y += 2000;
+        final date = _validDate(y, m, d);
+        if (date != null) {
+          return _DateHit(date: date, end: spacedNamed.end);
+        }
       }
     }
 
@@ -2103,7 +2304,7 @@ class TransactionParser {
       final d = int.tryParse(iso.group(3)!);
       if (y != null && m != null && d != null) {
         final date = _validDate(y, m, d);
-        if (date != null) return date;
+        if (date != null) return _DateHit(date: date, end: iso.end);
       }
     }
 
@@ -2116,7 +2317,9 @@ class TransactionParser {
     if (d == null || m == null || y == null) return null;
     if (y < 100) y += 2000;
 
-    return _validDate(y, m, d);
+    final date = _validDate(y, m, d);
+    if (date == null) return null;
+    return _DateHit(date: date, end: slash.end);
   }
 
   DateTime? _validDate(int y, int m, int d) {
@@ -2130,4 +2333,29 @@ class TransactionParser {
 
     return date;
   }
+}
+
+class _DateHit {
+  const _DateHit({required this.date, required this.end});
+
+  final DateTime date;
+  final int end;
+}
+
+class _ClockCandidate {
+  const _ClockCandidate({
+    required this.hour,
+    required this.minute,
+    required this.start,
+    required this.hasMeridiem,
+    required this.isBalanceClock,
+    required this.nearTxnVerb,
+  });
+
+  final int hour;
+  final int minute;
+  final int start;
+  final bool hasMeridiem;
+  final bool isBalanceClock;
+  final bool nearTxnVerb;
 }

@@ -93,7 +93,8 @@ class TransactionTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    formatShortDate(transaction.occurredAt),
+                    '${formatShortDate(transaction.occurredAt)} · '
+                    '${formatTime(transaction.occurredAt)}',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: AppColors.textDim,
                     ),

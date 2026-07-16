@@ -33,7 +33,54 @@ void main() {
       fallbackTime: DateTime(2026, 6, 20, 9, 30),
     );
     expect(result, isNotNull);
+    // Body date is several days away from the notify stamp — keep the day,
+    // not the stamp clock.
     expect(result!.occurredAt, DateTime(2026, 6, 16));
+  });
+
+  test('uses notification clock when body has date but no time', () {
+    final result = parser.parse(
+      'Dear Customer, PKR 2,500.00 has been debited from A/C ***1234 on 16-JUN-2026',
+      source: TransactionSource.notification,
+      fallbackTime: DateTime(2026, 6, 16, 18, 45),
+    );
+    expect(result, isNotNull);
+    expect(result!.occurredAt, DateTime(2026, 6, 16, 18, 45));
+  });
+
+  test('prefers txn clock over earlier balance clock', () {
+    final result = parser.parse(
+      'Available balance 10:30 AM. UBL Debit Card *-3895 is charged on '
+      '15/07/26 at 02:08 PM for PKR 5,000.00 at VALENCIA S.',
+      source: TransactionSource.sms,
+      fallbackTime: DateTime(2026, 7, 15, 14, 9),
+    );
+    expect(result, isNotNull);
+    expect(result!.occurredAt, DateTime(2026, 7, 15, 14, 8));
+  });
+
+  test('parses P.M. with periods as afternoon', () {
+    final result = parser.parse(
+      'UBL Debit Card *-3895 is charged on 15/07/26 at 02:08 P.M. '
+      'for PKR 5,000.00 at VALENCIA S.',
+      source: TransactionSource.sms,
+      fallbackTime: DateTime(2026, 7, 15, 14, 9),
+    );
+    expect(result, isNotNull);
+    expect(result!.occurredAt, DateTime(2026, 7, 15, 14, 8));
+  });
+
+  test('parses Meezan em-dash date with body time', () {
+    final result = parser.parse(
+      'Dear Customer, your account has been debited by PKR 1,500.00 '
+      'via POS purchase at CARREFOUR KHI on 14 — Jul — 2026 at 01:06 PM.',
+      source: TransactionSource.notification,
+      notificationTitle: 'Meezan Bank Alert',
+      packageName: 'com.meezanbank.mobile',
+      fallbackTime: DateTime(2026, 7, 14, 13, 8),
+    );
+    expect(result, isNotNull);
+    expect(result!.occurredAt, DateTime(2026, 7, 14, 13, 6));
   });
 
   test('ignores reference numbers that look like dates', () {
