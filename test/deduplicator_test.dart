@@ -145,6 +145,52 @@ void main() {
     expect((await repository.getAll()).length, 1);
   });
 
+  test('merges NayaPay app got-money with gmail You-got alert', () async {
+    final notifyTime = DateTime(2026, 7, 17, 11, 0);
+    final emailTime = notifyTime.add(const Duration(minutes: 8));
+
+    final appParsed = parser.parse(
+      'ADEEL AHMAD sent you Rs. 300. Go ahead, check that balance.',
+      source: TransactionSource.notification,
+      packageName: 'com.nayapay.app',
+      notificationTitle: "You've got money 🤑",
+      fallbackTime: notifyTime,
+    );
+    expect(appParsed, isNotNull);
+    expect(appParsed!.type, TransactionType.credit);
+    expect(appParsed.merchant, 'ADEEL AHMAD');
+
+    final first = await deduplicator.processIncoming(
+      parsed: appParsed,
+      source: TransactionSource.notification,
+      rawText: 'ADEEL AHMAD sent you Rs. 300. Go ahead, check that balance.',
+      messageTime: notifyTime,
+    );
+    expect(first.result, DedupResult.created);
+
+    final emailParsed = parser.parse(
+      '2 new messages — NayaPay You got Rs. 300 from ADEEL AHMAD 🎉',
+      source: TransactionSource.gmail,
+      packageName: 'com.google.android.gm',
+      notificationTitle: '2 new messages',
+      fallbackTime: emailTime,
+    );
+    expect(emailParsed, isNotNull);
+    expect(emailParsed!.merchant, 'ADEEL AHMAD');
+
+    final second = await deduplicator.processIncoming(
+      parsed: emailParsed,
+      source: TransactionSource.gmail,
+      rawText: '2 new messages — NayaPay You got Rs. 300 from ADEEL AHMAD 🎉',
+      messageTime: emailTime,
+    );
+
+    expect(second.result, DedupResult.merged);
+    expect((await repository.getAll()).length, 1);
+    expect((await repository.getAll()).single.amount, 300.0);
+    expect((await repository.getAll()).single.merchant, 'ADEEL AHMAD');
+  });
+
   test('merges easypaisa push after wallet app when merchants differ', () async {
     final notifyTime = DateTime(2026, 6, 20, 4, 37);
     final emailTime = notifyTime.add(const Duration(minutes: 12));

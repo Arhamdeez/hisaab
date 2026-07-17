@@ -451,8 +451,12 @@ class TransactionParser {
     r'\bwin\s+big\b|'
     r'\bt\s*&\s*cs?\s+apply\b|\bterms\s+(?:and|&)\s+conditions\s+apply\b|'
     r'\bjeet(?:ne|ein|o)\b|\bmauqa\s+hasil\b|\bka\s+mauqa\b|'
+    r'\bjeetne\s+ka\s+mauqa\b|'
     r'\b(?:spend|shopping|istemal|use)\s+karein\b|'
+    r'\binternational\s+spend\b|'
     r'\bspend\s+globally\b|'
+    r'\b(?:honda|yadea).{0,48}(?:ebike|e-bike|cd\s*70|jeet|mauqa)\b|'
+    r'\b(?:ebike|e-bike|cd\s*70).{0,48}(?:jeet|mauqa|honda|yadea)\b|'
     r'\boffer\s+valid\b|\bvalid\s+(?:till|until)\b|'
     r'\bmaintain\s+(?:rs\.?|pkr)\b|'
     r'\b(?:refer(?:ral)?|invite\s+(?:friends?|and\s+earn))\b|'
@@ -525,6 +529,9 @@ class TransactionParser {
     r'\bupgrade\s+(?:your|to|now)\b|\bshop\s+(?:now|and\s+win|&\s+win)\b|'
     r'\bfree\s+(?:delivery|gift|voucher|coupon|tickets?|entry)\b|'
     r'\b(?:spend|shopping|istemal|use|recharge|load)\s+kar(?:ein|o|iye)\b|'
+    r'\binternational\s+spend\b|'
+    r'\bjeetne\s+ka\s+mauqa\b|'
+    r'\b(?:honda|yadea).{0,48}(?:ebike|e-bike|cd\s*70|jeet|mauqa)\b|'
     r'\bkarein\s+aur\b|\bhasil\s+kar(?:ein|o|iye)\b|\bkijiye\b|'
     r'\buthayein\b|\bbanayein\b|\bpayein\b|'
     r'\bt\s*&\s*cs?\b|\bterms\s+(?:and|&)\s+conditions\b|'
@@ -564,7 +571,9 @@ class TransactionParser {
     r'fund\s+transfer|funds?\s+transfer|transfer\s+to|transfer\s+successful|'
     r'mobile\s+wallet|wallet\s+a/c|'
     r'money\s+(?:received|sent)|payment\s+(?:received|sent)|'
-    r'you\s+(?:sent|paid|received|transferred)|'
+    r'(?:you.?ve|you\s+have)\s+got\s+money|got\s+money|'
+    r'you\s+(?:sent|paid|received|got|transferred)|'
+    r'sent\s+you\s+(?:pkr|rs\.?|inr|₹|₨)|'
     r'(?:paid|sent|transferred)\s+to\b|'
     r'(?:paid|sent|transferred)\s+(?:pkr|rs\.?|inr|₹|₨|\$|€|£)|'
     r'(?:payment|transfer|transaction|remittance|payout)\s+of\s+(?:pkr|rs\.?|inr|₹|₨|\$|€|£)|'
@@ -735,6 +744,7 @@ class TransactionParser {
     if (occurredAt != null) confidence += 0.05;
     if (_youSentRsPattern.hasMatch(normalized) ||
         _youReceivedRsPattern.hasMatch(normalized) ||
+        _nameSentYouRsPattern.hasMatch(normalized) ||
         _amountOfRsPattern.hasMatch(normalized) ||
         _moneyTransferOfRsPattern.hasMatch(normalized) ||
         _isUniversalTxnTrigger(normalized)) {
@@ -856,9 +866,21 @@ class TransactionParser {
 
   static final _genericMerchants = RegExp(
     r'^(?:unknown|dear customer|customer|wallet|account|payment|money|'
-    r'jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|'
+    r'jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|meezan|'
+    r'meezan bank|visa|mastercard|bank|'
     r'transaction alert|money received|money sent|payment received|'
-    r'transfer successful|successful transfer|transfer)$',
+    r'transfer successful|successful transfer|transfer|'
+    r'got money|you.?ve got money|off it goes)$',
+    caseSensitive: false,
+  );
+
+  /// Bank/card product titles — never treat as a person counterparty.
+  static final _institutionalTitlePattern = RegExp(
+    r'\b(?:bank|meezan|hbl|ubl|mcb|alfalah|faysal|askari|habib|'
+    r'jazzcash|easypaisa|nayapay|sadapay|raqami|'
+    r'visa|mastercard|american\s+express|amex|'
+    r'debit\s+card|credit\s+card|gold\s+card|classic\s+card|'
+    r'platinum\s+card|prepaid\s+card)\b',
     caseSensitive: false,
   );
 
@@ -1000,8 +1022,14 @@ class TransactionParser {
   }
 
   static final _creditSenderPatterns = [
+    // NayaPay: "ADEEL AHMAD sent you Rs. 300."
     RegExp(
-      r'(?:have\s+)?(?:received|credited|credit(?:ed)?)\s+(?:'
+      _partyCapture +
+          r'\s+sent\s+you\s+(?:rs\.?|pkr|inr|₹|₨)\.?\s*[\d,]+(?:\.\d+)?',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'(?:have\s+)?(?:received|credited|credit(?:ed)?|got)\s+(?:'
       r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+)?'
       r'from\s+' +
           _partyCapture,
@@ -1092,6 +1120,25 @@ class TransactionParser {
     caseSensitive: false,
   );
 
+  /// NayaPay inbound casual: "ADEEL AHMAD sent you Rs. 300."
+  static final _nameSentYouRsPattern = RegExp(
+    r"([A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF .'\-&]{1,48}?)"
+    r'\s+sent\s+you\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  /// Amount-only capture for "… sent you Rs. 300".
+  static final _sentYouRsAmountPattern = RegExp(
+    r'sent\s+you\s+(?:PKR|Rs\.?|INR|₹|₨)\.?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  /// Title / body: "You've got money" (NayaPay credit push).
+  static final _gotMoneyPattern = RegExp(
+    r"(?:you.?ve|you\s+have)\s+got\s+money|\bgot\s+money\b",
+    caseSensitive: false,
+  );
+
   static bool _isAmbiguousDirection(
     String text,
     String? notificationTitle,
@@ -1153,6 +1200,7 @@ class TransactionParser {
     return _youSentRsPattern.hasMatch(text) ||
         _youJustSentToPattern.hasMatch(text) ||
         _youReceivedRsPattern.hasMatch(text) ||
+        _nameSentYouRsPattern.hasMatch(text) ||
         _receivedInAccountPattern.hasMatch(text) ||
         _rsSentToPattern.hasMatch(text) ||
         _rsReceivedFromPattern.hasMatch(text) ||
@@ -1168,6 +1216,8 @@ class TransactionParser {
         _amountWasPattern.hasMatch(text) ||
         _youPaidPattern.hasMatch(text) ||
         _cardChargedForPattern.hasMatch(text) ||
+        (_gotMoneyPattern.hasMatch(text) &&
+            _amountFromCurrencyLabel(text) != null) ||
         (_directionTransferPattern.hasMatch(text) &&
             _amountFromCurrencyLabel(text) != null) ||
         (_successfulTxnPattern.hasMatch(text) &&
@@ -1265,8 +1315,8 @@ class TransactionParser {
 
   static final _genericAlertTitlePattern = RegExp(
     r'^(?:unknown|dear customer|customer|wallet|account|payment|money|'
-    r'jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|'
-    r'transaction alert|money received|money sent|payment received|'
+    r'jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|meezan|'
+    r'meezan bank|transaction alert|money received|money sent|payment received|'
     r'transfer successful|successful transfer|transfer|backup|'
     r'off it goes|money in|money out|cha[\s-]?ching|payment sent|'
     r'payment received|transfer complete|transfer sent|'
@@ -1281,6 +1331,7 @@ class TransactionParser {
     if (lower.isEmpty) return false;
     if (_genericMerchants.hasMatch(lower)) return true;
     if (_genericAlertTitlePattern.hasMatch(lower)) return true;
+    if (_institutionalTitlePattern.hasMatch(lower)) return true;
     if (RegExp(
       r'\b(?:alert|notification|helpline|security)\b',
       caseSensitive: false,
@@ -1357,6 +1408,7 @@ class TransactionParser {
     if (_isAlertStyleHeading(t)) return false;
     if (_isGenericNotificationTitle(t)) return false;
     if (_genericAlertTitlePattern.hasMatch(t)) return false;
+    if (_institutionalTitlePattern.hasMatch(t)) return false;
     if (_amountOrAlertTitlePattern.hasMatch(t)) return false;
     // Real person/merchant titles are short name-like strings, not phrases
     // packed with finance verbs ("Incoming Payment", "Money Received").
@@ -1425,6 +1477,7 @@ class TransactionParser {
       _moneyTransferOfRsPattern,
       _youSentRsPattern,
       _youReceivedRsPattern,
+      _sentYouRsAmountPattern,
       _receivedInAccountPattern,
       _rsSentToPattern,
       _rsReceivedFromPattern,
@@ -1565,6 +1618,7 @@ class TransactionParser {
 
   static final _creditTitlePattern = RegExp(
     r'money\s+received|payment\s+received|cash\s+received|'
+    r'(?:you.?ve|you\s+have)\s+got\s+money|\bgot\s+money\b|'
     r'raast\s+incoming\s+payment|incoming\s+payment|'
     r'received\s+(?:rs\.?|pkr|inr|₹|₨|\$|€|£|usd|eur|gbp|money|payment|cash)|'
     r'(?:rs\.?|pkr|inr|₹|₨|\$|€|£|usd|eur|gbp)\s*[\d,]+(?:\.\d+)?\s+received',
@@ -1587,6 +1641,18 @@ class TransactionParser {
     final titleLower = notificationTitle?.trim().toLowerCase() ?? '';
     final combined = '$titleLower $lower';
 
+    // Inbound "NAME sent you Rs" / "You've got money" before outbound "sent".
+    if (_nameSentYouRsPattern.hasMatch(combined) ||
+        _youReceivedRsPattern.hasMatch(combined) ||
+        _rsReceivedFromPattern.hasMatch(combined) ||
+        _receivedInAccountPattern.hasMatch(combined) ||
+        _gotMoneyPattern.hasMatch(combined) ||
+        _creditTitlePattern.hasMatch(titleLower) ||
+        (_directionTransferPattern.hasMatch(combined) &&
+            combined.contains('incoming'))) {
+      return TransactionType.credit;
+    }
+
     // Primary wallet / Raast outbound triggers.
     if (_youSentRsPattern.hasMatch(combined) ||
         _rsSentToPattern.hasMatch(combined) ||
@@ -1603,13 +1669,6 @@ class TransactionParser {
         (_directionTransferPattern.hasMatch(combined) &&
             combined.contains('outgoing'))) {
       return TransactionType.debit;
-    }
-    if (_youReceivedRsPattern.hasMatch(combined) ||
-        _rsReceivedFromPattern.hasMatch(combined) ||
-        _receivedInAccountPattern.hasMatch(combined) ||
-        (_directionTransferPattern.hasMatch(combined) &&
-            combined.contains('incoming'))) {
-      return TransactionType.credit;
     }
 
     final hasBeen = _amountHasBeenPattern.firstMatch(combined);
@@ -1688,6 +1747,11 @@ class TransactionParser {
 
   bool _hasCreditSignal(String bodyLower, String titleLower) {
     if (_creditTitlePattern.hasMatch(titleLower)) return true;
+    if (_nameSentYouRsPattern.hasMatch('$titleLower $bodyLower') ||
+        _gotMoneyPattern.hasMatch('$titleLower $bodyLower') ||
+        _youReceivedRsPattern.hasMatch('$titleLower $bodyLower')) {
+      return true;
+    }
     const creditWords = [
       'credited',
       'received',
@@ -1696,6 +1760,7 @@ class TransactionParser {
       'cashback',
       'added to',
       'added',
+      'got',
     ];
     for (final w in creditWords) {
       if (bodyLower.contains(w) || titleLower.contains(w)) return true;
@@ -1993,6 +2058,13 @@ class TransactionParser {
     ).firstMatch(text);
     if (amountReceivedFrom != null) {
       final name = _trimMerchant(amountReceivedFrom.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (name, null);
+    }
+
+    // NayaPay: "ADEEL AHMAD sent you Rs. 300."
+    final sentYou = _nameSentYouRsPattern.firstMatch(text);
+    if (sentYou != null) {
+      final name = _trimMerchant(sentYou.group(1)!.trim());
       if (_isUsablePartyName(name)) return (name, null);
     }
 

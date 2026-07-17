@@ -103,5 +103,18 @@ void main() {
       expect(result.type, TransactionType.debit);
       expect(result.merchant, 'Mohammad Haris Imran');
     });
+
+    test('NayaPay: NAME sent you Rs with got money title', () {
+      final result = parser.parse(
+        'ADEEL AHMAD sent you Rs. 300. Go ahead, check that balance.',
+        source: TransactionSource.notification,
+        packageName: 'com.nayapay.app',
+        notificationTitle: "You've got money 🤑",
+      );
+      expect(result, isNotNull, reason: 'NayaPay casual received');
+      expect(result!.amount, 300.0);
+      expect(result.type, TransactionType.credit);
+      expect(result.merchant, 'ADEEL AHMAD');
+    });
   });
 }

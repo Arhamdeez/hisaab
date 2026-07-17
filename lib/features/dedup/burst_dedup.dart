@@ -35,7 +35,7 @@ abstract final class BurstDedup {
     r'transaction alert|money transfer|money received|money sent|'
     r'payment received|transfer successful|successful transfer|'
     r'e statement|estatement|debit alert|credit alert|'
-    r'off it goes|transaction successful)$',
+    r'off it goes|got money|you.?ve got money|transaction successful)$',
     caseSensitive: false,
   );
 

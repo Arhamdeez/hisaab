@@ -36,4 +36,30 @@ void main() {
     expect(result!.amount, 1.0);
     expect(result.merchant, 'Mohammad Haris Imran');
   });
+
+  test('parses NayaPay got-money credit from app push', () {
+    final result = parser.parse(
+      'ADEEL AHMAD sent you Rs. 300. Go ahead, check that balance.',
+      source: TransactionSource.notification,
+      packageName: 'com.nayapay.app',
+      notificationTitle: "You've got money 🤑",
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 300.0);
+    expect(result.type, TransactionType.credit);
+    expect(result.merchant, 'ADEEL AHMAD');
+  });
+
+  test('parses NayaPay got-money credit from email shade', () {
+    final result = parser.parse(
+      '2 new messages — NayaPay You got Rs. 300 from ADEEL AHMAD 🎉',
+      source: TransactionSource.gmail,
+      packageName: 'com.google.android.gm',
+      notificationTitle: '2 new messages',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 300.0);
+    expect(result.type, TransactionType.credit);
+    expect(result.merchant, 'ADEEL AHMAD');
+  });
 }

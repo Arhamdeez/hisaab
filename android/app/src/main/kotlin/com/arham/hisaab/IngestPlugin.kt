@@ -224,8 +224,12 @@ class IngestPlugin(
                 "\\bwin\\s+big\\b|" +
                 "\\bt\\s*&\\s*cs?\\s+apply\\b|\\bterms\\s+(?:and|&)\\s+conditions\\s+apply\\b|" +
                 "\\bjeet(?:ne|ein|o)\\b|\\bmauqa\\s+hasil\\b|\\bka\\s+mauqa\\b|" +
+                "\\bjeetne\\s+ka\\s+mauqa\\b|" +
                 "\\b(?:spend|shopping|istemal|use)\\s+karein\\b|" +
+                "\\binternational\\s+spend\\b|" +
                 "\\bspend\\s+globally\\b|" +
+                "\\b(?:honda|yadea).{0,48}(?:ebike|e-bike|cd\\s*70|jeet|mauqa)\\b|" +
+                "\\b(?:ebike|e-bike|cd\\s*70).{0,48}(?:jeet|mauqa|honda|yadea)\\b|" +
                 "\\boffer\\s+valid\\b|\\bvalid\\s+(?:till|until)\\b|" +
                 "\\bmaintain\\s+(?:rs\\.?|pkr)\\b|" +
                 "\\b(?:refer(?:ral)?|invite\\s+(?:friends?|and\\s+earn))\\b|" +
@@ -295,6 +299,9 @@ class IngestPlugin(
                 "\\bupgrade\\s+(?:your|to|now)\\b|\\bshop\\s+(?:now|and\\s+win|&\\s+win)\\b|" +
                 "\\bfree\\s+(?:delivery|gift|voucher|coupon|tickets?|entry)\\b|" +
                 "\\b(?:spend|shopping|istemal|use|recharge|load)\\s+kar(?:ein|o|iye)\\b|" +
+                "\\binternational\\s+spend\\b|" +
+                "\\bjeetne\\s+ka\\s+mauqa\\b|" +
+                "\\b(?:honda|yadea).{0,48}(?:ebike|e-bike|cd\\s*70|jeet|mauqa)\\b|" +
                 "\\bkarein\\s+aur\\b|\\bhasil\\s+kar(?:ein|o|iye)\\b|\\bkijiye\\b|" +
                 "\\buthayein\\b|\\bbanayein\\b|\\bpayein\\b|" +
                 "\\bt\\s*&\\s*cs?\\b|\\bterms\\s+(?:and|&)\\s+conditions\\b|" +
@@ -334,7 +341,9 @@ class IngestPlugin(
                 "fund\\s+transfer|funds?\\s+transfer|transfer\\s+to|transfer\\s+successful|" +
                 "mobile\\s+wallet|wallet\\s+a/c|" +
                 "money\\s+(?:received|sent)|payment\\s+(?:received|sent)|" +
-                "you\\s+(?:sent|paid|received|transferred)|" +
+                "(?:you.?ve|you\\s+have)\\s+got\\s+money|got\\s+money|" +
+                "you\\s+(?:sent|paid|received|got|transferred)|" +
+                "sent\\s+you\\s+(?:pkr|rs\\.?|inr|₹|₨)|" +
                 "(?:paid|sent|transferred)\\s+to\\b|" +
                 "(?:paid|sent|transferred)\\s+(?:pkr|rs\\.?|inr|₹|₨|\\$|€|£)|" +
                 "(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+sent\\s+to\\b|" +
@@ -954,8 +963,8 @@ class IngestPlugin(
 
         private val genericAlertTitleRegex = Regex(
             "^(?:unknown|dear customer|customer|wallet|account|payment|money|" +
-                "jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|" +
-                "transaction alert|money received|money sent|payment received|" +
+                "jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|meezan|" +
+                "meezan bank|transaction alert|money received|money sent|payment received|" +
                 "transfer successful|successful transfer|transfer|backup|" +
                 "off it goes|money in|money out|cha[\\s-]?ching|payment sent|" +
                 "payment received|transfer complete|transfer sent|" +
@@ -963,10 +972,20 @@ class IngestPlugin(
             RegexOption.IGNORE_CASE,
         )
 
+        private val institutionalTitleRegex = Regex(
+            "\\b(?:bank|meezan|hbl|ubl|mcb|alfalah|faysal|askari|habib|" +
+                "jazzcash|easypaisa|nayapay|sadapay|raqami|" +
+                "visa|mastercard|american\\s+express|amex|" +
+                "debit\\s+card|credit\\s+card|gold\\s+card|classic\\s+card|" +
+                "platinum\\s+card|prepaid\\s+card)\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
         private fun isGenericAlertTitle(title: String): Boolean {
             val t = title.trim()
             if (genericAlertTitleRegex.matches(t)) return true
             val lower = t.lowercase()
+            if (institutionalTitleRegex.containsMatchIn(lower)) return true
             if (Regex(
                     "\\b(?:alert|notification|helpline|security)\\b",
                     RegexOption.IGNORE_CASE,
