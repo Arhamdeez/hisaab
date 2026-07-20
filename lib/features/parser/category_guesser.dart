@@ -201,6 +201,11 @@ class CategoryGuesser {
       'bus',
       'parking',
       'toll',
+      // Traffic fines / ePay Punjab challans.
+      'traffic challan',
+      'punjab traffic',
+      'epay punjab',
+      'challan',
       // Pakistan fuel / filling stations (POS & SMS merchant names).
       'pso',
       'pakistan state oil',

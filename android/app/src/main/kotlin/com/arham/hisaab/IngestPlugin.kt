@@ -275,7 +275,15 @@ class IngestPlugin(
                 "\\bnew\\s+device\\s+(?:login|sign[\\s-]?in)\\b|" +
                 "\\b(?:security|fraud)\\s+alert\\b|" +
                 "\\bhelpline\\b|" +
-                "\\bblock\\s+(?:the\\s+)?(?:mobile\\s+)?banking\\b",
+                "\\bblock\\s+(?:the\\s+)?(?:mobile\\s+)?banking\\b|" +
+                // Unpaid challan / bill notices — "generated", not paid.
+                "\\b(?:traffic\\s+)?challan\\b.{0,160}\\b(?:is\\s+|has\\s+been\\s+)?generated\\b|" +
+                "\\b(?:is\\s+|has\\s+been\\s+)?generated\\b.{0,160}\\b(?:traffic\\s+)?challan\\b|" +
+                "\\bpsid\\s*[:=]\\s*\\d+.{0,160}\\bgenerated\\b|" +
+                "\\bgenerated\\b.{0,160}\\bpsid\\b|" +
+                "\\bgenerated\\b.{0,80}\\bepay\\b|" +
+                "\\bepay\\b.{0,80}\\bgenerated\\b|" +
+                "\\bfor\\s+payment\\s+of\\s+(?:rs\\.?|pkr).{0,80}\\bagainst\\s+vehicle\\b",
             RegexOption.IGNORE_CASE,
         )
 
@@ -321,6 +329,7 @@ class IngestPlugin(
                 "\\b(?:available|remaining|current|new)\\s+balance\\b|\\bbal(?:ance)?\\s*[:=]|" +
                 "\\breceived\\s+from\\b|\\b(?:paid|sent|transferred)\\s+to\\b|" +
                 "\\bpurchase\\s+(?:of|at)\\b|\\b(?:pos|atm)\\s+(?:purchase|withdrawal|transaction)\\b|" +
+                "\\bcash\\s+(?:deposit|withdrawal|wdl|wdr)\\b|\\bdeposit(?:ed)?\\b|\\bwithdrawal\\b|" +
                 "\\bvia\\s+(?:raast|ibft|pos|atm|1link)\\b|" +
                 "\\b(?:is\\s+)?charged\\b.*?\\bfor\\s+(?:pkr|rs\\.?)",
             RegexOption.IGNORE_CASE,
@@ -335,8 +344,9 @@ class IngestPlugin(
 
         /** Strong money-movement wording — required for unknown apps (with currency). */
         private val strongFinanceRegex = Regex(
-            "debited|credited|withdrawn|deducted|spent|transferred|purchase|" +
+            "debited|credited|withdrawn|withdrawal|deducted|spent|transferred|purchase|" +
                 "\\bcharged\\b|\\bis\\s+charged\\b|" +
+                "\\bcash\\s+(?:deposit|withdrawal|wdl|wdr)\\b|\\bdeposit(?:ed)?\\b|" +
                 "(?:debited|deducted|withdrawn|credited)\\s+by\\s+(?:pkr|rs\\.?)|" +
                 "fund\\s+transfer|funds?\\s+transfer|transfer\\s+to|transfer\\s+successful|" +
                 "mobile\\s+wallet|wallet\\s+a/c|" +
@@ -360,7 +370,7 @@ class IngestPlugin(
                 "(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+with\\b|" +
                 "you\\s+(?:have\\s+)?paid\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+at\\b|" +
                 "(?:outgoing|incoming)\\s+(?:payment|transfer|transaction|money)|" +
-                "a/c\\s*\\*+|account\\s*\\*+|trx\\s*id|trans(?:action)?\\s*id|" +
+                "a/c\\s*(?:\\*+|x+\\d*)|account\\s*(?:\\*+|x+\\d*)|trx\\s*id|trans(?:action)?\\s*id|" +
                 "raast|ibft|1link|\\bupi\\b|\\bimps\\b|\\bneft\\b|\\brtgs\\b",
             RegexOption.IGNORE_CASE,
         )
@@ -619,7 +629,8 @@ class IngestPlugin(
 
         fun sanitizeNotificationText(text: String): String {
             if (text.isBlank()) return ""
-            return text.split(Regex("\\s*[—\\-|]\\s*"))
+            // Em/en dash or pipe only — never ASCII "-" (breaks "Shah-bakht", dates).
+            return text.split(Regex("\\s*(?:—|–|\\|)\\s*"))
                 .map { it.trim() }
                 .filter { segment ->
                     segment.isNotEmpty() && !metadataSegmentRegex.containsMatchIn(segment)
@@ -779,10 +790,12 @@ class IngestPlugin(
 
         /** Signals real money movement — aligned with Dart [TransactionParser]. */
         private val walletTxnRegex = Regex(
-            "debited|credited|spent|withdrawn|deducted|transferred|received|" +
+            "debited|credited|spent|withdrawn|withdrawal|deducted|transferred|received|" +
                 "paid|sent|purchase|txn|transaction|debit|credit|refund|" +
                 "(?:received|credited|you\\s+(?:have\\s+)?got).{0,50}cashback|" +
-                "cashback.{0,50}(?:received|credited|in\\s+your)|deposited|salary|transfer|withdrawal|" +
+                "cashback.{0,50}(?:received|credited|in\\s+your)|" +
+                "\\bcash\\s+(?:deposit|withdrawal|wdl|wdr|in|out)\\b|\\bdeposit(?:ed)?\\b|" +
+                "salary|transfer|withdrawal|" +
                 "payment|charged|bill|added|successful|completed|processed|" +
                 "money\\s+received|money\\s+sent|payment\\s+received|payment\\s+sent|" +
                 "transfer\\s*successful|successfully\\s*transferred|" +
@@ -790,11 +803,11 @@ class IngestPlugin(
                 "transfer\\s+to|transfer\\s+from|received\\s+from|" +
                 "amount\\s+of\\s+(?:rs|pkr)|money\\s+transfer\\s+of|successfully\\s+sent|" +
                 "(?:payment|transfer|transaction|remittance|payout)\\s+of\\s+(?:rs|pkr|inr|\\$|€|£)|" +
-                "outgoing|incoming|remittance|payout|top-?up|cash\\s+(?:in|out)|" +
+                "outgoing|incoming|remittance|payout|top-?up|" +
                 "raast|ibft|1link|\\bupi\\b|\\bimps\\b|\\bneft\\b|\\brtgs\\b|\\bp2p\\b|" +
                 "transaction\\s+successful|" +
                 "sent\\s*(?:rs|pkr)|received\\s*(?:rs|pkr)|" +
-                "a/c\\s*\\*+|account\\s*\\*+|your\\s+account|trx\\s*id|trans(?:action)?\\s*id|t(?:xn|rxn)\\s*no|" +
+                "a/c|account|\\*{3,}|your\\s+account|trx\\s*id|trans(?:action)?\\s*id|t(?:xn|rxn)\\s*no|" +
                 "has\\s*been\\s*(?:debited|credited|deducted|sent|paid|transferred|received)|" +
                 "was\\s+(?:successfully\\s+)?(?:sent|paid|transferred|debited|credited|received|processed)",
             RegexOption.IGNORE_CASE,

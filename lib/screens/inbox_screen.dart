@@ -17,9 +17,14 @@ import '../widgets/category_confirm_sheet.dart';
 class InboxScreen extends StatelessWidget {
   const InboxScreen({super.key});
 
+  static const routeName = '/inbox';
+
   static Future<void> open(BuildContext context) {
     return Navigator.of(context).push<void>(
-      MaterialPageRoute(builder: (_) => const InboxScreen()),
+      MaterialPageRoute(
+        settings: const RouteSettings(name: routeName),
+        builder: (_) => const InboxScreen(),
+      ),
     );
   }
 

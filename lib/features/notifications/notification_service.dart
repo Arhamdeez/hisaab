@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,6 +11,7 @@ import '../../core/database/app_database.dart' hide Transaction;
 import '../../core/repositories/transaction_repository.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/transaction.dart';
+import '../../screens/inbox_screen.dart';
 
 /// Action ids shared between the posted notification and the response handler.
 const _acceptActionId = 'accept_txn';
@@ -59,16 +60,22 @@ class NotificationService {
 
   static final NotificationService instance = NotificationService._();
 
+  /// Used to open Inbox when the user taps an own-account transfer notification.
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
   static const _channelId = 'captured_transactions';
   static const _channelName = 'Payment tracking';
   static const _channelDescription =
       'Alerts when HISAAB logs a payment, and Accept/Reject for self-transfers.';
   static const _iosCategoryReview = 'txn_self_transfer_review';
+  static const _inboxPayloadMarker = 'inbox';
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
   bool _initialized = false;
+  bool _pendingOpenInbox = false;
 
   /// Fast path: invoked (in the main isolate) when an action is handled while
   /// the app is alive, so the listener can apply it directly without the queue.
@@ -125,9 +132,52 @@ class NotificationService {
       }
 
       _initialized = true;
+      await _captureLaunchInboxTap();
     } catch (e) {
       debugPrint('NotificationService init error: $e');
     }
+  }
+
+  /// Cold start: user tapped an own-account review notification to open the app.
+  Future<void> _captureLaunchInboxTap() async {
+    try {
+      final launch = await _plugin.getNotificationAppLaunchDetails();
+      if (launch?.didNotificationLaunchApp != true) return;
+      final response = launch!.notificationResponse;
+      if (response != null && _isReviewInboxTap(response)) {
+        _pendingOpenInbox = true;
+      }
+    } catch (e) {
+      debugPrint('NotificationService launch details error: $e');
+    }
+  }
+
+  /// Opens Inbox if a review-notification tap is waiting (call once UI is ready).
+  void consumePendingInboxOpen() {
+    if (!_pendingOpenInbox) return;
+    _pendingOpenInbox = false;
+    openInbox();
+  }
+
+  /// Navigates to the Inbox (own-account transfer review list).
+  void openInbox() {
+    final nav = navigatorKey.currentState;
+    final context = navigatorKey.currentContext;
+    if (nav == null || context == null) {
+      _pendingOpenInbox = true;
+      return;
+    }
+    // Avoid stacking duplicate Inbox routes.
+    final currentName = ModalRoute.of(context)?.settings.name;
+    if (currentName == InboxScreen.routeName) return;
+    unawaited(
+      nav.push<void>(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: InboxScreen.routeName),
+          builder: (_) => const InboxScreen(),
+        ),
+      ),
+    );
   }
 
   /// Asks the OS for permission to post notifications (Android 13+ / iOS).
@@ -252,8 +302,9 @@ class NotificationService {
     }
   }
 
+  /// Payload marks review alerts so a body tap opens Inbox (not Accept/Reject).
   static String _payloadFor(Transaction transaction) =>
-      '${transaction.id}|${transaction.isDebit ? 'd' : 'c'}';
+      '${transaction.id}|${transaction.isDebit ? 'd' : 'c'}|$_inboxPayloadMarker';
 
   /// Title + body for a newly captured transaction.
   static ({String title, String body}) _captureAlertCopy(
@@ -264,12 +315,12 @@ class NotificationService {
 
     if (transaction.isDebit) {
       return (
-        title: 'Gone.',
+        title: 'SPENT',
         body: '−$amount to $merchant',
       );
     }
     return (
-      title: 'Got it.',
+      title: 'RECEIVED',
       body: '+$amount from $merchant',
     );
   }
@@ -294,23 +345,41 @@ class NotificationService {
 
   void _onForegroundResponse(NotificationResponse response) {
     final decision = _parse(response);
-    if (decision == null) {
-      debugPrint(
-        'NotificationService ignored response '
-        'action=${response.actionId} payload=${response.payload}',
-      );
+    if (decision != null) {
+      unawaited(_dismiss(decision.id));
+      final handler = onForegroundDecision;
+      if (handler != null) {
+        unawaited(
+          handler(decision).then((_) => _removePendingForId(decision.id)),
+        );
+      } else {
+        unawaited(_enqueue(decision));
+      }
       return;
     }
 
-    unawaited(_dismiss(decision.id));
-    final handler = onForegroundDecision;
-    if (handler != null) {
-      unawaited(
-        handler(decision).then((_) => _removePendingForId(decision.id)),
-      );
-    } else {
-      unawaited(_enqueue(decision));
+    // Body tap on "Own-account transfer?" → open Inbox for Accept/Reject there.
+    if (_isReviewInboxTap(response)) {
+      openInbox();
+      return;
     }
+
+    debugPrint(
+      'NotificationService ignored response '
+      'action=${response.actionId} payload=${response.payload}',
+    );
+  }
+
+  /// True when the user taps the notification body (not Accept/Reject).
+  static bool _isReviewInboxTap(NotificationResponse response) {
+    final payload = response.payload;
+    if (payload == null || payload.isEmpty) return false;
+    if (!payload.split('|').contains(_inboxPayloadMarker)) return false;
+    final actionId = response.actionId;
+    if (actionId == _acceptActionId || actionId == _rejectActionId) {
+      return false;
+    }
+    return actionId == null || actionId.isEmpty;
   }
 
   /// Applies a single decision to [repository].

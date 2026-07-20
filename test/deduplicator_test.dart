@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spend_tracker/core/database/app_database.dart';
 import 'package:spend_tracker/core/repositories/transaction_repository.dart';
+import 'package:spend_tracker/core/utils/cash_flow.dart';
 import 'package:spend_tracker/features/dedup/deduplicator.dart';
 import 'package:spend_tracker/features/parser/transaction_parser.dart';
 import 'package:spend_tracker/models/transaction.dart';
@@ -411,11 +412,11 @@ void main() {
     );
   });
 
-  test('stores failed online transaction with failed status', () async {
+  test('stores failed online transaction with failed status (not in spend)', () async {
     const text =
-        'Online transaction failed — Your online transaction at GOOGLE *Play '
-        'g.co/helppay#US failed due to online transactions disabled on your '
-        'Visa — 3865 card.';
+        'Online transaction failed — Transaction of Rs. 376.80 at '
+        'SHOPIFY* 560398773 SINGAPORE SG failed because of insufficient '
+        'funds in your wallet.';
     final when = DateTime(2026, 7, 10, 3, 13);
 
     final parsed = parser.parse(
@@ -426,6 +427,7 @@ void main() {
     );
     expect(parsed, isNotNull);
     expect(parsed!.isFailed, isTrue);
+    expect(parsed.amount, 376.80);
 
     final outcome = await deduplicator.processIncoming(
       parsed: parsed,
@@ -436,9 +438,14 @@ void main() {
 
     expect(outcome.result, DedupResult.created);
     expect(outcome.transaction?.status, TransactionStatus.failed);
-    expect(outcome.transaction?.amount, 0);
+    expect(outcome.transaction?.amount, 376.80);
 
-    final confirmed = await repository.getAll();
-    expect(confirmed.single.status, TransactionStatus.failed);
+    final all = await repository.getAll();
+    expect(all.single.status, TransactionStatus.failed);
+
+    // Failed rows must not affect cash-in / cash-out totals.
+    final flow = CashFlowMetrics.fromTransactions(all);
+    expect(flow.cashOut, 0);
+    expect(flow.cashIn, 0);
   });
 }

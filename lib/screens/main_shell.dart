@@ -61,6 +61,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       NotificationService.instance.requestPermission();
+      // Own-account transfer notification body tap (incl. cold start) → Inbox.
+      NotificationService.instance.consumePendingInboxOpen();
     });
   }
 
@@ -125,6 +127,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed && mounted) {
       // Share sheets and system pickers can leave a ghost snackbar shell.
       ScaffoldMessenger.of(context).clearSnackBars();
+      NotificationService.instance.consumePendingInboxOpen();
     }
   }
 

@@ -79,9 +79,7 @@ class TransactionTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    isFailed
-                        ? 'Failed'
-                        : '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
+                    isFailed ? 'Failed' : '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: isFailed
                           ? AppColors.textMuted
@@ -91,6 +89,16 @@ class TransactionTile extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                  if (isFailed && transaction.amount > 0) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      formatCurrency(transaction.amount),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.textDim,
+                        decoration: TextDecoration.lineThrough,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 3),
                   Text(
                     '${formatShortDate(transaction.occurredAt)} · '

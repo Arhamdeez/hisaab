@@ -3,6 +3,22 @@ import 'package:spend_tracker/features/parser/category_guesser.dart';
 import 'package:spend_tracker/models/transaction.dart';
 
 void main() {
+  group('CategoryGuesser transport fines', () {
+    test('maps traffic challan / ePay Punjab to transport', () {
+      for (final text in [
+        'Punjab Traffic Challan',
+        'Traffic Challan bill paid',
+        'ePay Punjab challan payment',
+      ]) {
+        expect(
+          CategoryGuesser.guess(text),
+          SpendingCategory.transport,
+          reason: text,
+        );
+      }
+    });
+  });
+
   group('CategoryGuesser PK fuel stations', () {
     test('maps common pump brands to transport', () {
       final samples = [

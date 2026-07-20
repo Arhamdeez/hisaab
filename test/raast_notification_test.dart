@@ -46,4 +46,61 @@ void main() {
     expect(result!.amount, 1000);
     expect(result.type, TransactionType.debit);
   });
+
+  test('uses Account Title as merchant from EasyPaisa Raast e-statement email', () {
+    const body = '''
+Money Transfer via Raast Payment Transaction Successful
+Hi MUHAMMAD ARHAM BABAR,
+Money Transfer of Rs. 350.0 on 18-Jul-2026 to Raast ID/IBAN was successful
+TRANSACTION DETAILS
+Transaction Type Raast Payment
+Transaction ID 52889864323
+Date & Time 18-Jul-2026 16:55:02
+Raast ID/IBAN *******9232
+Account Title MUHAMMAD ARSHAD
+Sender Name MUHAMMAD ARHAM BABAR
+Sender Number 03244200101
+AMOUNT DETAILS
+Transfer amount Rs. 350.0
+Fee Rs. 0.00
+Total Rs. 350.0
+''';
+    final result = parser.parse(
+      body,
+      source: TransactionSource.notification,
+      packageName: 'com.google.android.gm',
+      notificationTitle: 'e.statement',
+    );
+
+    expect(result, isNotNull);
+    expect(result!.amount, 350);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant, 'MUHAMMAD ARSHAD');
+    expect(result.receiverName, 'MUHAMMAD ARSHAD');
+    expect(result.merchant, isNot(contains('Account Title')));
+    expect(result.merchant, isNot(contains('Sender Name')));
+  });
+
+  test('does not use flattened e-statement field dump as merchant', () {
+    const body =
+        'Date & Time 18-Jul-2026 17:49:22 Raast ID/ IBAN *******0101 '
+        'Account Title MUHAMMAD ARHAM BABAR Sender Name MUHAMMAD ARHAM BABAR '
+        'Sender Number 03244200101 AMOUNT DETAILS Transfer amount Rs. 1000.0 '
+        'Fee Rs. 0.00 Total Rs. 1000.0 Money Transfer of Rs. 1000.0 on '
+        '18-Jul-2026 to Raast ID/IBAN was successful';
+    final result = parser.parse(
+      body,
+      source: TransactionSource.notification,
+      packageName: 'com.google.android.gm',
+      notificationTitle: 'e.statement',
+    );
+
+    expect(result, isNotNull);
+    expect(result!.amount, 1000);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant, 'MUHAMMAD ARHAM BABAR');
+    expect(result.merchant.length, lessThan(40));
+    expect(result.merchant, isNot(contains('Date & Time')));
+    expect(result.merchant, isNot(contains('AMOUNT DETAILS')));
+  });
 }

@@ -861,6 +861,21 @@ void main() {
       expect(result.type, TransactionType.debit);
     });
 
+    test('registers Shopify insufficient-funds failed with amount, not counted', () {
+      final result = parser.parse(
+        'Online transaction failed — Transaction of Rs. 376.80 at '
+        'SHOPIFY* 560398773 SINGAPORE SG failed because of insufficient '
+        'funds in your wallet.',
+        source: TransactionSource.notification,
+        notificationTitle: 'Original message',
+        packageName: bankPkg,
+      );
+      expect(result, isNotNull);
+      expect(result!.isFailed, isTrue);
+      expect(result.amount, 376.80);
+      expect(result.merchant.toLowerCase(), contains('shopify'));
+    });
+
     test('does not treat merchant reference digits as failed payment amount', () {
       final result = parser.parse(
         'Online transaction failed — Your online transaction at Google Play 650 — '
@@ -873,7 +888,7 @@ void main() {
       expect(result.amount, 0);
     });
 
-    test('registers failed international transaction fee with amount', () {
+    test('registers failed international transaction fee as real spend', () {
       final result = parser.parse(
         'You have incurred Failed Int. Transactions Fees of Rs. 418.63. '
         'Your limit has been reset.',
@@ -881,7 +896,7 @@ void main() {
         packageName: bankPkg,
       );
       expect(result, isNotNull);
-      expect(result!.isFailed, isTrue);
+      expect(result!.isFailed, isFalse);
       expect(result.amount, 418.63);
       expect(result.merchant.toLowerCase(), contains('failed transaction fee'));
     });

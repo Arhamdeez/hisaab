@@ -116,5 +116,33 @@ void main() {
       expect(result.type, TransactionType.credit);
       expect(result.merchant, 'ADEEL AHMAD');
     });
+
+    test('NayaPay: spent online at Shopify, not Card in action title', () {
+      final result = parser.parse(
+        'Card in action 💳 — You spent Rs. 376.80 online at Shopify* 560398967 '
+        '+18887467439 Sg. Zero hesitation, we love it.',
+        source: TransactionSource.notification,
+        packageName: 'com.nayapay.app',
+        notificationTitle: 'Card in action 💳',
+      );
+      expect(result, isNotNull);
+      expect(result!.amount, 376.80);
+      expect(result.type, TransactionType.debit);
+      expect(result.merchant, 'Shopify');
+    });
+
+    test('NayaPay: Money sent You sent Rs keeps hyphenated payee name', () {
+      final result = parser.parse(
+        'You sent Rs. 1 to Muhammad Shah-bakht Khurram. Well, that’s generous 😏',
+        source: TransactionSource.notification,
+        packageName: 'com.nayapay.app',
+        notificationTitle: 'Money sent 💸',
+      );
+      expect(result, isNotNull);
+      expect(result!.amount, 1);
+      expect(result.type, TransactionType.debit);
+      expect(result.merchant, 'Muhammad Shah-bakht Khurram');
+      expect(result.isFailed, isFalse);
+    });
   });
 }

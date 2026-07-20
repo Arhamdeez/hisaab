@@ -89,7 +89,7 @@ class TransactionParser {
       id: 3,
       name: 'Credit Received',
       pattern:
-          r'(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d+)?)\s+(?:credited|received|deposited)',
+          r'(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d+)?)\s+(?:credited|received|deposit(?:ed)?)',
       sourceHint: 'sms',
       enabled: true,
     ),
@@ -144,14 +144,14 @@ class TransactionParser {
       id: 10,
       name: 'Generic Credit',
       pattern:
-          r'(?:credited|received|deposited).*?(?:Rs\.?|PKR|INR|₹|₨)\s*([\d,]+(?:\.\d+)?)',
+          r'(?:credited|received|deposit(?:ed)?).*?(?:Rs\.?|PKR|INR|₹|₨)\s*([\d,]+(?:\.\d+)?)',
       enabled: true,
     ),
     ParserRule(
       id: 11,
       name: 'UBL / PKR Debit',
       pattern:
-          r'(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?).*?(?:debited|debit|deducted|withdrawn|spent|paid)',
+          r'(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?).*?(?:debited|debit|deducted|withdrawn|withdrawal|spent|paid)',
       sourceHint: 'notification',
       enabled: true,
     ),
@@ -159,7 +159,7 @@ class TransactionParser {
       id: 12,
       name: 'UBL / PKR Credit',
       pattern:
-          r'(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?).*?(?:credited|credit|deposited|received)',
+          r'(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?).*?(?:credited|credit|deposit(?:ed)?|received)',
       sourceHint: 'notification',
       enabled: true,
     ),
@@ -167,7 +167,7 @@ class TransactionParser {
       id: 13,
       name: 'PKR Debit (amount after verb)',
       pattern:
-          r'(?:debited|deducted|withdrawn).*?(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?)',
+          r'(?:debited|deducted|withdrawn|withdrawal).*?(?:PKR|Rs\.?)\s*([\d,]+(?:\.\d+)?)',
       enabled: true,
     ),
     ParserRule(
@@ -334,7 +334,9 @@ class TransactionParser {
         return token;
       });
     }
-    final segments = scratch.split(RegExp(r'\s*[—\-|]\s*'));
+    // Split only on em/en dash or pipe — never ASCII "-" (breaks names like
+    // "Shah-bakht" and ISO dates that weren't date-protected).
+    final segments = scratch.split(RegExp(r'\s*(?:—|–|\|)\s*'));
     final kept = <String>[];
     for (final segment in segments) {
       final t = segment.trim();
@@ -363,8 +365,7 @@ class TransactionParser {
     caseSensitive: false,
   );
 
-  /// Bank/wallet alerts for declined, blocked, or penalized payments — captured
-  /// for history but never counted as spending.
+  /// Declined / blocked payment attempts — no money moved, do not register.
   static final _failedTransactionPattern = RegExp(
     r'\b(?:online\s+)?(?:transaction|payment|transfer|purchase|txn)\s+failed\b|'
     r'\bfailed\s+(?:online\s+)?(?:transaction|payment|transfer|purchase)\b|'
@@ -372,6 +373,16 @@ class TransactionParser {
     r'(?:declined|rejected|unsuccessful|not\s+(?:processed|completed))\b|'
     r'\bunsuccessful\s+(?:transaction|payment|transfer|purchase)\b|'
     r'\bcould\s+not\s+(?:be\s+)?(?:processed|completed)\b|'
+    r'\bfailed\s+because\s+of\b|'
+    r'\binsufficient\s+funds\b|'
+    r'\bfailed\s+(?:int(?:ernational)?\.?\s+)?transaction(?:s)?\s+fees?\b|'
+    r'\b(?:incurred|charged)\s+failed\s+(?:int(?:ernational)?\.?\s+)?'
+    r'(?:transaction\s+)?fees?\b',
+    caseSensitive: false,
+  );
+
+  /// Actual fee charged after failed online attempts — real debit, keep it.
+  static final _failedTransactionFeePattern = RegExp(
     r'\bfailed\s+(?:int(?:ernational)?\.?\s+)?transaction(?:s)?\s+fees?\b|'
     r'\b(?:incurred|charged)\s+failed\s+(?:int(?:ernational)?\.?\s+)?'
     r'(?:transaction\s+)?fees?\b',
@@ -399,6 +410,10 @@ class TransactionParser {
   /// debit or credit.
   static bool isFailedTransactionNotification(String text) =>
       _failedTransactionPattern.hasMatch(text);
+
+  /// True when a "failed" alert is actually a charged fee (money left the account).
+  static bool isFailedTransactionFee(String text) =>
+      _failedTransactionFeePattern.hasMatch(text);
 
   /// Fingerprint for failed alerts — includes raw text so repeated failures at
   /// the same merchant on the same day stay distinct.
@@ -502,7 +517,15 @@ class TransactionParser {
     r'\bnew\s+device\s+(?:login|sign[\s-]?in)\b|' +
     r'\b(?:security|fraud)\s+alert\b|' +
     r'\bhelpline\b|' +
-    r'\bblock\s+(?:the\s+)?(?:mobile\s+)?banking\b',
+    r'\bblock\s+(?:the\s+)?(?:mobile\s+)?banking\b|'
+    // Unpaid challan / bill notices — "generated", not paid.
+    r'\b(?:traffic\s+)?challan\b.{0,160}\b(?:is\s+|has\s+been\s+)?generated\b|'
+    r'\b(?:is\s+|has\s+been\s+)?generated\b.{0,160}\b(?:traffic\s+)?challan\b|'
+    r'\bpsid\s*[:=]\s*\d+.{0,160}\bgenerated\b|'
+    r'\bgenerated\b.{0,160}\bpsid\b|'
+    r'\bgenerated\b.{0,80}\bepay\b|'
+    r'\bepay\b.{0,80}\bgenerated\b|'
+    r'\bfor\s+payment\s+of\s+(?:rs\.?|pkr).{0,80}\bagainst\s+vehicle\b',
     caseSensitive: false,
   );
 
@@ -552,6 +575,7 @@ class TransactionParser {
     r'\b(?:available|remaining|current|new)\s+balance\b|\bbal(?:ance)?\s*[:=]|'
     r'\breceived\s+from\b|\b(?:paid|sent|transferred)\s+to\b|'
     r'\bpurchase\s+(?:of|at)\b|\b(?:pos|atm)\s+(?:purchase|withdrawal|transaction)\b|'
+    r'\bcash\s+(?:deposit|withdrawal|wdl|wdr)\b|\bdeposit(?:ed)?\b|\bwithdrawal\b|'
     r'\bvia\s+(?:raast|ibft|pos|atm|1link)\b|'
     r'\b(?:is\s+)?charged\b.*?\bfor\s+(?:pkr|rs\.?)',
     caseSensitive: false,
@@ -565,8 +589,9 @@ class TransactionParser {
 
   /// Strong money-movement wording — required for unknown apps (with currency).
   static final _strongFinanceSignals = RegExp(
-    r'debited|credited|withdrawn|deducted|spent|transferred|purchase|'
+    r'debited|credited|withdrawn|withdrawal|deducted|spent|transferred|purchase|'
     r'\bcharged\b|\bis\s+charged\b|'
+    r'\bcash\s+(?:deposit|withdrawal|wdl|wdr)\b|\bdeposit(?:ed)?\b|'
     r'(?:debited|deducted|withdrawn|credited)\s+by\s+(?:pkr|rs\.?)|'
     r'fund\s+transfer|funds?\s+transfer|transfer\s+to|transfer\s+successful|'
     r'mobile\s+wallet|wallet\s+a/c|'
@@ -587,33 +612,37 @@ class TransactionParser {
     r'(?:pkr|rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+received\s+from\b|'
     r'(?:pkr|rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+with\b|'
     r'you\s+(?:have\s+)?paid\s+(?:pkr|rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+at\b|'
-    r'a/c\s*\*+|account\s*\*+|trx\s*id|trans(?:action)?\s*id|'
+    r'a/c\s*(?:\*+|x+\d*)|account\s*(?:\*+|x+\d*)|trx\s*id|trans(?:action)?\s*id|'
     r'raast|ibft|1link|\bupi\b|\bimps\b|\bneft\b|\brtgs\b',
     caseSensitive: false,
   );
 
+  /// Aligned with Android IngestPlugin.monitoredWalletFallbackRegex — masked
+  /// A/C refs use asterisks or x's (e.g. "A/C xxx9931", "A/c **1234").
   static final _monitoredWalletFallback = RegExp(
-    r'a/c\s*\*+|account\s*\*+|trx\s*id|trans(?:action)?\s*id|t(?:xn|rxn)\s*no|'
+    r'a/c|account|\*{3,}|trx\s*id|trans(?:action)?\s*id|t(?:xn|rxn)\s*no|'
     r'\bTID:\s*\d{5,}',
     caseSensitive: false,
   );
 
   // Signals real money movement — aligned with Android IngestPlugin.walletTxnRegex.
   static final _walletTxnSignals = RegExp(
-    r'debited|credited|spent|withdrawn|deducted|transferred|received|'
+    r'debited|credited|spent|withdrawn|withdrawal|deducted|transferred|received|'
     r'\bpaid\b|\bsent\b|purchase|\btxn\b|transaction|\bdebit\b|\bcredit\b|'
     r'refund|(?:received|credited|you\s+(?:have\s+)?got).{0,50}cashback|'
-    r'cashback.{0,50}(?:received|credited|in\s+your)|deposited|salary|transfer|withdrawal|'
+    r'cashback.{0,50}(?:received|credited|in\s+your)|'
+    r'\bcash\s+(?:deposit|withdrawal|wdl|wdr|in|out)\b|\bdeposit(?:ed)?\b|'
+    r'salary|transfer|withdrawal|'
     r'payment|charged|\bbill\b|added|successful|completed|processed|'
     r'money\s+received|money\s+sent|payment\s+received|payment\s+sent|'
     r'transfer\s*successful|successfully\s*transferred|'
     r'you\s+sent|you\s+paid|you\s+transferred|sent\s+to|paid\s+to|transfer\s+to|transfer\s+from|'
     r'received\s+from|amount\s+of\s+(?:rs|pkr)|money\s+transfer\s+of|successfully\s+sent|'
     r'(?:payment|transfer|transaction|remittance|payout)\s+of\s+(?:rs|pkr|inr|\$|€|£)|'
-    r'outgoing|incoming|remittance|payout|top-?up|cash\s+(?:in|out)|'
+    r'outgoing|incoming|remittance|payout|top-?up|'
     r'raast|ibft|1link|\bupi\b|\bimps\b|\bneft\b|\brtgs\b|\bp2p\b|transaction\s+successful|'
     r'sent\s*(?:rs|pkr)|received\s*(?:rs|pkr)|'
-    r'a/c\s*\*+|account\s*\*+|your\s+account|trx\s*id|trans(?:action)?\s*id|t(?:xn|rxn)\s*no|'
+    r'a/c|account|\*{3,}|your\s+account|trx\s*id|trans(?:action)?\s*id|t(?:xn|rxn)\s*no|'
     r'has\s*been\s*(?:debited|credited|deducted|sent|paid|transferred|received)|'
     r'was\s+(?:successfully\s+)?(?:sent|paid|transferred|debited|credited|received|processed)',
     caseSensitive: false,
@@ -671,6 +700,8 @@ class TransactionParser {
     if (normalized.isEmpty) return null;
 
     if (isFailedTransactionNotification(normalized)) {
+      // Failed attempts are stored with status=failed (shown, not counted).
+      // Charged failed-transaction *fees* are real money out and count normally.
       return _parseFailed(
         text: text,
         normalized: normalized,
@@ -793,6 +824,7 @@ class TransactionParser {
         _extractOccurredAt(normalized, fallbackTime: fallbackTime) ??
         fallbackTime;
     final category = CategoryGuesser.guess('$merchant $normalized');
+    final chargedFee = isFailedTransactionFee(normalized);
 
     return ParsedTransaction(
       amount: amount,
@@ -803,7 +835,8 @@ class TransactionParser {
       accountRef: accountRef,
       referenceId: referenceId,
       occurredAt: occurredAt,
-      isFailed: true,
+      // Fee charges count as spend; declined/insufficient-funds attempts do not.
+      isFailed: !chargedFee,
     );
   }
 
@@ -823,6 +856,27 @@ class TransactionParser {
     if (atMerchant != null) {
       final name = _trimMerchant(atMerchant.group(1)!.trim());
       if (_isUsableMerchant(name)) return name;
+    }
+
+    // "Transaction of Rs. 376.80 at SHOPIFY* … failed because…"
+    final ofAmountAt = RegExp(
+      r'(?:transaction|payment|purchase)\s+of\s+'
+      r'(?:rs\.?|pkr|inr|₹|₨)\.?\s*[\d,]+(?:\.\d+)?\s+at\s+'
+      r"([A-Za-z][A-Za-z0-9&.'\-]*)",
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (ofAmountAt != null) {
+      final name = _trimMerchant(ofAmountAt.group(1)!.trim());
+      if (_isUsableMerchant(name)) return name;
+    }
+
+    final onlineAt = RegExp(
+      r"(?:online\s+)?at\s+([A-Za-z][A-Za-z0-9&.'\-]*)\*?",
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (onlineAt != null) {
+      final name = _trimMerchant(onlineAt.group(1)!.trim());
+      if (_isUsableMerchant(name) && !_isGenericFromTarget(name)) return name;
     }
 
     if (_failedFeeAmountPattern.hasMatch(text) ||
@@ -870,7 +924,7 @@ class TransactionParser {
     r'meezan bank|visa|mastercard|bank|'
     r'transaction alert|money received|money sent|payment received|'
     r'transfer successful|successful transfer|transfer|'
-    r'got money|you.?ve got money|off it goes)$',
+    r'got money|you.?ve got money|off it goes|original message)$',
     caseSensitive: false,
   );
 
@@ -890,6 +944,14 @@ class TransactionParser {
     (String?, String?) parties, {
     String? notificationTitle,
   }) {
+    // EasyPaisa / bank e-statements put the payee in "Account Title …".
+    final fromStatement = _extractStatementPartyName(text, type);
+    if (_isUsablePartyName(fromStatement)) return fromStatement;
+
+    // Bill receipts: "Punjab Traffic Challan bill for 4926… has been paid".
+    final fromBill = _extractBillPayeeName(text);
+    if (_isUsableMerchant(fromBill)) return fromBill;
+
     // Body counterparty always wins over notification headings
     // ("Raast Incoming Payment", "Meezan Bank Alert", etc.).
     if (type == TransactionType.credit) {
@@ -927,7 +989,8 @@ class TransactionParser {
         !_isSmsShortCode(fromTitle)) {
       return fromTitle;
     }
-    return extracted;
+    // Never fall back to an unusable extraction (e.g. e-statement field dump).
+    return _isUsableMerchant(extracted) ? extracted : null;
   }
 
   /// Wallet/bank SMS short codes (3737, 8558, …) — never a merchant name.
@@ -948,11 +1011,18 @@ class TransactionParser {
 
     trimmed = trimmed.replaceAll(
       RegExp(
-        r'[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]+$',
+        r'[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]+',
         unicode: true,
       ),
       '',
     ).trim();
+    // Drop marketing headlines after emoji strip ("Card in action 💳").
+    if (trimmed.isEmpty ||
+        _isGenericAlertTitle(trimmed) ||
+        _isAlertStyleHeading(trimmed) ||
+        _isAmountOrAlertTitle(trimmed)) {
+      return null;
+    }
 
     final leading = _nameBeforeSentenceDot(trimmed);
     if (leading != null) return leading;
@@ -988,6 +1058,7 @@ class TransactionParser {
     if (!_isUsableMerchant(value)) return false;
     if (_isPhoneLike(value!)) return false;
     if (_isGenericFromTarget(value)) return false;
+    if (_isStatementFieldLabel(value)) return false;
     return true;
   }
 
@@ -996,11 +1067,61 @@ class TransactionParser {
     caseSensitive: false,
   );
 
+  /// EasyPaisa / bank e-statement label blobs — never a person/merchant name.
+  static final _statementFieldDumpPattern = RegExp(
+    r'\b(?:account\s+title|sender\s+name|sender\s+number|amount\s+details|'
+    r'transaction\s+details|date\s*&\s*time|raast\s+id(?:\s*/\s*iban)?|'
+    r'transfer\s+amount|transaction\s+type|transaction\s+id)\b',
+    caseSensitive: false,
+  );
+
+  static final _statementFieldLabelOnly = RegExp(
+    r'^(?:account\s+title|sender\s+name|sender\s+number|amount\s+details|'
+    r'transaction\s+details|date\s*&\s*time|raast\s+id(?:\s*/\s*iban)?|'
+    r'transfer\s+amount|transaction\s+type|transaction\s+id|'
+    r'raast(?:\s+payment)?|iban)$',
+    caseSensitive: false,
+  );
+
+  /// "Account Title MUHAMMAD ARSHAD" on EasyPaisa Raast e-statements.
+  static final _accountTitlePattern = RegExp(
+    r'account\s+title\s+'
+    r"([A-Za-z\u0600-\u06FF][A-Za-z\u0600-\u06FF .'\-]{1,48}?)"
+    r'(?=\s+(?:sender\s+name|sender\s+number|amount\s+details|raast\s+id|'
+    r'transaction\s+(?:type|id|details)|fee|total|helpline|disclaimer|'
+    r'transfer\s+amount|\d{2,})|\s*$)',
+    caseSensitive: false,
+  );
+
+  /// "Sender Name MUHAMMAD ARHAM BABAR" — counterparty on inbound statements.
+  static final _senderNameFieldPattern = RegExp(
+    r'sender\s+name\s+'
+    r"([A-Za-z\u0600-\u06FF][A-Za-z\u0600-\u06FF .'\-]{1,48}?)"
+    r'(?=\s+(?:sender\s+number|account\s+title|amount\s+details|raast\s+id|'
+    r'transaction\s+(?:type|id|details)|fee|total|helpline|disclaimer|'
+    r'transfer\s+amount|\d{2,})|\s*$)',
+    caseSensitive: false,
+  );
+
   bool _isGenericFromTarget(String value) {
     final n = value.toLowerCase().trim();
     if (_genericFromTargets.hasMatch(n)) return true;
     return RegExp(r'^(?:your|my)\s+(?:account|wallet|a/c|ac|bank)$')
         .hasMatch(n);
+  }
+
+  bool _isStatementFieldLabel(String value) {
+    final trimmed = value.trim();
+    if (_statementFieldLabelOnly.hasMatch(trimmed)) return true;
+    // Flattened e-statement shade text jammed into the name field.
+    if (_statementFieldDumpPattern.hasMatch(trimmed) &&
+        trimmed.length > 40) {
+      return true;
+    }
+    if (RegExp(r'^date\s*&\s*time\b', caseSensitive: false).hasMatch(trimmed)) {
+      return true;
+    }
+    return false;
   }
 
   bool _isGenericAlertTitle(String value) =>
@@ -1018,7 +1139,29 @@ class TransactionParser {
     final trimmed = value.trim();
     if (trimmed.length < 2) return false;
     if (_isSmsShortCode(trimmed)) return false;
+    if (_isStatementFieldLabel(trimmed)) return false;
     return !_genericMerchants.hasMatch(trimmed);
+  }
+
+  String? _extractStatementPartyName(String text, TransactionType type) {
+    if (type == TransactionType.credit) {
+      final sender = _senderNameFieldPattern.firstMatch(text);
+      if (sender != null) {
+        final name = _trimMerchant(sender.group(1)!.trim());
+        if (_isUsablePartyName(name)) return name;
+      }
+    }
+    final title = _accountTitlePattern.firstMatch(text);
+    if (title != null) {
+      final name = _trimMerchant(title.group(1)!.trim());
+      if (_isUsablePartyName(name)) return name;
+    }
+    if (type == TransactionType.debit) {
+      // Outbound e-statement: Account Title is the payee; ignore Sender Name
+      // (usually the account holder).
+      return null;
+    }
+    return null;
   }
 
   static final _creditSenderPatterns = [
@@ -1156,14 +1299,16 @@ class TransactionParser {
     if (_walletTxnSignals.hasMatch(combined)) {
       // Has some direction hint — only ambiguous if no clear credit/debit word.
       const clear = [
-        'received', 'credited', 'deposited', 'sent', 'paid', 'debited',
-        'withdrawn', 'transferred',
+        'received', 'credited', 'deposited', 'deposit', 'sent', 'paid', 'debited',
+        'withdrawn', 'withdrawal', 'transferred',
       ];
       if (clear.any(combined.contains)) return false;
     }
     return _plainAmountPattern.hasMatch(text) &&
-        !RegExp(r'(?:received|credited|sent|paid|debited)', caseSensitive: false)
-            .hasMatch(combined);
+        !RegExp(
+          r'(?:received|credited|deposit(?:ed)?|sent|paid|debited|withdrawal)',
+          caseSensitive: false,
+        ).hasMatch(combined);
   }
 
   /// Easypaisa / Raast: "An amount of Rs. 1000.0 has been successfully sent…"
@@ -1278,6 +1423,7 @@ class TransactionParser {
     }
     if (_strongFinanceSignals.hasMatch(text)) return true;
     if (_monitoredWalletFallback.hasMatch(text)) return true;
+    if (_walletTxnSignals.hasMatch(text)) return true;
     if (_isTitleWithAmountBody(
       notificationTitle: notificationTitle,
       text: text,
@@ -1320,6 +1466,7 @@ class TransactionParser {
     r'transfer successful|successful transfer|transfer|backup|'
     r'off it goes|money in|money out|cha[\s-]?ching|payment sent|'
     r'payment received|transfer complete|transfer sent|'
+    r'original message|card in action|'
     r'raast (?:incoming|outgoing) payment)$',
     caseSensitive: false,
   );
@@ -1332,6 +1479,13 @@ class TransactionParser {
     if (_genericMerchants.hasMatch(lower)) return true;
     if (_genericAlertTitlePattern.hasMatch(lower)) return true;
     if (_institutionalTitlePattern.hasMatch(lower)) return true;
+    // Wallet marketing headlines — never the payee ("Card in action 💳").
+    if (RegExp(
+      r'^card\s+in\s+action\b|\bzero\s+hesitation\b|\bwe\s+love\s+it\b',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
+      return true;
+    }
     if (RegExp(
       r'\b(?:alert|notification|helpline|security)\b',
       caseSensitive: false,
@@ -1617,7 +1771,7 @@ class TransactionParser {
   }
 
   static final _creditTitlePattern = RegExp(
-    r'money\s+received|payment\s+received|cash\s+received|'
+    r'money\s+received|payment\s+received|cash\s+received|cash\s+deposit|'
     r'(?:you.?ve|you\s+have)\s+got\s+money|\bgot\s+money\b|'
     r'raast\s+incoming\s+payment|incoming\s+payment|'
     r'received\s+(?:rs\.?|pkr|inr|₹|₨|\$|€|£|usd|eur|gbp|money|payment|cash)|'
@@ -1698,10 +1852,26 @@ class TransactionParser {
       }
     }
 
+    // Prefer specific bank txn codes before generic contains() checks —
+    // "CASH DEPOSIT-LCY" / "CASH WITHDRAWAL" must not fall through as debit.
+    if (RegExp(
+      r'\bcash\s+deposit\b|\bdeposit(?:ed)?\b',
+      caseSensitive: false,
+    ).hasMatch(combined)) {
+      return TransactionType.credit;
+    }
+    if (RegExp(
+      r'\bcash\s+(?:withdrawal|wdl|wdr)\b|\bwithdrawal\b|\bwithdrawn\b',
+      caseSensitive: false,
+    ).hasMatch(combined)) {
+      return TransactionType.debit;
+    }
+
     const creditWords = [
       'credited',
       'received',
       'deposited',
+      'deposit',
       'salary',
       'refund',
       'cashback',
@@ -1715,6 +1885,7 @@ class TransactionParser {
       'paid',
       'charged',
       'withdrawn',
+      'withdrawal',
       'sent',
       'transferred',
       'deducted',
@@ -1756,6 +1927,7 @@ class TransactionParser {
       'credited',
       'received',
       'deposited',
+      'deposit',
       'refund',
       'cashback',
       'added to',
@@ -1775,6 +1947,7 @@ class TransactionParser {
       'spent',
       'paid',
       'withdrawn',
+      'withdrawal',
       'sent',
       'transferred',
       'deducted',
@@ -1799,8 +1972,45 @@ class TransactionParser {
     );
   }
 
+  /// "Punjab Traffic Challan bill for 4926… of Rs 2,015.00 … has been paid".
+  String? _extractBillPayeeName(String text) {
+    final billFor = RegExp(
+      r"((?:[A-Za-z][A-Za-z0-9&./'\-]*)(?:\s+[A-Za-z][A-Za-z0-9&./'\-]*){0,6})"
+      r'\s+(?:bill|challan)\s+for\s+\d+',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (billFor != null) {
+      final name = _trimMerchant(billFor.group(1)!.trim());
+      if (name.length >= 3 && _isUsableMerchant(name)) return name;
+    }
+
+    final leadingChallan = RegExp(
+      r'^((?:[A-Za-z]+\s+){0,4}Traffic\s+Challan)\b',
+      caseSensitive: false,
+    ).firstMatch(text.trim());
+    if (leadingChallan != null) {
+      final name = _trimMerchant(leadingChallan.group(1)!.trim());
+      if (name.length >= 3 && _isUsableMerchant(name)) return name;
+    }
+    return null;
+  }
+
   String? _extractMerchant(String text, {TransactionType? type}) {
     final patterns = [
+      // Meezan / bank branch: "CASH DEPOSIT-LCY at AHMED PUR EAST BR … in A/C xxx9931"
+      RegExp(
+        r'(?:cash\s+)?(?:deposit|withdrawal|wdl|wdr)(?:-[a-z]+)?\s+at\s+'
+        r'(.+?)\s+(?:in\s+)?(?:a/c|ac#|account)\b',
+        caseSensitive: false,
+      ),
+      // NayaPay / card wallets: "You spent Rs. 376.80 online at Shopify* 560…"
+      RegExp(
+        r'(?:you\s+)?(?:have\s+)?spent\s+'
+        r'(?:(?:rs\.?|pkr|inr|₹|₨)\.?\s*[\d,]+(?:\.\d+)?\s+)?'
+        r'(?:online\s+)?at\s+'
+        r"([A-Za-z][A-Za-z0-9&.'\-]*)",
+        caseSensitive: false,
+      ),
       // Easypaisa debit-card SMS: "paid Rs. 1,100.00 at MERCHANT … on 2026-07-08"
       RegExp(
         r'you\s+(?:have\s+)?paid\s+(?:'
@@ -1823,10 +2033,16 @@ class TransactionParser {
             r'(?=\s*[.…]|\s*$)',
         caseSensitive: false,
       ),
+      // "… online at Shopify*" / "… at MERCHANT* 1234" before descriptor junk.
+      RegExp(
+        r"(?:online\s+)?at\s+([A-Za-z][A-Za-z0-9&.'\-]*)\*?",
+        caseSensitive: false,
+      ),
       RegExp(
         r'(?:to|at|for)\s+' +
             _partyCaptureLazy +
-            r'(?=\s+(?:on|via|at|for|from|ref|trx|txn|\d{4}-\d{2}-\d{2})|\s*[,.]|$)',
+            r'(?=\s+(?:on|via|at|for|from|ref|trx|txn|in\s+(?:a/c|ac#|account)|'
+            r'\d{4}-\d{2}-\d{2}|\d{2}-[A-Za-z]{3}-\d{2,4})|\s*[,.]|$)',
         caseSensitive: false,
       ),
       RegExp(r'Info:\s*([A-Za-z0-9/.\-]+)', caseSensitive: false),
@@ -1882,15 +2098,18 @@ class TransactionParser {
   String? _nameBeforeSentenceDot(String segment) {
     if (segment.isEmpty) return null;
     if (_isAlertStyleHeading(segment)) return null;
+    if (_isStatementFieldLabel(segment)) return null;
     if (RegExp(
       r'^(?:you |pkr|rs\.?|inr|₹|dear |payment |money |jazzcash|easypaisa|'
-      r'transaction |transfer |sent |received |raast |login )',
+      r'transaction |transfer |sent |spent |received |raast |login |date |account |'
+      r'sender |amount |hi |card in action)',
       caseSensitive: false,
     ).hasMatch(segment)) {
       return null;
     }
 
     final truncated = _truncateAtSentenceDot(segment);
+    if (_isStatementFieldLabel(truncated)) return null;
     if (truncated.length >= 2 && truncated.length < segment.length) {
       return truncated;
     }
@@ -1924,6 +2143,8 @@ class TransactionParser {
   /// "Amazon").
   String _trimMerchant(String value) {
     var v = _truncateAtSentenceDot(value);
+    // Card network descriptors: "Shopify* 560398967 +1888… Sg"
+    v = v.replaceAll(RegExp(r'\*.*$'), '').trim();
     final boundary = RegExp(
       r'\s+(?:on|in|via|ref|refno|a/c|ac|upi|info|bal|avl|available|dated|date|'
       r'txn|trxn|id|using|through|towards|not|will|has|is|from)\b.*$',
@@ -1954,7 +2175,7 @@ class TransactionParser {
 
   String? _extractAccountRef(String text) {
     final match = RegExp(
-      r'(?:A/c|A/C|Account)\s*\*+\s*(\d{4})',
+      r'(?:A/c|A/C|AC#?|Account)\s*(?:\*+|x+)\s*(\d{3,4})\b',
       caseSensitive: false,
     ).firstMatch(text);
     return match?.group(1);
@@ -1966,6 +2187,14 @@ class TransactionParser {
     String text,
     TransactionType type,
   ) {
+    // Structured e-statement fields before free-text "to Raast ID/IBAN" noise.
+    final statementName = _extractStatementPartyName(text, type);
+    if (_isUsablePartyName(statementName)) {
+      return type == TransactionType.credit
+          ? (statementName, null)
+          : (null, statementName);
+    }
+
     final fromTo = RegExp(
       r'from\s+' + _partyCaptureLazy + r'\s+to\s+' + _partyCapture,
       caseSensitive: false,
@@ -2016,6 +2245,18 @@ class TransactionParser {
     ).firstMatch(text);
     if (paidAt != null) {
       final name = _trimMerchant(paidAt.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (null, name);
+    }
+
+    final spentAt = RegExp(
+      r'(?:you\s+)?(?:have\s+)?spent\s+'
+      r'(?:(?:rs\.?|pkr|inr|₹|₨)\.?\s*[\d,]+(?:\.\d+)?\s+)?'
+      r'(?:online\s+)?at\s+'
+      r"([A-Za-z][A-Za-z0-9&.'\-]*)",
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (spentAt != null) {
+      final name = _trimMerchant(spentAt.group(1)!.trim());
       if (_isUsablePartyName(name)) return (null, name);
     }
 

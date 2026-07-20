@@ -16,6 +16,7 @@ import 'features/backup/backup_service.dart';
 import 'features/dedup/deduplicator.dart';
 import 'features/ingest/ingest_bridge.dart';
 import 'features/ingest/ingest_service.dart';
+import 'features/notifications/notification_service.dart';
 import 'providers/app_preferences.dart';
 import 'providers/category_catalog.dart';
 import 'providers/transaction_provider.dart';
@@ -148,6 +149,7 @@ class SpendTrackerApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: AppTheme.dark,
           scrollBehavior: const AppScrollBehavior(),
+          navigatorKey: NotificationService.navigatorKey,
           home: const AppBootstrap(),
         ),
       ),
