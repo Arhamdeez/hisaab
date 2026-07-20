@@ -42,6 +42,7 @@ class Deduplicator {
             amount: parsed.amount,
             occurredAt: occurredAt,
             merchant: parsed.merchant,
+            type: parsed.type,
             accountRef: parsed.accountRef,
             referenceId: referenceId,
           );
@@ -60,7 +61,9 @@ class Deduplicator {
     }
 
     final exact = await _repository.getByFingerprint(fingerprint);
-    if (exact != null) {
+    // Guard: never merge a credit into a debit (or vice versa), even if an
+    // older fingerprint without type somehow collides.
+    if (exact != null && exact.type == parsed.type) {
       return _mergeExisting(
         existing: exact,
         source: source,

@@ -225,8 +225,8 @@ class NotificationService {
       _channelId,
       _channelName,
       channelDescription: _channelDescription,
-      importance: Importance.defaultImportance,
-      priority: Priority.defaultPriority,
+      importance: Importance.high,
+      priority: Priority.high,
       category: AndroidNotificationCategory.status,
     );
     const darwinDetails = DarwinNotificationDetails(

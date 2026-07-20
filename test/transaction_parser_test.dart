@@ -136,15 +136,34 @@ void main() {
       amount: 500,
       occurredAt: DateTime(2026, 6, 16),
       merchant: 'Swiggy',
+      type: TransactionType.debit,
       accountRef: '4521',
     );
     final fp2 = TransactionParser.buildFingerprint(
       amount: 500,
       occurredAt: DateTime(2026, 6, 16),
       merchant: 'swiggy',
+      type: TransactionType.debit,
       accountRef: '4521',
     );
     expect(fp1, fp2);
+  });
+
+  test('debit and credit fingerprints differ for same merchant amount day', () {
+    final when = DateTime(2026, 7, 20);
+    final debit = TransactionParser.buildFingerprint(
+      amount: 1,
+      occurredAt: when,
+      merchant: 'Muhammad Shahbakht Khurram',
+      type: TransactionType.debit,
+    );
+    final credit = TransactionParser.buildFingerprint(
+      amount: 1,
+      occurredAt: when,
+      merchant: 'Muhammad Shahbakht Khurram',
+      type: TransactionType.credit,
+    );
+    expect(debit, isNot(credit));
   });
 
   test('extracts from/to parties for self-transfer detection', () {

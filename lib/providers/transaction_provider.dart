@@ -254,6 +254,7 @@ class TransactionProvider extends ChangeNotifier {
       amount: amount,
       occurredAt: now,
       merchant: merchant,
+      type: type,
     );
 
     await _repository.save(

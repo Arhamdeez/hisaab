@@ -144,5 +144,32 @@ void main() {
       expect(result.merchant, 'Muhammad Shah-bakht Khurram');
       expect(result.isFailed, isFalse);
     });
+
+    test('NayaPay: Youve got money NAME sent you Rs registers as credit', () {
+      final result = parser.parse(
+        'Muhammad Shahbakht Khurram sent you Rs. 1. Go ahead, check that balance.',
+        source: TransactionSource.notification,
+        packageName: 'com.nayapay.app',
+        notificationTitle: "You've got money 🤑",
+      );
+      expect(result, isNotNull);
+      expect(result!.amount, 1);
+      expect(result.type, TransactionType.credit);
+      expect(result.merchant, 'Muhammad Shahbakht Khurram');
+      expect(result.isFailed, isFalse);
+    });
+
+    test('NayaPay: curly apostrophe Youve got money still credits', () {
+      final result = parser.parse(
+        'Muhammad Shahbakht Khurram sent you Rs. 1. Go ahead, check that balance.',
+        source: TransactionSource.notification,
+        packageName: 'com.nayapay.app',
+        notificationTitle: 'You’ve got money 🤑',
+      );
+      expect(result, isNotNull);
+      expect(result!.amount, 1);
+      expect(result.type, TransactionType.credit);
+      expect(result.merchant, 'Muhammad Shahbakht Khurram');
+    });
   });
 }

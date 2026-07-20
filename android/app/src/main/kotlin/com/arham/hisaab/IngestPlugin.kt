@@ -321,7 +321,9 @@ class IngestPlugin(
         private val completedTxnEvidenceRegex = Regex(
             "has\\s+been\\s+(?:debited|credited|deducted|withdrawn|transferred|sent|paid|received|reversed)|" +
                 "(?:debited|credited|deducted|withdrawn)\\s+(?:by|with|from|for)\\b|" +
-                "\\byou\\s+(?:have\\s+)?(?:sent|paid|received|transferred)\\b|" +
+                "\\byou\\s+(?:have\\s+)?(?:sent|paid|received|transferred|spent)\\b|" +
+                "\\bsent\\s+you\\s+(?:pkr|rs\\.?|inr|₹|₨)|" +
+                "(?:you.?ve|you\\s+have)\\s+got\\s+money|\\bgot\\s+money\\b|" +
                 "\\bsuccessfully\\s+(?:sent|received|transferred|paid|credited|debited)|" +
                 "\\b(?:transaction|transfer|payment|txn)\\s+(?:successful|completed?)\\b|" +
                 "\\b(?:trx|txn|trxn|transaction)\\s*(?:id|no|#)|" +
@@ -697,6 +699,19 @@ class IngestPlugin(
             RegexOption.IGNORE_CASE,
         )
 
+        /** NayaPay inbound: "ADEEL AHMAD sent you Rs. 300." */
+        private val nameSentYouRsRegex = Regex(
+            "[A-Za-z\\u0600-\\u06FF][A-Za-z0-9\\u0600-\\u06FF .'\\-]{0,48}?" +
+                "\\s+sent\\s+you\\s+(?:pkr|rs\\.?|inr|₹|₨)\\.?\\s*[\\d,]+",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** NayaPay credit title: "You've got money" (with amount elsewhere). */
+        private val gotMoneyRegex = Regex(
+            "(?:you.?ve|you\\s+have)\\s+got\\s+money|\\bgot\\s+money\\b",
+            RegexOption.IGNORE_CASE,
+        )
+
         /** Easypaisa: "You have received Rs.1 in your Easypaisa account…" */
         private val receivedInAccountRegex = Regex(
             "you\\s+(?:have\\s+)?received\\s+(?:pkr|rs\\.?)\\.?\\s*[\\d,]+(?:\\.\\d+)?\\s+in\\s+your",
@@ -937,6 +952,8 @@ class IngestPlugin(
             if (youSentRsRegex.containsMatchIn(text)) return true
             if (youJustSentToRegex.containsMatchIn(text)) return true
             if (youReceivedRsRegex.containsMatchIn(text)) return true
+            if (nameSentYouRsRegex.containsMatchIn(text)) return true
+            if (gotMoneyRegex.containsMatchIn(text) && hasFinanceAmount(text)) return true
             if (receivedInAccountRegex.containsMatchIn(text)) return true
             if (rsSentToRegex.containsMatchIn(text)) return true
             if (rsReceivedFromRegex.containsMatchIn(text)) return true
@@ -981,6 +998,8 @@ class IngestPlugin(
                 "transfer successful|successful transfer|transfer|backup|" +
                 "off it goes|money in|money out|cha[\\s-]?ching|payment sent|" +
                 "payment received|transfer complete|transfer sent|" +
+                "original message|card in action|" +
+                "got money|you.?ve got money|" +
                 "raast (?:incoming|outgoing) payment)\$",
             RegexOption.IGNORE_CASE,
         )

@@ -448,4 +448,50 @@ void main() {
     expect(flow.cashOut, 0);
     expect(flow.cashIn, 0);
   });
+
+  test('credit after same-day debit to same person creates a new row', () async {
+    final when = DateTime(2026, 7, 20, 9, 45);
+    final debitParsed = parser.parse(
+      'You sent Rs. 1 to Muhammad Shahbakht Khurram. Well, that’s generous 😏',
+      source: TransactionSource.notification,
+      fallbackTime: when,
+      notificationTitle: 'Money sent 💸',
+      packageName: 'com.nayapay.app',
+    );
+    expect(debitParsed, isNotNull);
+    expect(debitParsed!.type, TransactionType.debit);
+
+    final debitOutcome = await deduplicator.processIncoming(
+      parsed: debitParsed,
+      source: TransactionSource.notification,
+      rawText: 'You sent Rs. 1 to Muhammad Shahbakht Khurram.',
+      messageTime: when,
+    );
+    expect(debitOutcome.result, DedupResult.created);
+
+    final creditWhen = when.add(const Duration(hours: 5));
+    final creditParsed = parser.parse(
+      'Muhammad Shahbakht Khurram sent you Rs. 1. Go ahead, check that balance.',
+      source: TransactionSource.notification,
+      fallbackTime: creditWhen,
+      notificationTitle: "You've got money 🤑",
+      packageName: 'com.nayapay.app',
+    );
+    expect(creditParsed, isNotNull);
+    expect(creditParsed!.type, TransactionType.credit);
+
+    final creditOutcome = await deduplicator.processIncoming(
+      parsed: creditParsed,
+      source: TransactionSource.notification,
+      rawText: 'Muhammad Shahbakht Khurram sent you Rs. 1.',
+      messageTime: creditWhen,
+    );
+    expect(creditOutcome.result, DedupResult.created);
+    expect(creditOutcome.transaction?.type, TransactionType.credit);
+
+    final all = await repository.getAll();
+    expect(all.length, 2);
+    expect(all.where((t) => t.type == TransactionType.debit).length, 1);
+    expect(all.where((t) => t.type == TransactionType.credit).length, 1);
+  });
 }

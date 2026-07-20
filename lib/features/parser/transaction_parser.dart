@@ -567,7 +567,9 @@ class TransactionParser {
   static final _completedTxnEvidencePattern = RegExp(
     r'has\s+been\s+(?:debited|credited|deducted|withdrawn|transferred|sent|paid|received|reversed)|'
     r'(?:debited|credited|deducted|withdrawn)\s+(?:by|with|from|for)\b|'
-    r'\byou\s+(?:have\s+)?(?:sent|paid|received|transferred)\b|'
+    r'\byou\s+(?:have\s+)?(?:sent|paid|received|transferred|spent)\b|'
+    r'\bsent\s+you\s+(?:pkr|rs\.?|inr|₹|₨)|'
+    r'(?:you.?ve|you\s+have)\s+got\s+money|\bgot\s+money\b|'
     r'\bsuccessfully\s+(?:sent|received|transferred|paid|credited|debited)|'
     r'\b(?:transaction|transfer|payment|txn)\s+(?:successful|completed?)\b|'
     r'\b(?:trx|txn|trxn|transaction)\s*(?:id|no|#)|'
@@ -1751,14 +1753,18 @@ class TransactionParser {
     required double amount,
     required DateTime occurredAt,
     required String merchant,
+    required TransactionType type,
     String? accountRef,
     String? referenceId,
   }) {
     // A unique reference id alone identifies the payment — keep the fingerprint
     // stable across channels (which label merchant/account differently) yet
     // distinct for separate payments that happen to share amount + day.
+    // Include type so a debit and credit for the same person/amount/day
+    // (e.g. send Rs 1, then receive Rs 1) never collapse into one row.
+    final typeKey = type == TransactionType.credit ? 'c' : 'd';
     if (referenceId != null && referenceId.isNotEmpty) {
-      final payload = '${amount.toStringAsFixed(2)}|ref:$referenceId';
+      final payload = '$typeKey|${amount.toStringAsFixed(2)}|ref:$referenceId';
       return sha256.convert(utf8.encode(payload)).toString();
     }
     final day = '${occurredAt.year}-${occurredAt.month}-${occurredAt.day}';
@@ -1766,7 +1772,7 @@ class TransactionParser {
     final normalizedMerchant =
         cleaned.length > 20 ? cleaned.substring(0, 20) : cleaned;
     final payload =
-        '${amount.toStringAsFixed(2)}|$day|$normalizedMerchant|${accountRef ?? ''}';
+        '$typeKey|${amount.toStringAsFixed(2)}|$day|$normalizedMerchant|${accountRef ?? ''}';
     return sha256.convert(utf8.encode(payload)).toString();
   }
 
