@@ -895,6 +895,22 @@ void main() {
       expect(result.merchant.toLowerCase(), contains('shopify'));
     });
 
+    test('registers Google Wallet DECLINED as failed, not spend', () {
+      final result = parser.parse(
+        'JOHNNY AND JUGNU — DECLINED -\n'
+        'PKR3,560.00 with EP Digital Card Google Wallet ••8421',
+        source: TransactionSource.notification,
+        notificationTitle: 'Original message',
+        packageName: 'com.google.android.apps.walletnfcrel',
+      );
+      expect(result, isNotNull);
+      expect(result!.isFailed, isTrue);
+      expect(result.amount, 3560);
+      expect(result.type, TransactionType.debit);
+      expect(result.merchant.toUpperCase(), contains('JOHNNY'));
+      expect(result.merchant.toUpperCase(), isNot(contains('DECLINED')));
+    });
+
     test('does not treat merchant reference digits as failed payment amount', () {
       final result = parser.parse(
         'Online transaction failed — Your online transaction at Google Play 650 — '

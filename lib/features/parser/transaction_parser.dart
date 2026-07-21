@@ -365,7 +365,7 @@ class TransactionParser {
     caseSensitive: false,
   );
 
-  /// Declined / blocked payment attempts — no money moved, do not register.
+  /// Declined / blocked payment attempts — shown as failed, not counted as spend.
   static final _failedTransactionPattern = RegExp(
     r'\b(?:online\s+)?(?:transaction|payment|transfer|purchase|txn)\s+failed\b|'
     r'\bfailed\s+(?:online\s+)?(?:transaction|payment|transfer|purchase)\b|'
@@ -375,6 +375,8 @@ class TransactionParser {
     r'\bcould\s+not\s+(?:be\s+)?(?:processed|completed)\b|'
     r'\bfailed\s+because\s+of\b|'
     r'\binsufficient\s+funds\b|'
+    // Google Wallet / card: "JOHNNY AND JUGNU — DECLINED - PKR3,560.00 with …"
+    r'\bdeclined\b|\brejected\b|\bdenied\b|\bnot\s+approved\b|'
     r'\bfailed\s+(?:int(?:ernational)?\.?\s+)?transaction(?:s)?\s+fees?\b|'
     r'\b(?:incurred|charged)\s+failed\s+(?:int(?:ernational)?\.?\s+)?'
     r'(?:transaction\s+)?fees?\b',
@@ -854,6 +856,20 @@ class TransactionParser {
   }
 
   String _extractFailedMerchant(String text, String? notificationTitle) {
+    // Google Wallet: "JOHNNY AND JUGNU — DECLINED - PKR3,560.00 with …"
+    final declinedLead = RegExp(
+      r'^(.+?)\s*[—\-–]+\s*(?:declined|rejected|denied|failed)\b',
+      caseSensitive: false,
+    ).firstMatch(text.trim());
+    if (declinedLead != null) {
+      final name = _trimMerchant(declinedLead.group(1)!.trim());
+      if (_isUsableMerchant(name) &&
+          !_isAlertStyleHeading(name) &&
+          !_isGenericFromTarget(name)) {
+        return name;
+      }
+    }
+
     final atMerchant = _failedAtMerchantPattern.firstMatch(text);
     if (atMerchant != null) {
       final name = _trimMerchant(atMerchant.group(1)!.trim());
