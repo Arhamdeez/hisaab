@@ -1,8 +1,10 @@
 import '../../models/transaction.dart';
 import '../../providers/category_catalog.dart';
+import 'mcc_catalog.dart';
 
 enum CategorySuggestionSource {
   history,
+  mcc,
   text,
   parsed,
   defaultOther,
@@ -12,10 +14,12 @@ class CategorySuggestion {
   const CategorySuggestion({
     required this.categoryId,
     required this.source,
+    this.mcc,
   });
 
   final String categoryId;
   final CategorySuggestionSource source;
+  final int? mcc;
 
   bool get isConfident =>
       categoryId != SpendingCategory.other.storageKey &&
@@ -26,6 +30,8 @@ class CategorySuggestion {
     return switch (source) {
       CategorySuggestionSource.history =>
         'Same merchant before · $label',
+      CategorySuggestionSource.mcc =>
+        mcc != null ? 'MCC $mcc · $label' : 'Card category · $label',
       CategorySuggestionSource.text => 'Detected from details · $label',
       CategorySuggestionSource.parsed => 'Parser guess · $label',
       CategorySuggestionSource.defaultOther => 'Choose a category',
@@ -506,7 +512,11 @@ class CategoryGuesser {
     ],
   };
 
+  /// Resolves a category: MCC in the text first, then keyword heuristics.
   static SpendingCategory guess(String text) {
+    final fromMcc = MccCatalog.categoryFromText(text);
+    if (fromMcc != null) return fromMcc;
+
     final lower = text.toLowerCase();
     for (final entry in _rules.entries) {
       for (final keyword in entry.value) {
@@ -516,7 +526,7 @@ class CategoryGuesser {
     return SpendingCategory.other;
   }
 
-  /// Picks the best category using past confirmed spends, then merchant text.
+  /// Picks the best category using history, then MCC, then merchant text.
   static CategorySuggestion suggest({
     required String merchant,
     String? rawText,
@@ -537,7 +547,20 @@ class CategoryGuesser {
       ?rawText,
       ?userNote,
     ].join(' ');
-    final fromText = guess(blob);
+
+    final mcc = MccCatalog.extract(blob);
+    if (mcc != null) {
+      final fromMcc = MccCatalog.categoryFor(mcc);
+      if (fromMcc != SpendingCategory.other) {
+        return CategorySuggestion(
+          categoryId: fromMcc.storageKey,
+          source: CategorySuggestionSource.mcc,
+          mcc: mcc,
+        );
+      }
+    }
+
+    final fromText = _guessKeywords(blob);
     if (fromText != SpendingCategory.other) {
       return CategorySuggestion(
         categoryId: fromText.storageKey,
@@ -557,6 +580,16 @@ class CategoryGuesser {
       categoryId: SpendingCategory.other.storageKey,
       source: CategorySuggestionSource.defaultOther,
     );
+  }
+
+  static SpendingCategory _guessKeywords(String text) {
+    final lower = text.toLowerCase();
+    for (final entry in _rules.entries) {
+      for (final keyword in entry.value) {
+        if (lower.contains(keyword)) return entry.key;
+      }
+    }
+    return SpendingCategory.other;
   }
 
   static String? _fromHistory(

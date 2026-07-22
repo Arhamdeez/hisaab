@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import '../../models/transaction.dart';
 import '../ingest/monitored_packages.dart';
 import 'category_guesser.dart';
+import 'mcc_catalog.dart';
 
 class ParserRule {
   const ParserRule({
@@ -35,6 +36,7 @@ class ParsedTransaction {
     this.senderName,
     this.receiverName,
     this.isFailed = false,
+    this.mcc,
   });
 
   final double amount;
@@ -47,6 +49,9 @@ class ParsedTransaction {
   /// Unique transaction/reference number (e.g. "Trx ID 51830190523"). The same
   /// payment shares this across channels; distinct payments never collide.
   final String? referenceId;
+
+  /// ISO 18245 merchant category code when the alert printed one.
+  final int? mcc;
 
   final DateTime? occurredAt;
 
@@ -771,7 +776,9 @@ class TransactionParser {
     final occurredAt = _extractOccurredAt(text, fallbackTime: fallbackTime) ??
         _extractOccurredAt(normalized, fallbackTime: fallbackTime) ??
         fallbackTime;
-    final category = CategoryGuesser.guess('$merchant $normalized');
+    final categoryBlob = '$merchant $normalized';
+    final mcc = MccCatalog.extract(categoryBlob);
+    final category = CategoryGuesser.guess(categoryBlob);
 
     var confidence = 0.55;
     for (final rule in _rules) {
@@ -785,6 +792,7 @@ class TransactionParser {
     if (merchant != 'Unknown') confidence += 0.1;
     if (accountRef != null) confidence += 0.08;
     if (occurredAt != null) confidence += 0.05;
+    if (mcc != null) confidence += 0.08;
     if (_youSentRsPattern.hasMatch(normalized) ||
         _youReceivedRsPattern.hasMatch(normalized) ||
         _nameSentYouRsPattern.hasMatch(normalized) ||
@@ -809,6 +817,7 @@ class TransactionParser {
       occurredAt: occurredAt,
       senderName: senderName,
       receiverName: receiverName,
+      mcc: mcc,
     );
   }
 
@@ -835,7 +844,9 @@ class TransactionParser {
     final occurredAt = _extractOccurredAt(text, fallbackTime: fallbackTime) ??
         _extractOccurredAt(normalized, fallbackTime: fallbackTime) ??
         fallbackTime;
-    final category = CategoryGuesser.guess('$merchant $normalized');
+    final categoryBlob = '$merchant $normalized';
+    final mcc = MccCatalog.extract(categoryBlob);
+    final category = CategoryGuesser.guess(categoryBlob);
     final chargedFee = isFailedTransactionFee(normalized);
 
     return ParsedTransaction(
@@ -849,6 +860,7 @@ class TransactionParser {
       occurredAt: occurredAt,
       // Fee charges count as spend; declined/insufficient-funds attempts do not.
       isFailed: !chargedFee,
+      mcc: mcc,
     );
   }
 
