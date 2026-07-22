@@ -74,14 +74,18 @@ class TransactionProvider extends ChangeNotifier {
     });
   }
 
-  /// Full history for a month — confirmed and inbox-pending (not ignored).
+  /// Month history for the Transactions tab — confirmed and failed only.
+  ///
+  /// Inbox [TransactionStatus.pendingReview] stays off this list until Accept;
+  /// Reject ([TransactionStatus.ignored]) never appears.
   List<Transaction> historyForMonth(DateTime month) {
     final key = '${_monthKey(month)}-history';
     return _monthTxCache.putIfAbsent(key, () {
       return _transactions
           .where(
             (t) =>
-                t.status != TransactionStatus.ignored &&
+                (t.status == TransactionStatus.confirmed ||
+                    t.status == TransactionStatus.failed) &&
                 t.occurredAt.year == month.year &&
                 t.occurredAt.month == month.month,
           )
@@ -89,16 +93,10 @@ class TransactionProvider extends ChangeNotifier {
     });
   }
 
-  /// Newest transactions for [month] on home — includes inbox-pending rows.
+  /// Newest transactions for [month] on home — same visibility as Transactions.
   List<Transaction> recentForMonth(DateTime month, {int limit = 5}) {
-    final sorted = List<Transaction>.from(
-      _transactions.where(
-        (t) =>
-            t.status != TransactionStatus.ignored &&
-            t.occurredAt.year == month.year &&
-            t.occurredAt.month == month.month,
-      ),
-    )..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+    final sorted = List<Transaction>.from(historyForMonth(month))
+      ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
     if (sorted.length <= limit) return sorted;
     return sorted.sublist(0, limit);
   }

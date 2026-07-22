@@ -442,6 +442,14 @@ class TransactionParser {
   static final _noiseNotificationPattern = RegExp(
     r'\b(?:otp|one[\s-]?time\s+(?:password|pin|code)|verification\s+code|'
     r'confirm(?:ation)?\s+code|security\s+code|passcode)\b|'
+    // 3DS / wallet "tap to confirm" — not a completed payment.
+    r'\bverify\s+(?:online\s+)?payment\b|'
+    r'\btap\s+to\s+confirm\b|'
+    r'\bconfirm\s+(?:this\s+)?(?:payment|purchase|transaction)\b|'
+    r'\bapprove\s+(?:this\s+)?(?:payment|purchase|transaction)\b|'
+    r'\bpending\s+(?:authorization|authentication|approval)\b|'
+    r'\b(?:3d\s*secure|3ds)\b|'
+    r'\bauthenticate\s+(?:to\s+)?(?:complete|confirm)\b|'
     r'\b(?:followers?|following|subscribers?|views?|likes?)\b|'
     r'\b(?:steps|calories|heart\s+rate|km\s+walked|workout)\b|'
     r'\b(?:battery|charging|charge\s+complete)\b|'

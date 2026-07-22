@@ -197,6 +197,14 @@ class IngestPlugin(
         private val noiseNotificationRegex = Regex(
             "\\b(?:otp|one[\\s-]?time\\s+(?:password|pin|code)|verification\\s+code|" +
                 "confirm(?:ation)?\\s+code|security\\s+code|passcode)\\b|" +
+                // 3DS / wallet "tap to confirm" — not a completed payment.
+                "\\bverify\\s+(?:online\\s+)?payment\\b|" +
+                "\\btap\\s+to\\s+confirm\\b|" +
+                "\\bconfirm\\s+(?:this\\s+)?(?:payment|purchase|transaction)\\b|" +
+                "\\bapprove\\s+(?:this\\s+)?(?:payment|purchase|transaction)\\b|" +
+                "\\bpending\\s+(?:authorization|authentication|approval)\\b|" +
+                "\\b(?:3d\\s*secure|3ds)\\b|" +
+                "\\bauthenticate\\s+(?:to\\s+)?(?:complete|confirm)\\b|" +
                 "\\b(?:followers?|following|subscribers?|views?|likes?)\\b|" +
                 "\\b(?:steps|calories|heart\\s+rate|km\\s+walked|workout)\\b|" +
                 "\\b(?:battery|charging|charge\\s+complete)\\b|" +
