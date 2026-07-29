@@ -67,8 +67,12 @@ abstract final class CrossSourceDedup {
     // Different transaction ids -> genuinely different payments.
     if (BurstDedup.referencesConflict(referenceId, existing)) return false;
 
-    // Strongest signal: both channels report the same transaction time. This
-    // catches the same payment even when each channel uses a different label.
+    // Same printed Trx ID across SMS + app push — always one payment.
+    if (BurstDedup.referencesMatch(referenceId, existing)) return true;
+
+    // Strongest timing signal: both channels report the same transaction time.
+    // Catches EasyPaisa SMS (full merchant + Trx ID) + app push (merchant "-")
+    // a minute apart even when one side has no usable reference id.
     if (occurredAt.difference(existing.occurredAt).abs() <= sameMomentWindow) {
       return true;
     }

@@ -117,6 +117,78 @@ void main() {
     expect(outcome.transaction?.status, TransactionStatus.confirmed);
   });
 
+  test('merges EasyPaisa SMS with stripped app push for same POS payment', () async {
+    final smsTime = DateTime(2026, 7, 24, 18, 46);
+    const sms =
+        'Your payment at BITTU FOOD POINT has been completed. '
+        'Transaction ID 53170298022 Till No. 981728046 Amount: Rs. 210.00 '
+        'at 24 July 2026.';
+    const push =
+        'easypaisa — Dear Customer, Your payment at - has been completed. '
+        'Transaction ID -. Amount: Rs. 210.00 at 24-Jul-2026.';
+
+    final first = await ingest(
+      text: sms,
+      messageTime: smsTime,
+      source: TransactionSource.sms,
+    );
+    expect(first.result, DedupResult.created);
+    expect(first.transaction?.merchant, 'BITTU FOOD POINT');
+    expect(
+      TransactionParser.extractReferenceId(sms),
+      '53170298022',
+    );
+    expect(TransactionParser.extractReferenceId(push), isNull);
+
+    final second = await ingest(
+      text: push,
+      messageTime: smsTime.add(const Duration(minutes: 1)),
+      source: TransactionSource.notification,
+    );
+    expect(second.result, DedupResult.merged);
+
+    final all = await repository.getAll();
+    expect(all, hasLength(1));
+    expect(all.single.merchant, 'BITTU FOOD POINT');
+    expect(all.single.amount, 210.0);
+    expect(all.single.categoryId, SpendingCategory.food.storageKey);
+    expect(
+      all.single.linkedSources,
+      containsAll([TransactionSource.sms, TransactionSource.notification]),
+    );
+  });
+
+  test('merges EasyPaisa stripped push first, then richer SMS upgrades row', () async {
+    final pushTime = DateTime(2026, 7, 24, 18, 46);
+    const push =
+        'easypaisa — Dear Customer, Your payment at - has been completed. '
+        'Transaction ID -. Amount: Rs. 210.00 at 24-Jul-2026.';
+    const sms =
+        'Your payment at BITTU FOOD POINT has been completed. '
+        'Transaction ID 53170298022 Till No. 981728046 Amount: Rs. 210.00 '
+        'at 24 July 2026.';
+
+    final first = await ingest(
+      text: push,
+      messageTime: pushTime,
+      source: TransactionSource.notification,
+    );
+    expect(first.result, DedupResult.created);
+    expect(first.transaction?.categoryId, SpendingCategory.other.storageKey);
+
+    final second = await ingest(
+      text: sms,
+      messageTime: pushTime.add(const Duration(minutes: 1)),
+      source: TransactionSource.sms,
+    );
+    expect(second.result, DedupResult.merged);
+
+    final all = await repository.getAll();
+    expect(all, hasLength(1));
+    expect(all.single.merchant, 'BITTU FOOD POINT');
+    expect(all.single.categoryId, SpendingCategory.food.storageKey);
+  });
+
   test('merges gmail alert after app notification for same payment', () async {
     final notifyTime = DateTime(2026, 6, 16, 18, 0);
     final emailTime = notifyTime.add(const Duration(minutes: 15));

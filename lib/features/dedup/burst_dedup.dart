@@ -19,6 +19,15 @@ abstract final class BurstDedup {
     return existingRef != incomingRef;
   }
 
+  /// True when both sides expose the same non-empty transaction / Trx id.
+  static bool referencesMatch(String? incomingRef, Transaction existing) {
+    if (incomingRef == null || incomingRef.isEmpty) return false;
+    final existingRef =
+        TransactionParser.extractReferenceId(existing.rawText ?? '');
+    if (existingRef == null || existingRef.isEmpty) return false;
+    return existingRef == incomingRef;
+  }
+
   static const _unknownMerchants = {
     'unknown',
     'customer',
@@ -27,6 +36,12 @@ abstract final class BurstDedup {
     'wallet',
     'account',
     'payment',
+    '-',
+    '--',
+    'n/a',
+    'na',
+    'null',
+    'none',
   };
 
   /// Wallet/bank branding in alerts — not a counterparty name.

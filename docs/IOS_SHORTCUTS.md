@@ -1,58 +1,52 @@
-# iOS Phase 2 — Manual Entry and SMS Workaround
+# iOS — Apple Shortcuts ingest
 
-Apple does not allow third-party apps to read other apps' notifications or the SMS inbox. On iOS, Spend Tracker supports:
+Apple does not allow third-party apps to read other apps' notifications or the SMS inbox. On iOS, HISAAB supports:
 
-- **Manual transaction entry** — Activity tab → Add button
-- **SMS via Shortcuts** — forward bank SMS text into the app
+- **Manual transaction entry**
+- **SMS via Apple Shortcuts** — a Message automation opens the app with the SMS body; the same on-device parser as Android runs
 
-> Gmail OAuth sync was removed — on Android, bank email alerts are captured
-> from Gmail app notifications via notification access instead.
+Android notification listener + SMS inbox capture is unchanged.
 
-## SMS workaround — Apple Shortcuts
+## Deep link
 
-Because iOS blocks SMS reading, use a Shortcut to copy transaction SMS text into Spend Tracker via the share sheet or a deep link.
-
-### Option A: Manual paste (simplest)
-
-1. Copy a bank/UPI SMS.
-2. Open Spend Tracker → Settings → use **Add Transaction** on the Activity tab, or paste into a future "Import text" field.
-
-### Option B: Shortcuts automation (recommended)
-
-1. Open the **Shortcuts** app → **Automation** → **+** → **Message**.
-2. Trigger: **When I receive a message** from senders containing `HDFC`, `PAYTM`, `UPI`, etc.
-3. Action: **Get Text from Input** → **Open App** (Spend Tracker).
-
-For programmatic import, add a custom URL scheme to `Info.plist`:
-
-```xml
-<key>CFBundleURLTypes</key>
-<array>
-  <dict>
-    <key>CFBundleURLSchemes</key>
-    <array>
-      <string>spendtracker</string>
-    </array>
-  </dict>
-</array>
-```
-
-Then configure the Shortcut to open:
+Register scheme: `hisaab`
 
 ```
-spendtracker://import?text=ENCODED_SMS_BODY
+hisaab://import?text=URL_ENCODED_SMS_BODY
+hisaab://import?text=...&title=JazzCash
+hisaab://import?text=...&source=sms
 ```
 
-Handle this in Flutter with `app_links` or `uni_links` (phase 2 enhancement).
+| Query | Meaning |
+|-------|---------|
+| `text` / `body` | Required. Raw SMS / alert text |
+| `title` / `sender` | Optional. Used like a notification title for merchant hints |
+| `source` | Optional. `sms` (default), `notification`, `manual`, `gmail` |
+| `ts` | Optional. Epoch ms for the message time |
 
-## What works on iOS today
+## Shortcuts automation (recommended)
+
+1. Open **Shortcuts** → **Automation** → **+** → **Message**
+2. When I receive a message from JazzCash / EasyPaisa / bank short codes (3737, 8558, …)
+3. **URL Encode** the message content
+4. **Open URL**: `hisaab://import?text=` + encoded text
+5. Turn off **Ask Before Running** for hands-free capture
+
+In the app: **Settings → Apple Shortcuts → How to set up** (also shown in onboarding).
+
+## Manual Shortcut
+
+Share or copy an SMS → run a Shortcut that opens the same `hisaab://import?text=` URL.
+
+## What works on iOS
 
 | Feature | Status |
 |---------|--------|
 | Manual entry | Supported |
+| SMS via Shortcuts deep link | Supported |
 | Month-end report + CSV export | Supported |
-| Notification capture | Not possible (Apple restriction) |
-| SMS auto-read | Not possible — use Shortcuts |
+| App push notification capture | Not possible (Apple restriction) |
+| SMS inbox auto-read | Not possible — use Shortcuts |
 
 ## Privacy
 

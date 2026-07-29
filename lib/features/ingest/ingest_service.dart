@@ -7,9 +7,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../background_ingest.dart' show bgIngestDirtyKey;
 import '../../core/repositories/transaction_repository.dart';
+import '../../models/transaction.dart';
 import '../notifications/notification_service.dart';
 import 'ingest_processor.dart';
 import 'ingest_bridge.dart';
+import 'shortcuts_ingest.dart';
 
 typedef TransactionRefreshCallback = Future<void> Function();
 
@@ -52,11 +54,23 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
     await NotificationService.instance.initialize();
     NotificationService.instance.onForegroundDecision = _applyDecision;
-    await IngestBridge.instance.initialize();
+
+    if (Platform.isAndroid) {
+      await IngestBridge.instance.initialize();
+    }
 
     _listening = true;
 
     WidgetsBinding.instance.addObserver(this);
+
+    if (Platform.isIOS) {
+      // Shortcuts deep links (hisaab://import?text=…) — Android path unchanged.
+      await ShortcutsIngest.instance.start(_handleIngestEvent);
+      await _drainNotificationActionsIfQueued();
+      await _notifyTransactionDataChanged();
+      return;
+    }
+
     _startForegroundSafetyTimer();
 
     // Cold start: shade scan + recent wallet SMS (8558, 3737, …), then drain queue.
@@ -70,6 +84,26 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     await refreshNotificationAccess();
     await refreshBatteryOptimization();
     await _notifyTransactionDataChanged();
+  }
+
+  /// Feeds one Shortcuts / deep-link capture through the same parser as Android.
+  Future<bool> ingestShortcutText(
+    String text, {
+    String? title,
+    TransactionSource source = TransactionSource.sms,
+    DateTime? timestamp,
+  }) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return false;
+    await _handleIngestEvent(
+      IngestEvent(
+        text: trimmed,
+        source: source,
+        timestamp: timestamp ?? DateTime.now(),
+        notificationTitle: title?.trim().isEmpty == true ? null : title?.trim(),
+      ),
+    );
+    return true;
   }
 
   Future<void> _notifyTransactionDataChanged() async {
@@ -138,6 +172,12 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _onResumed() async {
+    if (Platform.isIOS) {
+      await _drainNotificationActionsIfQueued();
+      await _notifyTransactionDataChanged();
+      return;
+    }
+
     // Live EventChannel handles captures while the app is open — no need for
     // the foreground keep-alive service until the user leaves.
     await IngestBridge.instance.stopKeepAlive();
@@ -167,6 +207,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _onBackground() async {
+    if (!Platform.isAndroid) return;
     if (_notificationAccess) {
       await IngestBridge.instance.startKeepAlive();
     }
@@ -270,6 +311,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     _foregroundSafetyTimer?.cancel();
     _ingestSubscription?.cancel();
+    unawaited(ShortcutsIngest.instance.dispose());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

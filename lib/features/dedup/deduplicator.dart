@@ -57,6 +57,7 @@ class Deduplicator {
         existing: existingInWindow.first,
         source: source,
         merchant: parsed.merchant,
+        categoryId: parsed.category.storageKey,
       );
     }
 
@@ -68,6 +69,7 @@ class Deduplicator {
         existing: exact,
         source: source,
         merchant: parsed.merchant,
+        categoryId: parsed.category.storageKey,
       );
     }
 
@@ -85,6 +87,7 @@ class Deduplicator {
           existing: rescanDuplicate,
           source: source,
           merchant: parsed.merchant,
+          categoryId: parsed.category.storageKey,
         );
       }
 
@@ -104,6 +107,7 @@ class Deduplicator {
           existing: crossSource,
           source: source,
           merchant: parsed.merchant,
+          categoryId: parsed.category.storageKey,
         );
       }
 
@@ -120,6 +124,7 @@ class Deduplicator {
           existing: paymentAlert,
           source: source,
           merchant: parsed.merchant,
+          categoryId: parsed.category.storageKey,
         );
       }
 
@@ -136,6 +141,7 @@ class Deduplicator {
           existing: burstDuplicate,
           source: source,
           merchant: parsed.merchant,
+          categoryId: parsed.category.storageKey,
         );
       }
     }
@@ -187,12 +193,20 @@ class Deduplicator {
     required Transaction existing,
     required TransactionSource source,
     required String merchant,
+    String? categoryId,
   }) async {
     final linked = {...existing.linkedSources, existing.source, source}.toList();
     await _repository.updateLinkedSources(existing.id, linked);
     final better = BurstDedup.pickBetterMerchant(existing.merchant, merchant);
     if (better != existing.merchant) {
       await _repository.updateMerchant(existing.id, better);
+    }
+    // Prefer a real category from the richer alert (e.g. SMS "FOOD POINT")
+    // over "Others" from a stripped EasyPaisa push.
+    if (categoryId != null &&
+        categoryId != SpendingCategory.other.storageKey &&
+        existing.categoryId == SpendingCategory.other.storageKey) {
+      await _repository.updateCategory(existing.id, categoryId);
     }
     return const IngestOutcome(DedupResult.merged);
   }

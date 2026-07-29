@@ -9,6 +9,7 @@ import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart' show AppRadius;
 import '../features/ingest/ingest_service.dart';
 import '../features/ingest/notification_access.dart';
+import '../features/ingest/shortcuts_setup_guide.dart';
 import '../features/ingest/sms_permission.dart';
 import '../widgets/app_logo_mark.dart';
 import '../widgets/glass_container.dart';
@@ -44,7 +45,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.resumed && Platform.isAndroid) {
       context.read<IngestService>().refreshNotificationAccess();
     }
   }
@@ -101,33 +102,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                           ),
                         ],
                       ),
-                      _InfoStep(
-                        icon: Icons.auto_awesome_rounded,
-                        eyebrow: 'Hands-free tracking',
-                        title: 'Spending logged\nautomatically',
-                        body:
-                            'Grant access once and HISAAB reads payment alerts in the background — you just review and confirm.',
-                        features: [
-                          _SetupFeature(
-                            icon: Icons.notifications_active_outlined,
-                            title: 'Bank & wallet alerts',
-                            subtitle:
-                                'Bank, wallet, and payment app notifications (Google Wallet, JazzCash, UBL, etc.) are parsed on-device.',
-                          ),
-                          _SetupFeature(
-                            icon: Icons.sms_outlined,
-                            title: 'SMS automation',
-                            subtitle:
-                                'Wallet and bank transaction texts (3737, 8558, etc.) are read on-device for hands-free tracking.',
-                          ),
-                          _SetupFeature(
-                            icon: Icons.inbox_outlined,
-                            title: 'Quick review',
-                            subtitle:
-                                'Pending items land in your Inbox — accept or reject in one tap.',
-                          ),
-                        ],
-                      ),
+                      _TrackingInfoStep(),
                       _SetupSourcesStep(),
                     ],
                   ),
@@ -485,6 +460,71 @@ class _FeatureHighlight extends StatelessWidget {
   }
 }
 
+class _TrackingInfoStep extends StatelessWidget {
+  const _TrackingInfoStep();
+
+  @override
+  Widget build(BuildContext context) {
+    if (Platform.isIOS) {
+      return const _InfoStep(
+        icon: Icons.auto_awesome_rounded,
+        eyebrow: 'iPhone tracking',
+        title: 'Log spends via\nApple Shortcuts',
+        body:
+            'iOS blocks reading other apps’ notifications. Forward bank and wallet SMS into HISAAB with a Shortcut — parsing stays on-device.',
+        features: [
+          _SetupFeature(
+            icon: Icons.sms_outlined,
+            title: 'SMS via Shortcuts',
+            subtitle:
+                'When JazzCash, EasyPaisa, or bank texts arrive, Shortcuts opens HISAAB with the message body.',
+          ),
+          _SetupFeature(
+            icon: Icons.link_rounded,
+            title: 'Deep link import',
+            subtitle:
+                'hisaab://import?text=… feeds the same parser used on Android.',
+          ),
+          _SetupFeature(
+            icon: Icons.edit_note_rounded,
+            title: 'Manual entry anytime',
+            subtitle:
+                'Add transactions yourself when an alert wasn’t forwarded.',
+          ),
+        ],
+      );
+    }
+
+    return const _InfoStep(
+      icon: Icons.auto_awesome_rounded,
+      eyebrow: 'Hands-free tracking',
+      title: 'Spending logged\nautomatically',
+      body:
+          'Grant access once and HISAAB reads payment alerts in the background — you just review and confirm.',
+      features: [
+        _SetupFeature(
+          icon: Icons.notifications_active_outlined,
+          title: 'Bank & wallet alerts',
+          subtitle:
+              'Bank, wallet, and payment app notifications (Google Wallet, JazzCash, UBL, etc.) are parsed on-device.',
+        ),
+        _SetupFeature(
+          icon: Icons.sms_outlined,
+          title: 'SMS automation',
+          subtitle:
+              'Wallet and bank transaction texts (3737, 8558, etc.) are read on-device for hands-free tracking.',
+        ),
+        _SetupFeature(
+          icon: Icons.inbox_outlined,
+          title: 'Quick review',
+          subtitle:
+              'Pending items land in your Inbox — accept or reject in one tap.',
+        ),
+      ],
+    );
+  }
+}
+
 class _SetupSourcesStep extends StatefulWidget {
   const _SetupSourcesStep();
 
@@ -531,6 +571,83 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
 
   @override
   Widget build(BuildContext context) {
+    if (Platform.isIOS) {
+      return _buildIos(context);
+    }
+    return _buildAndroid(context);
+  }
+
+  Widget _buildIos(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const AppAccentBar(height: 52),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'CONNECT SHORTCUTS',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: AppColors.textMuted,
+                        letterSpacing: 1.2,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Forward SMS into\n${AppBrand.name}',
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'No notification access or SMS inbox permission on iPhone. '
+            'A Message automation sends payment texts to the app — nothing is uploaded.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: AppColors.textMuted,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 20),
+          _PermissionCard(
+            icon: Icons.shortcut_rounded,
+            title: 'Apple Shortcuts',
+            subtitle:
+                'Create a Message automation that opens hisaab://import?text=… with the SMS body.',
+            enabled: true,
+            recommended: true,
+            actionLabel: 'How to set up',
+            onAction: () => ShortcutsSetupGuide.show(context),
+          ),
+          const SizedBox(height: 16),
+          const _FeatureHighlight(
+            icon: Icons.privacy_tip_outlined,
+            text: 'You can reopen these steps anytime in Settings',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAndroid(BuildContext context) {
     final theme = Theme.of(context);
 
     return Consumer<IngestService>(
@@ -586,29 +703,26 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
                 title: 'Notification access',
                 subtitle:
                     'Required on Android to capture bank and wallet payment alerts automatically.',
-                enabled: Platform.isAndroid && ingest.hasNotificationAccessGranted,
+                enabled: ingest.hasNotificationAccessGranted,
                 recommended: true,
-                actionLabel: Platform.isAndroid ? 'Open settings' : 'Not available',
-                onAction: Platform.isAndroid
-                    ? () => NotificationAccess.requestFromOnboarding(context)
-                    : null,
+                actionLabel: 'Open settings',
+                onAction: () =>
+                    NotificationAccess.requestFromOnboarding(context),
               ),
-              if (Platform.isAndroid) ...[
-                const SizedBox(height: 10),
-                _PermissionCard(
-                  icon: Icons.sms_outlined,
-                  title: 'SMS access',
-                  subtitle:
-                      'Required for automation — reads wallet and bank transaction SMS only (Easypaisa, Raast, etc.). Nothing is uploaded.',
-                  enabled: _smsGranted,
-                  recommended: true,
-                  actionLabel: 'Allow SMS',
-                  onAction: () async {
-                    await SmsPermission.requestForAutomation(context);
-                    await _refreshSms();
-                  },
-                ),
-              ],
+              const SizedBox(height: 10),
+              _PermissionCard(
+                icon: Icons.sms_outlined,
+                title: 'SMS access',
+                subtitle:
+                    'Required for automation — reads wallet and bank transaction SMS only (Easypaisa, Raast, etc.). Nothing is uploaded.',
+                enabled: _smsGranted,
+                recommended: true,
+                actionLabel: 'Allow SMS',
+                onAction: () async {
+                  await SmsPermission.requestForAutomation(context);
+                  await _refreshSms();
+                },
+              ),
               const SizedBox(height: 16),
               const _FeatureHighlight(
                 icon: Icons.privacy_tip_outlined,

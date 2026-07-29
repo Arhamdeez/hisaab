@@ -937,18 +937,45 @@ class TransactionParser {
   /// carries the same id across the wallet app, email, and bank SMS, so it is
   /// the strongest signal that two alerts describe one payment — and, just as
   /// importantly, that two same-amount alerts are *different* payments.
+  ///
+  /// Must not treat placeholders (`Transaction ID -`) or the trailing half of
+  /// the word "Transaction" (`action`) as a real id.
   static String? extractReferenceId(String text) {
-    final match = RegExp(
-      r'(?:trx|txn|trxn|trans(?:action)?|tid|ref(?:erence)?(?:\s*(?:no|id|#))?|'
-      r'rrn|stan|auth(?:orization)?\s*(?:code|id)?)'
-      r'\s*(?:id|no|number|#|:)?\s*[:#-]?\s*([a-z0-9]{5,})',
+    // Use full tokens only — bare `trans` would steal "action" from
+    // "Transaction ID …".
+    final pattern = RegExp(
+      r'\b(?:trx|txn|trxn|tid|transaction|ref(?:erence)?|'
+      r'rrn|stan|auth(?:orization)?(?:\s*(?:code|id))?)\b'
+      r'\s*(?:id|no|number|#)?\s*[:#.\-]*\s*'
+      r'([a-z0-9]{5,})\b',
       caseSensitive: false,
-    ).firstMatch(text);
-    if (match == null) return null;
-    final raw = match.group(1)!;
-    // Ignore masked account fragments like "****1541" matched as a ref.
-    if (RegExp(r'^[*x]+\d*$', caseSensitive: false).hasMatch(raw)) return null;
-    return raw.toLowerCase();
+    );
+    for (final match in pattern.allMatches(text)) {
+      final raw = match.group(1)!.toLowerCase();
+      if (_isPlaceholderReferenceId(raw)) continue;
+      // Ignore masked account fragments like "****1541" matched as a ref.
+      if (RegExp(r'^[*x]+\d*$', caseSensitive: false).hasMatch(raw)) continue;
+      return raw;
+    }
+    return null;
+  }
+
+  static bool _isPlaceholderReferenceId(String raw) {
+    const banned = {
+      'action',
+      'number',
+      'null',
+      'none',
+      'nan',
+      'undefined',
+      'pending',
+      'failed',
+    };
+    if (banned.contains(raw)) return true;
+    if (RegExp(r'^[\-_.*]+$').hasMatch(raw)) return true;
+    // Pure short words without digits are almost never real trx ids.
+    if (RegExp(r'^[a-z]+$').hasMatch(raw) && raw.length <= 10) return true;
+    return false;
   }
 
   static const _partyCapture =
@@ -2066,6 +2093,13 @@ class TransactionParser {
         r'at\s+' +
             _partyCaptureLazy +
             r'(?=\s+(?:on|via|at|for|from|ref|trx|txn|\d{4}-\d{2}-\d{2})|\s*[,.]|$)',
+        caseSensitive: false,
+      ),
+      // EasyPaisa POS: "Your payment at BITTU FOOD POINT has been completed."
+      RegExp(
+        r'(?:your\s+)?payment\s+at\s+'
+        r"([A-Za-z][A-Za-z0-9&.'\-]*(?:\s+[A-Za-z][A-Za-z0-9&.'\-]*){0,6})"
+        r'\s+has\s+been\s+completed\b',
         caseSensitive: false,
       ),
       // UBL card: "charged … for PKR 5,000.00 at VALENCIA S."

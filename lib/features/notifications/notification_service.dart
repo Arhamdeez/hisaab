@@ -85,10 +85,11 @@ class NotificationService {
     if (_initialized) return;
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    // Do not auto-prompt on iOS at launch — request when posting a capture alert.
     final darwinInit = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
       notificationCategories: [
         DarwinNotificationCategory(
           _iosCategoryReview,
@@ -213,6 +214,10 @@ class NotificationService {
   Future<void> showTransactionCaptured(Transaction transaction) async {
     if (!_initialized) await initialize();
     if (!_initialized) return;
+
+    if (Platform.isIOS || Platform.isMacOS) {
+      await requestPermission();
+    }
 
     if (transaction.isPending) {
       await _showReviewNotification(transaction);

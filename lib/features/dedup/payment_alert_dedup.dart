@@ -43,6 +43,7 @@ abstract final class PaymentAlertDedup {
     if ((existing.amount - amount).abs() > amountTolerance) return false;
     // Different transaction ids -> genuinely different payments.
     if (BurstDedup.referencesConflict(referenceId, existing)) return false;
+    if (BurstDedup.referencesMatch(referenceId, existing)) return true;
     if (!BurstDedup.paymentAlertsLikelySame(existing.merchant, merchant)) {
       return false;
     }

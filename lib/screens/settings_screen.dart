@@ -15,6 +15,7 @@ import '../core/support/issue_report.dart';
 import '../features/backup/backup_service.dart';
 import '../features/ingest/ingest_service.dart';
 import '../features/ingest/notification_access.dart';
+import '../features/ingest/shortcuts_setup_guide.dart';
 import '../features/ingest/sms_permission.dart';
 import '../providers/app_preferences.dart';
 import '../providers/category_catalog.dart';
@@ -233,10 +234,13 @@ class _SettingsScreenState extends State<SettingsScreen>
         SettingsTourStep(
           targetKey: _dataSourcesKey,
           title: 'Data sources',
-          body:
-              'Connect app notifications and SMS here. '
-              'This is how HISAAB auto-captures your payments.',
-          icon: Icons.notifications_active_outlined,
+          body: Platform.isIOS
+              ? 'Set up Apple Shortcuts here so bank and wallet SMS open HISAAB with the message text.'
+              : 'Connect app notifications and SMS here. '
+                  'This is how HISAAB auto-captures your payments.',
+          icon: Platform.isIOS
+              ? Icons.shortcut_rounded
+              : Icons.notifications_active_outlined,
         ),
         SettingsTourStep(
           targetKey: _backupKey,
@@ -338,60 +342,64 @@ class _SettingsScreenState extends State<SettingsScreen>
                   child: _SettingsGroup(
                   title: 'Data Sources',
                   children: [
-                    _SettingsTile(
-                      icon: Icons.notifications_active_outlined,
-                      title: 'App Notifications',
-                      subtitle: Platform.isAndroid
-                          ? (ingest.hasNotificationAccessGranted
-                              ? 'Reading bank & wallet app alerts'
-                              : 'Tap to grant notification access')
-                          : 'Not available on iOS',
-                      trailing: _StatusPill(
-                        enabled: Platform.isAndroid &&
-                            ingest.hasNotificationAccessGranted,
-                        label: Platform.isAndroid ? null : 'N/A',
-                      ),
-                      onTap: Platform.isAndroid
-                          ? () => NotificationAccess.requestFromSettings(context)
-                          : null,
-                    ),
-                    if (Platform.isAndroid && ingest.hasNotificationAccessGranted)
+                    if (Platform.isIOS) ...[
                       _SettingsTile(
-                        icon: Icons.battery_charging_full_rounded,
-                        title: 'Background monitoring',
-                        subtitle: ingest.isBatteryUnrestricted
-                            ? 'Battery unrestricted — best capture reliability'
-                            : 'Open battery settings and set HISAAB to Unrestricted',
+                        icon: Icons.shortcut_rounded,
+                        title: 'Apple Shortcuts',
+                        subtitle:
+                            'Forward bank & wallet SMS into HISAAB via hisaab://import',
+                        trailing: const _StatusPill(
+                          enabled: true,
+                          label: 'Setup',
+                        ),
+                        onTap: () => ShortcutsSetupGuide.show(context),
+                      ),
+                    ] else ...[
+                      _SettingsTile(
+                        icon: Icons.notifications_active_outlined,
+                        title: 'App Notifications',
+                        subtitle: ingest.hasNotificationAccessGranted
+                            ? 'Reading bank & wallet app alerts'
+                            : 'Tap to grant notification access',
                         trailing: _StatusPill(
-                          enabled: ingest.isBatteryUnrestricted,
-                          label: ingest.isBatteryUnrestricted ? 'On' : 'Open',
+                          enabled: ingest.hasNotificationAccessGranted,
+                        ),
+                        onTap: () =>
+                            NotificationAccess.requestFromSettings(context),
+                      ),
+                      if (ingest.hasNotificationAccessGranted)
+                        _SettingsTile(
+                          icon: Icons.battery_charging_full_rounded,
+                          title: 'Background monitoring',
+                          subtitle: ingest.isBatteryUnrestricted
+                              ? 'Battery unrestricted — best capture reliability'
+                              : 'Open battery settings and set HISAAB to Unrestricted',
+                          trailing: _StatusPill(
+                            enabled: ingest.isBatteryUnrestricted,
+                            label:
+                                ingest.isBatteryUnrestricted ? 'On' : 'Open',
+                          ),
+                          onTap: () async {
+                            await ingest.openBatteryOptimizationSettings();
+                            await ingest.refreshBatteryOptimization();
+                          },
+                        ),
+                      _SettingsTile(
+                        icon: Icons.sms_outlined,
+                        title: 'SMS automation',
+                        subtitle: _smsGranted
+                            ? 'Reading wallet & bank transaction SMS on-device'
+                            : 'Required for hands-free tracking from SMS alerts',
+                        trailing: _StatusPill(
+                          enabled: _smsGranted,
+                          label: _smsGranted ? 'On' : 'Allow',
                         ),
                         onTap: () async {
-                          await ingest.openBatteryOptimizationSettings();
-                          await ingest.refreshBatteryOptimization();
+                          await SmsPermission.requestForAutomation(context);
+                          await _refreshSmsAccess();
                         },
                       ),
-                    _SettingsTile(
-                      icon: Icons.sms_outlined,
-                      title: 'SMS automation',
-                      subtitle: Platform.isAndroid
-                          ? (_smsGranted
-                              ? 'Reading wallet & bank transaction SMS on-device'
-                              : 'Required for hands-free tracking from SMS alerts')
-                          : 'Use Shortcuts — see docs/IOS_SHORTCUTS.md',
-                      trailing: _StatusPill(
-                        enabled: Platform.isAndroid && _smsGranted,
-                        label: Platform.isAndroid
-                            ? (_smsGranted ? 'On' : 'Allow')
-                            : 'N/A',
-                      ),
-                      onTap: Platform.isAndroid
-                          ? () async {
-                              await SmsPermission.requestForAutomation(context);
-                              await _refreshSmsAccess();
-                            }
-                          : null,
-                    ),
+                    ],
                   ],
                 ),
                 ),
