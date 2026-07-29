@@ -605,7 +605,7 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Forward SMS into\n${AppBrand.name}',
+                      'Easy steps to\nauto-log SMS',
                       style: theme.textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.5,
@@ -619,8 +619,8 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
           ),
           const SizedBox(height: 14),
           Text(
-            'No notification access or SMS inbox permission on iPhone. '
-            'A Message automation sends payment texts to the app — nothing is uploaded.',
+            'Tap the button below. First you will copy one SMS to test. '
+            'Then we walk you through Shortcuts like a recipe — one tap at a time.',
             style: theme.textTheme.bodyLarge?.copyWith(
               color: AppColors.textMuted,
               height: 1.5,
@@ -631,10 +631,10 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
             icon: Icons.shortcut_rounded,
             title: 'Apple Shortcuts',
             subtitle:
-                'Create a Message automation that opens hisaab://import?text=… with the SMS body.',
+                'Super simple guide: import a copied SMS, then set up auto-forward.',
             enabled: true,
             recommended: true,
-            actionLabel: 'How to set up',
+            actionLabel: 'Show me how',
             onAction: () => ShortcutsSetupGuide.show(context),
           ),
           const SizedBox(height: 16),

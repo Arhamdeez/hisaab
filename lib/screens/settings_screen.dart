@@ -347,10 +347,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                         icon: Icons.shortcut_rounded,
                         title: 'Apple Shortcuts',
                         subtitle:
-                            'Forward bank & wallet SMS into HISAAB via hisaab://import',
+                            'Easy guide: copy one SMS to test, then auto-forward',
                         trailing: const _StatusPill(
                           enabled: true,
-                          label: 'Setup',
+                          label: 'Guide',
                         ),
                         onTap: () => ShortcutsSetupGuide.show(context),
                       ),
