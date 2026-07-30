@@ -335,6 +335,65 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                   ),
                   const SizedBox(height: 14),
                   _SectionCard(
+                    emoji: '3',
+                    title: 'Optional: Back Tap (double-tap phone)',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Your iPhone can run HISAAB when you tap the back of the phone twice. '
+                          'Apple does not let apps “own” Back Tap — you assign it once in Settings.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.textMuted,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const _BigStep(
+                          number: 1,
+                          title: 'Open Back Tap settings',
+                          body:
+                              'Open the Settings app (grey gear).\n'
+                              'Tap Accessibility.\n'
+                              'Tap Touch.\n'
+                              'Tap Back Tap.',
+                        ),
+                        const _BigStep(
+                          number: 2,
+                          title: 'Choose Double Tap',
+                          body:
+                              'Tap Double Tap '
+                              '(or Triple Tap if you prefer).',
+                        ),
+                        _BigStep(
+                          number: 3,
+                          title: 'Pick HISAAB / Log from clipboard',
+                          body:
+                              'Scroll the list.\n'
+                              'Under Shortcuts (or App Shortcuts), tap:\n'
+                              '“Log payment from clipboard” '
+                              'or “Log from clipboard”.\n\n'
+                              'If you do not see it yet: open ${AppBrand.name} once, '
+                              'force-quit Settings, open Back Tap again.\n\n'
+                              'Still missing? In Shortcuts app create a shortcut with one action:\n'
+                              '“Log payment from clipboard” (search HISAAB), save it, '
+                              'then pick that shortcut under Back Tap.',
+                        ),
+                        _BigStep(
+                          number: 4,
+                          title: 'Use it every day',
+                          body:
+                              'A. Open Messages → copy a payment SMS.\n'
+                              'B. Double-tap the back of your iPhone.\n'
+                              'C. ${AppBrand.name} opens and logs the payment.\n\n'
+                              'Tip: copy from the notification shade also works '
+                              'if the alert text is copyable.',
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _SectionCard(
                     emoji: '?',
                     title: 'Stuck? Try this',
                     child: Column(
@@ -345,6 +404,7 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                           '• Nothing happens on SMS? Open the automation → make sure it is Enabled. '
                           'Run the “Import copied SMS” test above first.\n\n'
                           '• ${AppBrand.name} opens but no transaction? The SMS may not be a payment alert — try another message.\n\n'
+                          '• Back Tap does nothing? Make sure you copied text first, and Double Tap is set to “Log payment from clipboard”.\n\n'
                           '• Still hard? Use Import copied SMS each time for now — automation is optional.',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: AppColors.textSecondary,

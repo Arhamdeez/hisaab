@@ -282,16 +282,46 @@ class _SettingsScreenState extends State<SettingsScreen>
   Future<void> _exportBackup(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
-    final result = await context.read<BackupService>().exportToFile();
+
+    // iOS (esp. iPad) needs a non-zero origin for the share popover.
+    Rect? shareOrigin;
+    final box = context.findRenderObject() as RenderBox?;
+    if (box != null && box.hasSize) {
+      final origin = box.localToGlobal(Offset.zero);
+      shareOrigin = origin & box.size;
+      if (shareOrigin.width < 1 || shareOrigin.height < 1) {
+        shareOrigin = Rect.fromLTWH(origin.dx, origin.dy, 1, 1);
+      }
+    }
+
+    final result = await context.read<BackupService>().exportToFile(
+          shareOrigin: shareOrigin,
+        );
     if (!context.mounted) return;
     messenger.clearSnackBars();
-    if (!result.isSuccess) {
+
+    if (result.isCancelled) {
+      // User closed the share sheet — not an error.
+      return;
+    }
+    if (result.isFailure) {
       messenger.showSnackBar(
         SnackBar(
           content: Text(result.message ?? 'Export failed'),
         ),
       );
+      return;
     }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          result.message ??
+              (result.count == 0
+                  ? 'Backup ready (no transactions yet)'
+                  : 'Backup ready (${result.count} entries)'),
+        ),
+      ),
+    );
   }
 
   @override

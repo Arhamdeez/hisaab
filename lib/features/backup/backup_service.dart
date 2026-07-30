@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -20,8 +21,10 @@ class BackupResult {
     this.message,
   });
 
-  const BackupResult.success(int count)
-      : this._(status: BackupStatus.success, count: count);
+  const BackupResult.success(int count, {String? message})
+      : this._(status: BackupStatus.success, count: count, message: message);
+  const BackupResult.cancelled()
+      : this._(status: BackupStatus.cancelled);
   const BackupResult.failure(String message)
       : this._(status: BackupStatus.failure, message: message);
 
@@ -30,9 +33,11 @@ class BackupResult {
   final String? message;
 
   bool get isSuccess => status == BackupStatus.success;
+  bool get isCancelled => status == BackupStatus.cancelled;
+  bool get isFailure => status == BackupStatus.failure;
 }
 
-enum BackupStatus { success, failure }
+enum BackupStatus { success, cancelled, failure }
 
 /// Local-only backup: exports all transactions to a plain, human-readable
 /// text file the user can save or share. Nothing leaves the device unless the
@@ -66,28 +71,74 @@ class BackupService {
     }
   }
 
-  Future<BackupResult> exportToFile() async {
+  /// Writes a text backup and opens the system share sheet.
+  ///
+  /// [shareOrigin] — required on iPad for the popover; recommended on iPhone too.
+  Future<BackupResult> exportToFile({Rect? shareOrigin}) async {
+    late final File file;
+    late final int count;
+
     try {
       final transactions = await _repository.getAll();
       transactions.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+      count = transactions.length;
 
       final text = _buildText(transactions);
       final dir = await getTemporaryDirectory();
       final stamp = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
-      final file = File(p.join(dir.path, 'hisaab_backup_$stamp.txt'));
+      file = File(p.join(dir.path, 'hisaab_backup_$stamp.txt'));
       await file.writeAsString(text);
+    } catch (e) {
+      debugPrint('Backup file write failed: $e');
+      return BackupResult.failure('Could not create backup file: $e');
+    }
 
-      await Share.shareXFiles(
+    try {
+      final result = await Share.shareXFiles(
         [XFile(file.path, mimeType: 'text/plain')],
         subject: 'HISAAB backup',
-        text: 'HISAAB transactions backup (${transactions.length} entries)',
+        text: 'HISAAB transactions backup ($count entries)',
+        sharePositionOrigin: shareOrigin,
       );
 
-      return BackupResult.success(transactions.length);
+      if (result.status == ShareResultStatus.dismissed) {
+        // File was created; user just closed the sheet without sharing.
+        return const BackupResult.cancelled();
+      }
+
+      return BackupResult.success(
+        count,
+        message: count == 0
+            ? 'Backup ready (no transactions yet)'
+            : 'Backup ready ($count entries)',
+      );
+    } on PlatformException catch (e) {
+      debugPrint('Backup share PlatformException: ${e.code} ${e.message}');
+      if (_isShareCancelled(e)) {
+        return const BackupResult.cancelled();
+      }
+      return BackupResult.failure(
+        e.message?.isNotEmpty == true
+            ? e.message!
+            : 'Could not open share sheet (${e.code})',
+      );
     } catch (e) {
-      debugPrint('Backup export failed: $e');
-      return const BackupResult.failure('Could not create backup');
+      debugPrint('Backup share failed: $e');
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('cancel') || msg.contains('dismiss')) {
+        return const BackupResult.cancelled();
+      }
+      return BackupResult.failure('Could not share backup: $e');
     }
+  }
+
+  static bool _isShareCancelled(PlatformException e) {
+    final code = e.code.toLowerCase();
+    final message = (e.message ?? '').toLowerCase();
+    return code.contains('cancel') ||
+        code == 'share_aborted' ||
+        message.contains('cancel') ||
+        message.contains('dismiss');
   }
 
   String _buildText(List<Transaction> transactions) {
