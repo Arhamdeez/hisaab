@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/transaction.dart';
+import 'sms_sender_filter.dart';
 
 /// Result of attempting to open the OS notification-listener settings screen.
 class NotificationAccessOpenResult {
@@ -102,23 +103,8 @@ class IngestBridge {
     _subscription = _eventChannel.receiveBroadcastStream().listen(
       (event) {
         if (event is! Map) return;
-        final map = Map<String, dynamic>.from(event);
-        final sourceKey = map['source'] as String? ?? 'notification';
-        final source = TransactionSourceX.fromKey(sourceKey);
-        final rawTs = map['timestamp'] as int?;
-        final timestampMs = (rawTs == null || rawTs <= 0)
-            ? DateTime.now().millisecondsSinceEpoch
-            : rawTs;
-
-        _controller.add(
-          IngestEvent(
-            text: map['text'] as String? ?? '',
-            source: source,
-            timestamp: DateTime.fromMillisecondsSinceEpoch(timestampMs),
-            packageName: map['package'] as String?,
-            notificationTitle: _readTitle(map),
-          ),
-        );
+        final parsed = eventFromNativeMap(Map<String, dynamic>.from(event));
+        if (parsed != null) _controller.add(parsed);
       },
       onError: (Object e) {
         debugPrint('IngestBridge error: $e');
@@ -136,26 +122,41 @@ class IngestBridge {
         'drainPending',
       );
       if (raw == null) return const [];
-      return raw.whereType<Map>().map((item) {
-        final map = Map<String, dynamic>.from(item);
-        final sourceKey = map['source'] as String? ?? 'notification';
-        final rawTs = (map['timestamp'] as num?)?.toInt();
-        final timestampMs = (rawTs == null || rawTs <= 0)
-            ? DateTime.now().millisecondsSinceEpoch
-            : rawTs;
-        final package = map['package'] as String?;
-        return IngestEvent(
-          text: map['text'] as String? ?? '',
-          source: TransactionSourceX.fromKey(sourceKey),
-          timestamp: DateTime.fromMillisecondsSinceEpoch(timestampMs),
-          packageName: (package != null && package.isEmpty) ? null : package,
-          notificationTitle: _readTitle(map),
-        );
-      }).toList();
+      return raw
+          .whereType<Map>()
+          .map((item) => eventFromNativeMap(Map<String, dynamic>.from(item)))
+          .whereType<IngestEvent>()
+          .toList();
     } catch (e) {
       debugPrint('IngestBridge drainPending error: $e');
       return const [];
     }
+  }
+
+  /// Builds an [IngestEvent] from a native payload, or null if SMS spam/mobile.
+  @visibleForTesting
+  static IngestEvent? eventFromNativeMap(Map<String, dynamic> map) {
+    final sourceKey = map['source'] as String? ?? 'notification';
+    final source = TransactionSourceX.fromKey(sourceKey);
+    final sender = (map['sender'] as String?)?.trim();
+
+    if (source == TransactionSource.sms &&
+        !SmsSenderFilter.shouldAcceptSmsSender(sender)) {
+      return null;
+    }
+
+    final rawTs = (map['timestamp'] as num?)?.toInt();
+    final timestampMs = (rawTs == null || rawTs <= 0)
+        ? DateTime.now().millisecondsSinceEpoch
+        : rawTs;
+    final package = map['package'] as String?;
+    return IngestEvent(
+      text: map['text'] as String? ?? '',
+      source: source,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(timestampMs),
+      packageName: (package != null && package.isEmpty) ? null : package,
+      notificationTitle: _readTitle(map),
+    );
   }
 
   static String? _readTitle(Map<String, dynamic> map) {

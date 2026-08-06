@@ -58,7 +58,9 @@ class IngestKeepAliveService : Service() {
     companion object {
         const val ACTION_STOP = "com.arham.hisaab.STOP_KEEPALIVE"
         private const val NOTIFICATION_ID = 7001
-        private const val CHANNEL_ID = "hisaab_capture_monitor"
+        /** New channel so MIN importance applies even if the old one was louder. */
+        private const val CHANNEL_ID = "hisaab_monitor_quiet"
+        private const val LEGACY_CHANNEL_ID = "hisaab_capture_monitor"
         /** First background queue check — not immediate, to save boot battery. */
         private const val FIRST_PERIODIC_MS = 20L * 60L * 1000L
         /** Repeat queue check interval while the monitor service is alive. */
@@ -85,13 +87,19 @@ class IngestKeepAliveService : Service() {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
             val manager =
                 context.getSystemService(NotificationManager::class.java) ?: return
+            // Drop the old verbose channel so only the quiet one remains.
+            runCatching { manager.deleteNotificationChannel(LEGACY_CHANNEL_ID) }
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Payment monitoring",
+                "Background status",
                 NotificationManager.IMPORTANCE_MIN,
             ).apply {
-                description = "Keeps HISAAB listening for bank and wallet alerts"
+                description = "Small ongoing status while HISAAB listens for payments"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
+                enableLights(false)
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
             manager.createNotificationChannel(channel)
         }
@@ -107,14 +115,22 @@ class IngestKeepAliveService : Service() {
                 launchIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+            // Compact one-line tile — Android still requires an FGS notification,
+            // but MIN + short copy keeps it as a small shade row on most OEMs.
             return NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("HISAAB is monitoring payments")
-                .setContentText("Capturing bank & wallet alerts in the background")
+                .setSmallIcon(R.drawable.ic_stat_hisaab)
+                .setContentTitle("HISAAB")
+                .setContentText("Listening for payments")
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setSilent(true)
+                .setShowWhen(false)
+                .setLocalOnly(true)
+                .setVisibility(NotificationCompat.VISIBILITY_SECRET)
                 .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setForegroundServiceBehavior(
+                    NotificationCompat.FOREGROUND_SERVICE_DEFERRED,
+                )
                 .setContentIntent(pending)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .build()

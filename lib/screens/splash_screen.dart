@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
+import '../core/motion/slide_haptics.dart';
 import '../core/splash_timing.dart';
 import '../core/theme/app_colors.dart';
 import '../widgets/app_logo_mark.dart';
@@ -45,6 +47,8 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
   bool _pendingExit = false;
   bool _finished = false;
   bool _sequenceStarted = false;
+  /// Last linear bubble progress when a drag-tick haptic fired.
+  double _lastBubbleHapticAt = -1;
 
   Size? _cachedSize;
   late Offset _bubbleOrigin;
@@ -104,6 +108,7 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
 
     _drop.addStatusListener(_onDropStatus);
     _bubble.addStatusListener(_onBubbleStatus);
+    _bubble.addListener(_onBubbleTick);
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _runSequence());
   }
@@ -133,8 +138,25 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
     if (status != AnimationStatus.completed || _phase != _SplashPhase.drop) {
       return;
     }
+    _lastBubbleHapticAt = -1;
     setState(() => _phase = _SplashPhase.bubble);
     _bubble.forward(from: 0);
+  }
+
+  /// Dense low-tick scrub while the bubble expands — sliding drag, not clicks.
+  void _onBubbleTick() {
+    if (_phase != _SplashPhase.bubble) return;
+    final t = _bubble.value;
+    // Quiet before fully open.
+    if (t >= 0.9) return;
+    // ~28 soft ticks over 850ms → continuous slide feel.
+    if (_lastBubbleHapticAt >= 0 && t - _lastBubbleHapticAt < 0.032) return;
+    _lastBubbleHapticAt = t;
+    // Stronger in the middle of the open, softer as it settles.
+    final envelope = (1.0 - Curves.easeInCubic.transform(t)).clamp(0.0, 1.0);
+    final intensity = 0.14 + 0.26 * envelope;
+    // Fire-and-forget — don't await on the animation tick.
+    unawaited(SlideHaptics.slideTick(intensity: intensity));
   }
 
   void _onBubbleStatus(AnimationStatus status) {
@@ -188,6 +210,7 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
   void dispose() {
     _drop.removeStatusListener(_onDropStatus);
     _bubble.removeStatusListener(_onBubbleStatus);
+    _bubble.removeListener(_onBubbleTick);
     _enter.dispose();
     _drop.dispose();
     _bubble.dispose();

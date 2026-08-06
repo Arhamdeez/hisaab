@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Status-bar / notification glyph — white alpha cutout of the HISAAB H mark.
+  Geometry matches lib/widgets/app_logo_mark.dart (_HLogoPainter), scaled up
+  slightly so it reads larger in the system status bar.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <!-- Scale ~1.18 about center (50,50) vs original 16–84 bounds. -->
+    <!-- Left pillar -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9.9,14.6 L19.3,5.2 L28.8,5.2 L28.8,94.8 L9.9,94.8 Z" />
+    <!-- Right pillar -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M71.2,5.2 L90.1,5.2 L90.1,85.4 L80.7,94.8 L71.2,94.8 Z" />
+    <!-- Crossbar bridge -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M28.8,38.2 L71.2,47.6 L71.2,61.8 L28.8,52.4 Z" />
+</vector>

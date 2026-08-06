@@ -490,15 +490,20 @@ class IngestPlugin(
             return walletSmsShortCodes.any { norm.endsWith(it) && norm.length <= it.length + 2 }
         }
 
-        /** True for live SMS capture and inbox rescan (3737, 8558, …). */
+        /**
+         * True for live SMS capture and inbox rescan (3737, 8558, …).
+         * Sender must be a known/numeric short code first — never accept
+         * personal-mobile spam that only mimics wallet wording in the body.
+         */
         fun isLikelySmsTransaction(sender: String, body: String): Boolean {
             if (isNoiseNotification(body)) return false
-            if (looksLikeTransaction(body)) return true
-            if (isHighConfidenceTxn(body)) return true
 
             val fromWalletSender =
                 isKnownWalletShortCode(sender) || isNumericSmsShortCode(sender)
             if (!fromWalletSender) return false
+
+            if (looksLikeTransaction(body)) return true
+            if (isHighConfidenceTxn(body)) return true
             if (!hasFinanceAmount(body)) return false
 
             val bodyLower = body.lowercase()

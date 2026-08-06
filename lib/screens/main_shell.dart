@@ -138,26 +138,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       _history.add(_index);
       _index = index;
     });
-    // Transactions tab shares Home's selected month and may be stale after
-    // background captures — refresh and land on the current month.
+    // Transactions tab shares Home's selected month — refresh list data but
+    // keep the month the user already picked (don't jump back to "now").
     if (index == 1) {
-      unawaited(_revealLatestTransactions());
+      unawaited(context.read<TransactionProvider>().reload());
     }
   }
 
   void _selectPrimaryTab(int index) {
     _selectTab(index);
-  }
-
-  Future<void> _revealLatestTransactions() async {
-    final provider = context.read<TransactionProvider>();
-    final now = DateTime.now();
-    final current = DateTime(now.year, now.month);
-    if (provider.selectedMonth.year != current.year ||
-        provider.selectedMonth.month != current.month) {
-      provider.setSelectedMonth(current);
-    }
-    await provider.reload();
   }
 
   void _handleBack() {

@@ -232,4 +232,47 @@ void main() {
     expect(result, isNotNull);
     expect(result!.amount, 1500.0);
   });
+
+  group('rejects Temu shopping deal spam from Gmail', () {
+    final parser = TransactionParser();
+
+    test('confirm your N for Rs deal', () {
+      expect(
+        parser.parse(
+          'Temu — Please confirm your 3 for Rs.2,800 Deal '
+          'You received it on Aug 1, 2026. Confirm Now>',
+          source: TransactionSource.notification,
+          notificationTitle: 'Temu',
+          packageName: 'com.google.android.gm',
+        ),
+        isNull,
+      );
+    });
+
+    test('offer has been sent to you', () {
+      expect(
+        parser.parse(
+          'Temu — Immediate Action Required! A Rs.5,600 offer has been '
+          'sent to you on Aug 1, 2026. Confirm it now>',
+          source: TransactionSource.notification,
+          notificationTitle: 'Temu',
+          packageName: 'com.google.android.gm',
+        ),
+        isNull,
+      );
+    });
+  });
+
+  test('still accepts real wallet debit that mentions Temu as merchant', () {
+    final parser = TransactionParser();
+    final result = parser.parse(
+      'You sent Rs.2,800 to Temu. Trx ID: JC998877.',
+      source: TransactionSource.notification,
+      notificationTitle: 'Off it goes',
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 2800.0);
+    expect(result.type, TransactionType.debit);
+  });
 }

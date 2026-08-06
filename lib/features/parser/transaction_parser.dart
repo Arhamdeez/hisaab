@@ -464,6 +464,19 @@ class TransactionParser {
     r'chat\s+backup|uploading\s*:|download(?:ing)?\s*:)\b|'
     r'\b(?:out\s+for\s+delivery|order\s+confirmed|your\s+order\s+#|track(?:ing)?\s+(?:your|order))\b|'
     r'\b(?:flash\s+sale|limited\s+offer|promo\s+code|coupon|\d+\s*%\s*off)\b|'
+    // Shopping marketplace deal spam (Temu Gmail, etc.) — not wallet/bank payments.
+    // Keep Temu tied to deal/offer/confirm so real "paid Temu via JazzCash" still parses.
+    r'\btemu\b.{0,160}\b(?:deal|offer)\b|'
+    r'\b(?:deal|offer)\b.{0,160}\btemu\b|'
+    r'\btemu\b.{0,120}\bconfirm\s+(?:now|it|your)\b|'
+    r'\bplease\s+confirm\s+your\s+\d+\s+for\s+(?:rs\.?|pkr)\b|'
+    r'\b\d+\s+for\s+(?:rs\.?|pkr)\.?\s*[\d,]+\s+deal\b|'
+    r'\boffer\s+has\s+been\s+sent\s+to\s+you\b|'
+    // Agency / coaching Gmail spam with vanity \$10k/month figures — not payments.
+    r'\bfree\s+coaching\s+(?:call|session)\b|'
+    r'\bretainer\s+clients\b|'
+    r'\$\s*[\d,.]+\s*[kmb]\b|'
+    r'\$\s*[\d,.]+\s*k\s*/\s*month\b|'
     r'\b\d+\s*%\s*cashback\b|'
     r'\bget\s+upto\b|\bupto\s+[\d,]+(?:\s+cashback)?\b|'
     r'\bcashback\s+on\b|'
@@ -487,6 +500,11 @@ class TransactionParser {
     r'\bspend\s+globally\b|'
     r'\b(?:honda|yadea).{0,48}(?:ebike|e-bike|cd\s*70|jeet|mauqa)\b|'
     r'\b(?:ebike|e-bike|cd\s*70).{0,48}(?:jeet|mauqa|honda|yadea)\b|'
+    // Card activation / travel marketing (Meezan MasterCard, etc.) — not spends.
+    r'\bactivat(?:e|ing)\s+your\s+(?:mastercard|visa|(?:debit|credit)\s+card|card)\b|'
+    r'\btravelling\s+abroad\b|'
+    r'\bcampaign_collapse_key\b|'
+    r'\binvo8\.meezan\b|'
     r'\boffer\s+valid\b|\bvalid\s+(?:till|until)\b|'
     r'\bmaintain\s+(?:rs\.?|pkr)\b|'
     r'\b(?:refer(?:ral)?|invite\s+(?:friends?|and\s+earn))\b|'
@@ -1009,6 +1027,15 @@ class TransactionParser {
     (String?, String?) parties, {
     String? notificationTitle,
   }) {
+    // Merchant invoice emailed to you (Bill To) — issuer is the payee, not you.
+    if (_isMerchantInvoiceYouPaid(text, notificationTitle: notificationTitle)) {
+      final issuer = _extractInvoiceIssuerName(
+        text,
+        notificationTitle: notificationTitle,
+      );
+      if (_isUsableMerchant(issuer)) return issuer;
+    }
+
     // EasyPaisa / bank e-statements put the payee in "Account Title …".
     final fromStatement = _extractStatementPartyName(text, type);
     if (_isUsablePartyName(fromStatement)) return fromStatement;
@@ -1726,19 +1753,19 @@ class TransactionParser {
   }
 
   static double? _amountFromCurrencyLabel(String text) {
+    // (?!\d) stops "$30M" / "$10k" from backtracking to a shorter "$3" / "$1".
     final patterns = [
       RegExp(
-        '$_currencyUnits\\s*([\\d,]+(?:\\.\\d+)?)(?![kmb](?:\\b|/))\\s*/?-?',
+        '$_currencyUnits\\s*([\\d,]+(?:\\.\\d+)?)(?!\\d)(?![kmb](?:\\b|/))\\s*/?-?',
         caseSensitive: false,
       ),
       RegExp(
-        '([\\d,]+(?:\\.\\d+)?)(?![kmb](?:\\b|/))\\s*/?-?\\s*$_currencyUnits',
+        '([\\d,]+(?:\\.\\d+)?)(?!\\d)(?![kmb](?:\\b|/))\\s*/?-?\\s*$_currencyUnits',
         caseSensitive: false,
       ),
     ];
     for (final p in patterns) {
-      final match = p.firstMatch(text);
-      if (match != null) {
+      for (final match in p.allMatches(text)) {
         final start = match.start;
         final end = match.end;
         if (_isInvalidAmountContext(text, start, end)) continue;
@@ -1759,11 +1786,16 @@ class TransactionParser {
     if (RegExp(r'^:\d{2}\b', caseSensitive: false).hasMatch(tail)) {
       return true;
     }
-    // Helpline / phone numbers — +92 21 111 — 331 — 331.
+    // Helpline / phone numbers — "call at 021–111–331–331/332".
     if (RegExp(
-      r'(?:helpline|please\s+(?:immediately\s+)?call)\b',
+      r'(?:helpline|please\s+(?:immediately\s+)?call|\bcall\s+at\b|'
+      r'\bcall\s+on\b|\bor\s+call\b|\bcontact\s+(?:us\s+)?(?:at|on)\b)',
       caseSensitive: false,
     ).hasMatch(before)) {
+      return true;
+    }
+    // Slash / dash phone extensions — the "332" in "331/332".
+    if (RegExp(r'\d[\d\s./—\-–]*[./—\-–]\s*$').hasMatch(before)) {
       return true;
     }
     if (RegExp(
@@ -1855,6 +1887,98 @@ class TransactionParser {
     caseSensitive: false,
   );
 
+  /// Merchant sales invoice / receipt emailed to the customer ("Bill To").
+  /// "Payment Received" here means *they* got paid by you — spend, not income.
+  static bool _isMerchantInvoiceYouPaid(
+    String text, {
+    String? notificationTitle,
+  }) {
+    final combined = '${notificationTitle ?? ''} $text';
+    final hasInvoiceShape = RegExp(
+      r'\bbill\s+to\b|'
+      r'\bsales\s+tax\s+invoice\b|'
+      r'\binvoice\s+(?:inv[#\-\s]*|no\.?|number|#)\s*\d|'
+      r'\binv-?\d{3,}\b|'
+      r'\bissue\s+date\b|'
+      r'\bdue\s+date\b|'
+      r'\bsubtotal\b',
+      caseSensitive: false,
+    ).hasMatch(combined);
+    if (!hasInvoiceShape) return false;
+
+    // Wallet/bank "payment received from X" with A/C / TID is real income.
+    if (RegExp(
+      r'\breceived\s+from\b|'
+      r'\bcredited\b|'
+      r'\b(?:a/c|ac#|account)\b|'
+      r'\b(?:tid|trx|txn)\s*:?\s*\d',
+      caseSensitive: false,
+    ).hasMatch(combined) &&
+        !RegExp(r'\bbill\s+to\b', caseSensitive: false).hasMatch(combined)) {
+      return false;
+    }
+
+    return RegExp(
+      r'\bpayment\s+received\b|'
+      r'\b(?:status\s*:?\s*)?paid\b|'
+      r'\bhas\s+been\s+paid\b|'
+      r'\bbill\s+to\b',
+      caseSensitive: false,
+    ).hasMatch(combined);
+  }
+
+  /// Issuer / shop name from invoice subject: "WorkBloc … Payment Received".
+  String? _extractInvoiceIssuerName(
+    String text, {
+    String? notificationTitle,
+  }) {
+    final title = notificationTitle?.trim() ?? '';
+    final candidates = <String>[
+      if (title.isNotEmpty) title,
+      ...text
+          .split(RegExp(r'[\r\n]+'))
+          .map((l) => l.trim())
+          .where((l) => l.length >= 3)
+          .take(3),
+    ];
+    for (final raw in candidates) {
+      if (!RegExp(r'payment\s+received|\binvoice\b', caseSensitive: false)
+          .hasMatch(raw)) {
+        continue;
+      }
+      var name = raw
+          .replaceAll(
+            RegExp(
+              r'\s*[—–\-:]?\s*(?:payment\s+received(?:\s*[—–\-:]?\s*invoice\b.*)?|invoice\b.*)$',
+              caseSensitive: false,
+            ),
+            '',
+          )
+          .trim();
+      if (name.isEmpty) continue;
+
+      // Gmail: "WorkBloc - Co-Working Sp. – WorkBloc - Co-Working Space"
+      final segments = name
+          .split(RegExp(r'\s*[—–]\s*'))
+          .map((s) => s.trim())
+          .where((s) => s.length >= 3)
+          .toList();
+      if (segments.length >= 2) {
+        segments.sort((a, b) => b.length.compareTo(a.length));
+        name = segments.first;
+      } else if (segments.isNotEmpty) {
+        name = segments.first;
+      }
+
+      name = name.replaceAll(RegExp(r'[\s.\-]+$'), '').trim();
+      if (name.length >= 3 &&
+          !RegExp(r'^inv-?\d+', caseSensitive: false).hasMatch(name)) {
+        return name;
+      }
+    }
+    return null;
+  }
+
   TransactionType _detectType(
     String text, {
     String? notificationTitle,
@@ -1863,6 +1987,11 @@ class TransactionParser {
     final lower = text.toLowerCase();
     final titleLower = notificationTitle?.trim().toLowerCase() ?? '';
     final combined = '$titleLower $lower';
+
+    // Merchant invoice / receipt: "Payment Received" means you paid them.
+    if (_isMerchantInvoiceYouPaid(text, notificationTitle: notificationTitle)) {
+      return TransactionType.debit;
+    }
 
     // Inbound "NAME sent you Rs" / "You've got money" before outbound "sent".
     if (_nameSentYouRsPattern.hasMatch(combined) ||
