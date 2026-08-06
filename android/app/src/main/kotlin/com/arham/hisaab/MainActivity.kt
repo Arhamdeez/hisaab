@@ -7,7 +7,9 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         IngestPlugin(this, flutterEngine)
-        SlideHapticsPlugin.register(this, flutterEngine)
+        SlideHapticsPlugin.register(flutterEngine)
+        // Available for splash haptics before first onResume in some paths.
+        ForegroundActivity.activity = this
     }
 
     override fun onResume() {

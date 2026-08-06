@@ -1,3 +1,5 @@
+import 'dart:ui' show FontFeature;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -165,14 +167,9 @@ class _SpendFocusHeroState extends State<SpendFocusHero> {
   @override
   void didUpdateWidget(SpendFocusHero oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final net = widget.totalReceived - widget.totalSpent;
-    final heroAmount = _showNetOnMain ? net.abs() : widget.totalSpent;
-    final oldNet = oldWidget.totalReceived - oldWidget.totalSpent;
-    final oldHeroAmount =
-        _showNetOnMain ? oldNet.abs() : oldWidget.totalSpent;
-    if (oldHeroAmount != heroAmount) {
-      _amountAnimFrom = heroAmount;
-    }
+    // Do not reset [_amountAnimFrom] when month totals change.
+    // TweenAnimationBuilder already interpolates from the live displayed
+    // value to the new end — resetting here made fast month flips jump.
   }
 
   void _toggleNet() {
@@ -266,6 +263,7 @@ class _SpendFocusHeroState extends State<SpendFocusHero> {
                       icon: Icons.south_west_rounded,
                       label: 'Income',
                       value: formatCompactCurrency(widget.income),
+                      amount: widget.income,
                       color: AppColors.income,
                     ),
                   ),
@@ -281,6 +279,7 @@ class _SpendFocusHeroState extends State<SpendFocusHero> {
                       icon: Icons.savings_outlined,
                       label: remaining >= 0 ? 'Left' : 'Over',
                       value: formatCompactCurrency(remaining.abs()),
+                      amount: remaining.abs(),
                       color: remaining >= 0 ? AppColors.income : AppColors.expense,
                     ),
                   ),
@@ -429,31 +428,35 @@ class _HeroHeadline extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        TweenAnimationBuilder<double>(
-          duration: _kHeroAnimDuration,
-          curve: Curves.easeOutCubic,
-          tween: Tween<double>(begin: amountFrom, end: amount),
-          onEnd: onAmountAnimEnd,
-          builder: (context, value, _) {
-            return AnimatedDefaultTextStyle(
-              duration: _kHeroAnimDuration,
-              curve: Curves.easeOutCubic,
-              style: theme.textTheme.displayLarge!.copyWith(
-                fontSize: 54,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -2,
-                height: 1,
-                color: color,
-              ),
-              child: FittedBox(
+        AnimatedDefaultTextStyle(
+          duration: AppMotion.fast,
+          curve: AppMotion.easeOut,
+          style: theme.textTheme.displayLarge!.copyWith(
+            fontSize: 54,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -2,
+            height: 1,
+            color: color,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+          child: TweenAnimationBuilder<double>(
+            // begin only matters on first paint; later month changes tween
+            // from the currently displayed value → new [amount].
+            duration: AppMotion.hero,
+            curve: Curves.easeInOutCubic,
+            tween: Tween<double>(begin: amountFrom, end: amount),
+            onEnd: onAmountAnimEnd,
+            builder: (context, value, _) {
+              return FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
                   formatCurrency(value),
                   maxLines: 1,
+                  style: DefaultTextStyle.of(context).style,
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ],
     );
@@ -466,12 +469,15 @@ class _HeroStat extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
+    this.amount,
   });
 
   final IconData icon;
   final String label;
   final String value;
   final Color color;
+  /// When set, tweens smoothly between month changes instead of hard-swapping text.
+  final double? amount;
 
   @override
   Widget build(BuildContext context) {
@@ -493,12 +499,30 @@ class _HeroStat extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        Text(
-          value,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w700,
+        if (amount != null)
+          TweenAnimationBuilder<double>(
+            duration: AppMotion.hero,
+            curve: Curves.easeInOutCubic,
+            tween: Tween<double>(end: amount),
+            builder: (context, animated, _) {
+              return Text(
+                formatCompactCurrency(animated),
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              );
+            },
+          )
+        else
+          Text(
+            value,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
           ),
-        ),
       ],
     );
   }

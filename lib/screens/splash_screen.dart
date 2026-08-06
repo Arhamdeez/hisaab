@@ -149,13 +149,11 @@ class _SplashGateState extends State<SplashGate> with TickerProviderStateMixin {
     final t = _bubble.value;
     // Quiet before fully open.
     if (t >= 0.9) return;
-    // ~28 soft ticks over 850ms → continuous slide feel.
-    if (_lastBubbleHapticAt >= 0 && t - _lastBubbleHapticAt < 0.032) return;
+    // ~18 soft ticks over 850ms — slide feel without flooding the vibrator.
+    if (_lastBubbleHapticAt >= 0 && t - _lastBubbleHapticAt < 0.05) return;
     _lastBubbleHapticAt = t;
-    // Stronger in the middle of the open, softer as it settles.
     final envelope = (1.0 - Curves.easeInCubic.transform(t)).clamp(0.0, 1.0);
-    final intensity = 0.14 + 0.26 * envelope;
-    // Fire-and-forget — don't await on the animation tick.
+    final intensity = 0.16 + 0.22 * envelope;
     unawaited(SlideHaptics.slideTick(intensity: intensity));
   }
 

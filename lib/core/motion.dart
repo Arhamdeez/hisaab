@@ -26,40 +26,42 @@ abstract final class AppMotion {
   static const emphasize = Curves.easeOutBack;
   static const glassFade = Curves.easeOut;
 
-  /// Soft fade + slight rise used for list/filter content swaps.
+  /// Soft content swap for keyed children (month labels, etc.).
+  ///
+  /// Never stacks outgoing + incoming in a [Stack] — that is what caused month
+  /// names to overlay when chevrons were tapped quickly. Only the new child is
+  /// laid out; it fades/slides in alone.
   static Widget softSwap({
     required Key key,
     required Widget child,
     Duration duration = medium,
+    Offset? slideBegin = const Offset(0, 0.03),
   }) {
     return AnimatedSwitcher(
       duration: duration,
-      reverseDuration: fast,
+      // No reverse/outgoing phase — avoids dual-label ghosts on fast switches.
+      reverseDuration: Duration.zero,
       switchInCurve: easeOut,
       switchOutCurve: easeIn,
       layoutBuilder: (current, previous) {
-        return Stack(
-          alignment: Alignment.topCenter,
-          children: [
-            ...previous,
-            ?current,
-          ],
-        );
+        return current ?? const SizedBox.shrink();
       },
       transitionBuilder: (child, animation) {
         final fade = CurvedAnimation(
           parent: animation,
           curve: easeOut,
-          reverseCurve: easeIn,
         );
-        final slide = Tween<Offset>(
-          begin: const Offset(0, 0.03),
-          end: Offset.zero,
-        ).animate(fade);
-        return FadeTransition(
-          opacity: fade,
-          child: SlideTransition(position: slide, child: child),
-        );
+        Widget result = FadeTransition(opacity: fade, child: child);
+        if (slideBegin != null) {
+          result = SlideTransition(
+            position: Tween<Offset>(
+              begin: slideBegin,
+              end: Offset.zero,
+            ).animate(fade),
+            child: result,
+          );
+        }
+        return result;
       },
       child: KeyedSubtree(key: key, child: child),
     );

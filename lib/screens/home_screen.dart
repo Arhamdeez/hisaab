@@ -189,7 +189,10 @@ class _HeaderIconButton extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
         customBorder: const CircleBorder(),
         child: Stack(
           clipBehavior: Clip.none,
@@ -224,13 +227,22 @@ class _HeaderIconButton extends StatelessWidget {
   }
 }
 
-class _MonthSelector extends StatelessWidget {
+class _MonthSelector extends StatefulWidget {
   const _MonthSelector({required this.month});
 
   final DateTime month;
 
   @override
+  State<_MonthSelector> createState() => _MonthSelectorState();
+}
+
+class _MonthSelectorState extends State<_MonthSelector> {
+  /// Horizontal slide for the label: negative = from left (older months).
+  double _slideDx = -0.1;
+
+  @override
   Widget build(BuildContext context) {
+    final month = widget.month;
     return Consumer<TransactionProvider>(
       builder: (context, provider, _) {
         final theme = Theme.of(context);
@@ -250,21 +262,32 @@ class _MonthSelector extends StatelessWidget {
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: () => _pickMonth(context, provider),
-                    child: AppMotion.softSwap(
-                      key: ValueKey('${month.year}-${month.month}'),
-                      duration: AppMotion.fast,
-                      child: Text(
-                        formatMonthYear(month),
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.2,
-                          shadows: [
-                            Shadow(
-                              color: AppColors.ui.withValues(alpha: 0.15),
-                              blurRadius: 12,
+                    child: ClipRect(
+                      child: SizedBox(
+                        height: (theme.textTheme.titleMedium?.fontSize ?? 16) *
+                                1.35 +
+                            4,
+                        child: AppMotion.softSwap(
+                          key: ValueKey('${month.year}-${month.month}'),
+                          duration: AppMotion.fast,
+                          // Directional slide — smoother than the old vertical nudge.
+                          slideBegin: Offset(_slideDx, 0),
+                          child: Text(
+                            formatMonthYear(month),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.2,
+                              shadows: [
+                                Shadow(
+                                  color: AppColors.ui.withValues(alpha: 0.15),
+                                  blurRadius: 12,
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -287,6 +310,7 @@ class _MonthSelector extends StatelessWidget {
     final next = DateTime(current.year, current.month + delta);
     if (next.isAfter(DateTime.now())) return;
     HapticFeedback.selectionClick();
+    setState(() => _slideDx = delta < 0 ? -0.12 : 0.12);
     provider.setSelectedMonth(next);
   }
 
@@ -302,8 +326,11 @@ class _MonthSelector extends StatelessWidget {
       isScrollControlled: true,
       builder: (_) => _MonthPickerSheet(selected: provider.selectedMonth),
     );
-    if (picked != null) {
+    if (picked != null && mounted) {
       HapticFeedback.selectionClick();
+      final current = provider.selectedMonth;
+      final older = picked.isBefore(DateTime(current.year, current.month));
+      setState(() => _slideDx = older ? -0.12 : 0.12);
       provider.setSelectedMonth(picked);
     }
   }
