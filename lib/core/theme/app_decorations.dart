@@ -35,15 +35,10 @@ abstract final class AppDecorations {
   /// Soft outer glow for hero / focal cards.
   static List<BoxShadow> heroGlow({Color? color}) => [
         BoxShadow(
-          color: (color ?? AppColors.ui).withValues(alpha: 0.10),
-          blurRadius: 36,
-          spreadRadius: -6,
-          offset: const Offset(0, 14),
-        ),
-        BoxShadow(
-          color: AppColors.ui.withValues(alpha: 0.05),
-          blurRadius: 48,
-          spreadRadius: -12,
+          color: (color ?? AppColors.ui).withValues(alpha: 0.08),
+          blurRadius: 18,
+          spreadRadius: -8,
+          offset: const Offset(0, 8),
         ),
       ];
 

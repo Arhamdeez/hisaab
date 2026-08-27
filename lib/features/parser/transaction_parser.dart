@@ -6,6 +6,7 @@ import '../../models/transaction.dart';
 import '../ingest/monitored_packages.dart';
 import 'category_guesser.dart';
 import 'mcc_catalog.dart';
+import 'merchant_brands.dart';
 
 class ParserRule {
   const ParserRule({
@@ -503,6 +504,11 @@ class TransactionParser {
     // Card activation / travel marketing (Meezan MasterCard, etc.) — not spends.
     r'\bactivat(?:e|ing)\s+your\s+(?:mastercard|visa|(?:debit|credit)\s+card|card)\b|'
     r'\btravelling\s+abroad\b|'
+    // Airport lounge / "sirf Rs. 1 mein" card perk promos — not spends.
+    r'\b(?:airport\s+)?lounge\s+access\b|'
+    r'\bpremium\s+lounge\b|'
+    r'\bsirf\s+(?:rs\.?|pkr)\b|'
+    r'\b(?:rs\.?|pkr)\.?\s*[\d,]+\s+mein\b|'
     r'\bcampaign_collapse_key\b|'
     r'\binvo8\.meezan\b|'
     r'\boffer\s+valid\b|\bvalid\s+(?:till|until)\b|'
@@ -591,7 +597,17 @@ class TransactionParser {
     r'\bkarein\s+aur\b|\bhasil\s+kar(?:ein|o|iye)\b|\bkijiye\b|'
     r'\buthayein\b|\bbanayein\b|\bpayein\b|'
     r'\bt\s*&\s*cs?\b|\bterms\s+(?:and|&)\s+conditions\b|'
-    r'\bfx\s+fee\b|\bbachat\b|\bfaida\b|\bmoassar\b',
+    r'\bfx\s+fee\b|\bbachat\b|\bfaida\b|\bmoassar\b|'
+    r'\b(?:airport\s+)?lounge\s+access\b|\bpremium\s+lounge\b|'
+    r'\bsirf\s+(?:rs\.?|pkr)\b|\b(?:rs\.?|pkr)\.?\s*[\d,]+\s+mein\b|'
+    // Wallet investment / T-bill marketing — not a completed purchase.
+    r'\binvest(?:ing)?\s+in\b|'
+    r'\binvest\s+kar(?:ein|o|iye)\b|'
+    r'\bt-?bills?\b|'
+    r'\btreasury\s+bills?\b|'
+    r'\b(?:yaqeeni\s+)?munafa\b|'
+    r'\b(?:government\s+ki\s+)?zamanat\b|'
+    r'\bmehfooz\b',
     caseSensitive: false,
   );
 
@@ -668,7 +684,7 @@ class TransactionParser {
     r'cashback.{0,50}(?:received|credited|in\s+your)|'
     r'\bcash\s+(?:deposit|withdrawal|wdl|wdr|in|out)\b|\bdeposit(?:ed)?\b|'
     r'salary|transfer|withdrawal|'
-    r'payment|charged|\bbill\b|added|successful|completed|processed|'
+    r'payment|charged|(?<![tT]-)\bbills?\b|added|successful|completed|processed|'
     r'money\s+received|money\s+sent|payment\s+received|payment\s+sent|'
     r'transfer\s*successful|successfully\s*transferred|'
     r'you\s+sent|you\s+paid|you\s+transferred|sent\s+to|paid\s+to|transfer\s+to|transfer\s+from|'
@@ -768,13 +784,15 @@ class TransactionParser {
     if (amount == null || amount <= 0) return null;
 
     final parties = _extractTransferParties(normalized, type);
-    final merchant = _resolveMerchantName(
-          normalized,
-          type,
-          parties,
-          notificationTitle: notificationTitle,
-        ) ??
-        'Unknown';
+    final merchant = MerchantBrands.displayName(
+          _resolveMerchantName(
+            normalized,
+            type,
+            parties,
+            notificationTitle: notificationTitle,
+          ) ??
+              'Unknown',
+        );
     var senderName = parties.$1;
     var receiverName = parties.$2;
     if (type == TransactionType.credit &&
@@ -856,7 +874,9 @@ class TransactionParser {
     if (hasPackage && !isFinanceApp && !isEmail) return null;
 
     final amount = _extractFailedTransactionAmount(normalized) ?? 0;
-    final merchant = _extractFailedMerchant(normalized, notificationTitle);
+    final merchant = MerchantBrands.displayName(
+      _extractFailedMerchant(normalized, notificationTitle),
+    );
     final accountRef = _extractAccountRef(normalized);
     final referenceId = extractReferenceId(text);
     final occurredAt = _extractOccurredAt(text, fallbackTime: fallbackTime) ??
@@ -1005,6 +1025,7 @@ class TransactionParser {
     r'^(?:unknown|dear customer|customer|wallet|account|payment|money|'
     r'jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|meezan|'
     r'meezan bank|visa|mastercard|bank|'
+    r'order|order id|'
     r'transaction alert|money received|money sent|payment received|'
     r'transfer successful|successful transfer|transfer|'
     r'got money|you.?ve got money|off it goes|original message)$',
@@ -1779,7 +1800,7 @@ class TransactionParser {
   static bool _isInvalidAmountContext(String text, int start, int end) {
     final before = text.substring(0, start);
     final tail = text.substring(end).trimLeft();
-    if (RegExp(r'^(?:mb|gb|kb|tb|%)\b', caseSensitive: false).hasMatch(tail)) {
+    if (RegExp(r'^(?:mb|gb|kb|tb)\b|^%', caseSensitive: false).hasMatch(tail)) {
       return true;
     }
     // Clock times — "05:00 AM", "5:00 PM".
@@ -2350,6 +2371,17 @@ class TransactionParser {
     var v = _truncateAtSentenceDot(value);
     // Card network descriptors: "Shopify* 560398967 +1888… Sg"
     v = v.replaceAll(RegExp(r'\*.*$'), '').trim();
+    v = v.replaceAll(
+      RegExp(
+        r'\s+against\s+transaction\s+id\b.*$',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    v = v.replaceAll(
+      RegExp(r'\s+against\b.*$', caseSensitive: false),
+      '',
+    );
     final boundary = RegExp(
       r'\s+(?:on|in|via|ref|refno|a/c|ac|upi|info|bal|avl|available|dated|date|'
       r'txn|trxn|id|using|through|towards|not|will|has|is|from)\b.*$',
@@ -2429,12 +2461,28 @@ class TransactionParser {
       if (_isUsablePartyName(name)) return (null, name);
     }
 
+    // EasyPaisa: "You have paid PKR 3,432.79 for Order ID: … to Delivery Hero … against Transaction ID"
+    final paidForOrderTo = RegExp(
+      r'you\s+(?:have\s+)?paid\s+(?:pkr|rs\.?)\.?\s*[\d,]+(?:\.\d+)?\s+'
+      r'(?:for\s+order\s+id\s*:?\s*\S+\s+)?'
+      r'to\s+'
+      r"([A-Za-z][A-Za-z0-9\u0600-\u06FF .'\-&]{1,60}?)"
+      r'(?=\s+against\b|\s+transaction\s+id\b|\s+trx\b|\s+tid\b|\s+txn\b|\s*[,.]|$)',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (paidForOrderTo != null) {
+      final name = _trimMerchant(paidForOrderTo.group(1)!.trim());
+      if (_isUsablePartyName(name)) return (null, name);
+    }
+
     final sentTo = RegExp(
-      r'(?:you\s+(?:just\s+)?)?(?:sent|paid|transferred|transfer(?:red)?)\s+(?:'
+      r'(?:you\s+(?:have\s+|just\s+)?)?(?:sent|paid|transferred|transfer(?:red)?)\s+(?:'
       r'(?:rs\.?|pkr|inr|₹|₨)\s*[\d,]+(?:\.\d+)?\s+)?'
-      r'(?:to|for)\s+' +
+      r'to\s+' +
           _partyCaptureLazy +
-          r'(?=\s+(?:of\s+(?:IBAN|iban|A/C|a/c)|in\s+\*+|via\b|on\b|from\b|trx|tid|\d{4}-\d{2}-\d{2})|\s*[,.]|\s[^\w\s-]|$)',
+          r'(?=\s+(?:of\s+(?:IBAN|iban|A/C|a/c)|in\s+\*+|via\b|on\b|from\b|'
+          r'against\b|transaction\s+id\b|trx|tid|\d{4}-\d{2}-\d{2})'
+          r'|\s*[,.]|\s[^\w\s-]|$)',
       caseSensitive: false,
     ).firstMatch(text);
     if (sentTo != null) {

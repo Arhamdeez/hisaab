@@ -1,4 +1,5 @@
 import '../../models/transaction.dart';
+import '../parser/merchant_brands.dart';
 import '../parser/transaction_parser.dart';
 
 /// Collapses repeated wallet/bank alerts for the same payment within a short
@@ -92,6 +93,7 @@ abstract final class BurstDedup {
     final nb = _normalizeMerchant(b);
     if (na.isEmpty || nb.isEmpty) return true;
     if (na == nb) return true;
+    if (MerchantBrands.sameBrand(a, b)) return true;
     if (_isUnknown(a) || _isUnknown(b)) return true;
     if (na.length >= 3 && nb.length >= 3) {
       if (na.contains(nb) || nb.contains(na)) return true;
@@ -102,6 +104,9 @@ abstract final class BurstDedup {
   static String pickBetterMerchant(String existing, String incoming) {
     final e = existing.trim();
     final i = incoming.trim();
+    if (MerchantBrands.sameBrand(e, i)) {
+      return MerchantBrands.displayName(e);
+    }
     if (isGenericInstitution(e) && !isGenericInstitution(i) && !_isUnknown(i)) {
       return i;
     }

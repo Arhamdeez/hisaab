@@ -386,7 +386,7 @@ class _SplashMaskPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = ringWidth
-        ..color = AppColors.brandGlow.withValues(alpha: 0.72 * edgeOpacity),
+        ..color = AppColors.ui.withValues(alpha: 0.45 * edgeOpacity),
     );
   }
 

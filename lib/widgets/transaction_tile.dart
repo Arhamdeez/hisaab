@@ -14,14 +14,20 @@ class TransactionTile extends StatelessWidget {
     super.key,
     required this.transaction,
     this.onTap,
+    this.onLongPress,
     this.showSource = false,
     this.compact = false,
+    this.selected = false,
+    this.selecting = false,
   });
 
   final Transaction transaction;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final bool showSource;
   final bool compact;
+  final bool selected;
+  final bool selecting;
 
   @override
   Widget build(BuildContext context) {
@@ -34,24 +40,26 @@ class TransactionTile extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(compact ? 0 : AppRadius.lg),
         child: Ink(
-          decoration: compact ? null : AppDecorations.card(),
+          decoration: compact
+              ? BoxDecoration(
+                  color: selected
+                      ? AppColors.ui.withValues(alpha: 0.10)
+                      : Colors.transparent,
+                )
+              : AppDecorations.card(),
           padding: EdgeInsets.symmetric(
             horizontal: compact ? 16 : 16,
             vertical: compact ? 13 : 14,
           ),
           child: Row(
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: AppDecorations.iconBadge(category.color),
-                child: Icon(
-                  category.icon,
-                  color: category.color,
-                  size: 19,
-                ),
+              _LeadingBadge(
+                category: category,
+                selecting: selecting,
+                selected: selected,
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -62,6 +70,7 @@ class TransactionTile extends StatelessWidget {
                       transaction.merchant,
                       style: theme.textTheme.titleMedium,
                       maxLines: 1,
+                      softWrap: false,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 3),
@@ -70,12 +79,16 @@ class TransactionTile extends StatelessWidget {
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: AppColors.textMuted,
                       ),
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 12),
               Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
@@ -88,6 +101,8 @@ class TransactionTile extends StatelessWidget {
                               : AppColors.income,
                       fontWeight: FontWeight.w700,
                     ),
+                    maxLines: 1,
+                    softWrap: false,
                   ),
                   if (isFailed && transaction.amount > 0) ...[
                     const SizedBox(height: 2),
@@ -129,4 +144,50 @@ class TransactionTile extends StatelessWidget {
         TransactionSource.gmail => 'Email',
         TransactionSource.manual => 'Manual',
       };
+}
+
+class _LeadingBadge extends StatelessWidget {
+  const _LeadingBadge({
+    required this.category,
+    required this.selecting,
+    required this.selected,
+  });
+
+  final CategoryInfo category;
+  final bool selecting;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (selecting) {
+      return Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          color: selected ? AppColors.ui : AppColors.glassFill,
+          border: Border.all(
+            color: selected ? AppColors.ui : AppColors.glassBorder,
+            width: 1.5,
+          ),
+        ),
+        child: Icon(
+          selected ? Icons.check_rounded : Icons.circle_outlined,
+          color: selected ? AppColors.textOnPrimary : AppColors.textMuted,
+          size: 20,
+        ),
+      );
+    }
+
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: AppDecorations.iconBadge(category.color),
+      child: Icon(
+        category.icon,
+        color: category.color,
+        size: 19,
+      ),
+    );
+  }
 }

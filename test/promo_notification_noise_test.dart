@@ -218,6 +218,42 @@ void main() {
       expect(result!.amount, 1200.0);
       expect(result.type, TransactionType.debit);
     });
+
+    test('completed T-bill purchase with trx id still parses', () {
+      final result = parser.parse(
+        'PKR 50,000.00 has been debited from your A/C **1234 for T-Bill '
+        'investment. Trx ID: 998877. Available balance PKR 12,000.00.',
+        source: TransactionSource.notification,
+        notificationTitle: 'JazzCash',
+        packageName: 'com.techlogix.mobilinkcustomer',
+      );
+      expect(result, isNotNull);
+      expect(result!.amount, 50000.0);
+      expect(result.type, TransactionType.debit);
+    });
+  });
+
+  test('rejects JazzCash T-bill investment promo', () {
+    final parser = TransactionParser();
+    const body =
+        'Invest in Market Tbills today !! — Government ki zamanat, 100% '
+        'mehfooz aur yaqeeni munafa. JazzCash se T-Bill mein abhi invest karein!';
+    expect(
+      parser.parse(
+        body,
+        source: TransactionSource.notification,
+        notificationTitle: 'Invest in Market Tbills today !!',
+        packageName: 'com.techlogix.mobilinkcustomer',
+      ),
+      isNull,
+    );
+    expect(
+      parser.parse(
+        body,
+        source: TransactionSource.sms,
+      ),
+      isNull,
+    );
   });
 
   test('still accepts a genuine Meezan debit alert', () {

@@ -65,7 +65,10 @@ class AppRefreshIndicator extends StatefulWidget {
 
 class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     with TickerProviderStateMixin {
-  static const _trigger = 86.0;
+  static const _trigger = 176.0;
+
+  /// Ignore inertial bounce-to-top. Refresh only after a held pull.
+  static const _minPullDuration = Duration(milliseconds: 280);
 
   final _pull = ValueNotifier<double>(0);
   final _refreshing = ValueNotifier<bool>(false);
@@ -80,6 +83,8 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
 
   bool _armed = false;
   bool _inFlight = false;
+  bool _dragging = false;
+  DateTime? _pullStartedAt;
   OverlayEntry? _curtainEntry;
 
   @override
@@ -113,6 +118,8 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     _refreshing.value = false;
     _armed = false;
     _inFlight = false;
+    _dragging = false;
+    _pullStartedAt = null;
   }
 
   @override
@@ -168,17 +175,34 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     if (n.metrics.axis != Axis.vertical) return false;
     if (_inFlight) return false;
 
-    // A fresh drag disarms; arming then persists through the release bounce.
     if (n is ScrollStartNotification) {
       _armed = false;
+      _dragging = n.dragDetails != null;
+      _pullStartedAt = null;
+    } else if (n is ScrollEndNotification) {
+      _dragging = false;
+      _pullStartedAt = null;
+    } else if (n is ScrollUpdateNotification) {
+      _dragging = n.dragDetails != null;
+    } else if (n is OverscrollNotification) {
+      _dragging = n.dragDetails != null;
     }
 
     final overscroll = n.metrics.pixels < 0 ? -n.metrics.pixels : 0.0;
     _pull.value = overscroll;
 
-    // Fire the instant the pull passes the trigger — no waiting for the finger
-    // to lift or the bounce-back to settle, so the curtain appears immediately.
-    if (overscroll >= _trigger && !_armed) {
+    // Time only a finger-down pull. A fast fling to the top is ballistic
+    // (no dragDetails) and must not start the refresh curtain.
+    if (_dragging && overscroll > 0) {
+      _pullStartedAt ??= DateTime.now();
+    } else if (!_dragging) {
+      _pullStartedAt = null;
+    }
+
+    final heldLongEnough = _pullStartedAt != null &&
+        DateTime.now().difference(_pullStartedAt!) >= _minPullDuration;
+
+    if (overscroll >= _trigger && !_armed && _dragging && heldLongEnough) {
       _armed = true;
       _startRefresh();
     }
@@ -234,6 +258,8 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     appRefreshActive.value = false;
     _armed = false;
     _inFlight = false;
+    _dragging = false;
+    _pullStartedAt = null;
   }
 
   @override

@@ -1,21 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/motion.dart';
+import '../core/motion/slide_haptics.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/app_refresh.dart';
 import '../core/utils/cash_flow.dart';
+import '../widgets/category_selector.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/glass_container.dart';
 import '../core/utils/formatters.dart';
+import '../models/transaction.dart';
 import '../providers/app_preferences.dart';
 import '../providers/category_catalog.dart';
 import '../providers/transaction_provider.dart';
 import '../screens/transaction_detail_screen.dart';
 import '../widgets/transaction_tile.dart';
+
+/// True while the transactions list is in multi-select. Lets the shell hide the Add FAB.
+final ValueNotifier<bool> txSelectionActive = ValueNotifier<bool>(false);
 
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
@@ -51,9 +59,12 @@ enum _TxSort {
 }
 
 class _TransactionsScreenState extends State<TransactionsScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   static const _searchMotion = AppMotion.medium;
   static const _bodyMotion = AppMotion.medium;
+  static const _scrubEdgeZone = 96.0;
+  static const _scrubScrollMin = 260.0;
+  static const _scrubScrollMax = 780.0;
 
   String _query = '';
   String? _filterCategoryId;
@@ -61,6 +72,17 @@ class _TransactionsScreenState extends State<TransactionsScreen>
   final _searchFocus = FocusNode();
   final _searchController = TextEditingController();
   bool _searchFocused = false;
+  final _selectedIds = <String>{};
+  final _selectionRevision = ValueNotifier<int>(0);
+  final _scrollController = ScrollController();
+  final _listKey = GlobalKey();
+  bool _scrubbing = false;
+  int? _scrubAnchorIndex;
+  Set<String> _selectionBeforeScrub = {};
+  List<String> _visibleIds = const [];
+  Offset? _scrubPointer;
+  Ticker? _scrubScrollTicker;
+  Duration? _lastScrubTick;
 
   late final AnimationController _searchCtrl;
   late final Animation<double> _chromeFade;
@@ -116,7 +138,220 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     _searchFocus.dispose();
     _searchController.dispose();
     _searchCtrl.dispose();
+    _scrubScrollTicker?.dispose();
+    _selectionRevision.dispose();
+    _scrollController.dispose();
+    txSelectionActive.value = false;
     super.dispose();
+  }
+
+  void _publishSelection() {
+    _selectionRevision.value++;
+    txSelectionActive.value = _selectedIds.isNotEmpty;
+  }
+
+  void _clearSelection() {
+    if (_selectedIds.isEmpty && !_scrubbing) return;
+    _stopScrubAutoScroll();
+    setState(() {
+      _selectedIds.clear();
+      _scrubbing = false;
+      _scrubAnchorIndex = null;
+      _scrubPointer = null;
+    });
+    _publishSelection();
+  }
+
+  void _toggleSelection(String id) {
+    if (_scrubbing) return;
+    HapticFeedback.selectionClick();
+    if (!_selectedIds.remove(id)) {
+      _selectedIds.add(id);
+    }
+    _publishSelection();
+    if (_selectedIds.isEmpty) setState(() {});
+  }
+
+  void _beginScrub(int index, String id) {
+    if (_scrollController.hasClients) {
+      _scrollController.position.hold(() {});
+    }
+    _selectionBeforeScrub = Set.of(_selectedIds)..add(id);
+    _scrubAnchorIndex = index;
+    HapticFeedback.mediumImpact();
+    _selectedIds.add(id);
+    setState(() => _scrubbing = true);
+    _publishSelection();
+  }
+
+  void _scrubToIndex(int index) {
+    final anchor = _scrubAnchorIndex;
+    if (anchor == null || _visibleIds.isEmpty) return;
+    final lo = index < anchor ? index : anchor;
+    final hi = index > anchor ? index : anchor;
+    final range = <String>{};
+    for (var i = lo; i <= hi && i < _visibleIds.length; i++) {
+      if (i >= 0) range.add(_visibleIds[i]);
+    }
+    final next = {..._selectionBeforeScrub, ...range};
+    if (next.length == _selectedIds.length && next.containsAll(_selectedIds)) {
+      return;
+    }
+    _selectedIds
+      ..clear()
+      ..addAll(next);
+    _publishSelection();
+    _scrubSelectHaptic();
+  }
+
+  int _lastScrubHapticMs = 0;
+
+  void _scrubSelectHaptic() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastScrubHapticMs < 40) return;
+    _lastScrubHapticMs = now;
+    SlideHaptics.slideTick();
+  }
+
+  void _scrubToPosition(Offset global) {
+    if (!_scrubbing) return;
+    _scrubPointer = global;
+    final index = _tileIndexAt(global);
+    if (index != null) _scrubToIndex(index);
+    _syncScrubAutoScroll();
+  }
+
+  double _scrubEdgeSpeed() {
+    final pointer = _scrubPointer;
+    if (pointer == null || !mounted) return 0;
+    final media = MediaQuery.of(context);
+    final top = media.padding.top + 8;
+    final bottom = media.size.height - media.padding.bottom - 64;
+    if (pointer.dy >= bottom - _scrubEdgeZone) {
+      final t =
+          ((pointer.dy - (bottom - _scrubEdgeZone)) / _scrubEdgeZone)
+              .clamp(0.0, 1.0);
+      return _scrubScrollMin +
+          (_scrubScrollMax - _scrubScrollMin) * Curves.easeIn.transform(t);
+    }
+    if (pointer.dy <= top + _scrubEdgeZone) {
+      final t =
+          ((top + _scrubEdgeZone - pointer.dy) / _scrubEdgeZone).clamp(0.0, 1.0);
+      return -(_scrubScrollMin +
+          (_scrubScrollMax - _scrubScrollMin) * Curves.easeIn.transform(t));
+    }
+    return 0;
+  }
+
+  void _syncScrubAutoScroll() {
+    if (_scrubEdgeSpeed() == 0) {
+      _stopScrubAutoScroll();
+      return;
+    }
+    _scrubScrollTicker ??= createTicker(_onScrubScrollTick);
+    if (!_scrubScrollTicker!.isActive) {
+      _lastScrubTick = null;
+      _scrubScrollTicker!.start();
+    }
+  }
+
+  void _onScrubScrollTick(Duration elapsed) {
+    if (!mounted || !_scrubbing) {
+      _stopScrubAutoScroll();
+      return;
+    }
+    final last = _lastScrubTick ?? elapsed;
+    _lastScrubTick = elapsed;
+    final dt = (elapsed - last).inMicroseconds / 1e6;
+    if (dt <= 0 || dt > 0.05) return;
+
+    final speed = _scrubEdgeSpeed();
+    if (speed == 0 || !_scrollController.hasClients) {
+      _stopScrubAutoScroll();
+      return;
+    }
+
+    final position = _scrollController.position;
+    final next = (position.pixels + speed * dt)
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    if (next != position.pixels) {
+      _scrollController.jumpTo(next);
+    }
+
+    final pointer = _scrubPointer;
+    if (pointer != null) {
+      final index = _tileIndexAt(pointer);
+      if (index != null) _scrubToIndex(index);
+    }
+
+    if (next == position.minScrollExtent || next == position.maxScrollExtent) {
+      if (speed < 0 && next == position.minScrollExtent) {
+        _stopScrubAutoScroll();
+      } else if (speed > 0 && next == position.maxScrollExtent) {
+        _stopScrubAutoScroll();
+      }
+    }
+  }
+
+  void _stopScrubAutoScroll() {
+    _scrubScrollTicker?.stop();
+    _lastScrubTick = null;
+  }
+
+  int? _tileIndexAt(Offset global) {
+    final listenerBox = _listKey.currentContext?.findRenderObject();
+    if (listenerBox is! RenderBox) return null;
+    RenderBox? flexBox = listenerBox;
+    if (listenerBox is RenderProxyBox) {
+      flexBox = listenerBox.child;
+    }
+    if (flexBox is! RenderFlex) return null;
+
+    var tileIndex = 0;
+    var bestIndex = 0;
+    var bestDist = double.infinity;
+    var found = false;
+    var child = flexBox.firstChild;
+    while (child != null) {
+      final parentData = child.parentData! as FlexParentData;
+      final next = parentData.nextSibling;
+      if (child.size.height > 8) {
+        final top = child.localToGlobal(Offset.zero).dy;
+        final mid = top + child.size.height / 2;
+        final dist = (global.dy - mid).abs();
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIndex = tileIndex;
+          found = true;
+        }
+        tileIndex++;
+      }
+      child = next;
+    }
+    return found ? bestIndex : null;
+  }
+
+  void _endScrub() {
+    if (!_scrubbing) return;
+    _stopScrubAutoScroll();
+    setState(() {
+      _scrubbing = false;
+      _scrubAnchorIndex = null;
+      _scrubPointer = null;
+    });
+  }
+
+  void _showAddedResult(List<Transaction> selected) {
+    if (selected.isEmpty) return;
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: AppColors.backgroundElevated,
+      barrierColor: AppColors.shadow.withValues(alpha: 0.72),
+      builder: (ctx) => _SelectedTotalSheet(transactions: selected),
+    );
   }
 
   void _onQueryChanged(String value) {
@@ -220,17 +455,31 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         }
 
         final hasFilters = hasQuery || categoryId != null;
+        final selecting = _selectedIds.isNotEmpty;
+        _visibleIds = [for (final t in txs) t.id];
         final resultsKey = ValueKey(
           'tx-${selected.year}-${selected.month}-'
           '${categoryId ?? 'all'}-${_query.trim()}-$_sort-${txs.length}',
         );
 
-        return SafeArea(
-          child: AppRefreshScroll(
+        return PopScope(
+          canPop: !selecting,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            _clearSelection();
+          },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              SafeArea(
+                child: AppRefreshScroll(
             orbTopOffset: -8,
             orbMinPull: 44,
             child: CustomScrollView(
-              physics: refreshScrollPhysics,
+              controller: _scrollController,
+              physics: _scrubbing
+                  ? const NeverScrollableScrollPhysics()
+                  : refreshScrollPhysics,
               keyboardDismissBehavior:
                   ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
@@ -258,30 +507,59 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      'Transactions',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .headlineLarge
-                                          ?.copyWith(
-                                            letterSpacing: -0.4,
-                                          ),
+                                    AnimatedSwitcher(
+                                      duration: AppMotion.fast,
+                                      child: selecting
+                                          ? ValueListenableBuilder<int>(
+                                              key: const ValueKey(true),
+                                              valueListenable:
+                                                  _selectionRevision,
+                                              builder: (context, _, _) {
+                                                return Text(
+                                                  '${_selectedIds.length} selected',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .headlineLarge
+                                                      ?.copyWith(
+                                                        letterSpacing: -0.4,
+                                                      ),
+                                                );
+                                              },
+                                            )
+                                          : Text(
+                                              'Transactions',
+                                              key: const ValueKey(false),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .headlineLarge
+                                                  ?.copyWith(
+                                                    letterSpacing: -0.4,
+                                                  ),
+                                            ),
                                     ),
                                     const SizedBox(height: 2),
                                     GestureDetector(
                                       behavior: HitTestBehavior.opaque,
-                                      onTap: () {
-                                        final now = DateTime.now();
-                                        final current =
-                                            DateTime(now.year, now.month);
-                                        if (selected.year != current.year ||
-                                            selected.month != current.month) {
-                                          HapticFeedback.selectionClick();
-                                          provider.setSelectedMonth(current);
-                                        }
-                                      },
+                                      onTap: selecting
+                                          ? null
+                                          : () {
+                                              final now = DateTime.now();
+                                              final current =
+                                                  DateTime(now.year, now.month);
+                                              if (selected.year !=
+                                                      current.year ||
+                                                  selected.month !=
+                                                      current.month) {
+                                                HapticFeedback.selectionClick();
+                                                _clearSelection();
+                                                provider
+                                                    .setSelectedMonth(current);
+                                              }
+                                            },
                                       child: Text(
-                                        formatMonthYear(selected),
+                                        selecting
+                                            ? 'Tap to select more'
+                                            : formatMonthYear(selected),
                                         style: Theme.of(context)
                                             .textTheme
                                             .bodySmall
@@ -294,10 +572,17 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                                   ],
                                 ),
                               ),
-                              _SortButton(
-                                sort: _sort,
-                                onChanged: (s) => setState(() => _sort = s),
-                              ),
+                              if (selecting)
+                                IconButton(
+                                  tooltip: 'Cancel',
+                                  onPressed: _clearSelection,
+                                  icon: const Icon(Icons.close_rounded),
+                                )
+                              else
+                                _SortButton(
+                                  sort: _sort,
+                                  onChanged: (s) => setState(() => _sort = s),
+                                ),
                             ],
                           ),
                         ),
@@ -427,7 +712,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                   ),
                 ),
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(
+                  padding: EdgeInsets.fromLTRB(
                     AppSpacing.pageH,
                     12,
                     AppSpacing.pageH,
@@ -495,28 +780,55 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                                 ),
                               ),
                               GlassCard(
-                                child: Column(
-                                  children: [
-                                    for (var i = 0; i < txs.length; i++) ...[
-                                      TransactionTile(
-                                        transaction: txs[i],
-                                        showSource: true,
-                                        compact: true,
-                                        onTap: () =>
-                                            TransactionDetailScreen.open(
-                                          context,
-                                          txs[i],
+                                child: Listener(
+                                  key: _listKey,
+                                  behavior: HitTestBehavior.translucent,
+                                  onPointerMove: (e) =>
+                                      _scrubToPosition(e.position),
+                                  onPointerUp: (_) => _endScrub(),
+                                  onPointerCancel: (_) => _endScrub(),
+                                  child: Column(
+                                    children: [
+                                      for (var i = 0; i < txs.length; i++) ...[
+                                        _SelectAwareTile(
+                                          id: txs[i].id,
+                                          revision: _selectionRevision,
+                                          isSelected: _selectedIds.contains,
+                                          builder: (selected) {
+                                            return TransactionTile(
+                                              transaction: txs[i],
+                                              showSource: true,
+                                              compact: true,
+                                              selecting:
+                                                  selecting || _scrubbing,
+                                              selected: selected,
+                                              onTap: () {
+                                                if (selecting) {
+                                                  _toggleSelection(txs[i].id);
+                                                  return;
+                                                }
+                                                TransactionDetailScreen.open(
+                                                  context,
+                                                  txs[i],
+                                                );
+                                              },
+                                              onLongPress: () => _beginScrub(
+                                                i,
+                                                txs[i].id,
+                                              ),
+                                            );
+                                          },
                                         ),
-                                      ),
-                                      if (i < txs.length - 1)
-                                        const Divider(
-                                          height: 1,
-                                          indent: 72,
-                                          endIndent: 16,
-                                          color: AppColors.border,
-                                        ),
+                                        if (i < txs.length - 1)
+                                          const Divider(
+                                            height: 1,
+                                            indent: 72,
+                                            endIndent: 16,
+                                            color: AppColors.border,
+                                          ),
+                                      ],
                                     ],
-                                  ],
+                                  ),
                                 ),
                               ),
                             ],
@@ -526,8 +838,419 @@ class _TransactionsScreenState extends State<TransactionsScreen>
               ],
             ),
           ),
+              ),
+              if (selecting)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _selectionRevision,
+                    builder: (context, _, _) {
+                      return _SelectionActionBar(
+                        count: _selectedIds.length,
+                        onCancel: _clearSelection,
+                        onAdd: () {
+                          final selected = [
+                            for (final t in txs)
+                              if (_selectedIds.contains(t.id)) t,
+                          ];
+                          _showAddedResult(selected);
+                        },
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
         );
       },
+    );
+  }
+}
+
+class _SelectAwareTile extends StatefulWidget {
+  const _SelectAwareTile({
+    required this.id,
+    required this.revision,
+    required this.isSelected,
+    required this.builder,
+  });
+
+  final String id;
+  final ValueNotifier<int> revision;
+  final bool Function(String id) isSelected;
+  final Widget Function(bool selected) builder;
+
+  @override
+  State<_SelectAwareTile> createState() => _SelectAwareTileState();
+}
+
+class _SelectAwareTileState extends State<_SelectAwareTile> {
+  late bool _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.isSelected(widget.id);
+    widget.revision.addListener(_onRevision);
+  }
+
+  @override
+  void didUpdateWidget(_SelectAwareTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.revision != widget.revision) {
+      oldWidget.revision.removeListener(_onRevision);
+      widget.revision.addListener(_onRevision);
+    }
+    final next = widget.isSelected(widget.id);
+    if (next != _selected) _selected = next;
+  }
+
+  @override
+  void dispose() {
+    widget.revision.removeListener(_onRevision);
+    super.dispose();
+  }
+
+  void _onRevision() {
+    final next = widget.isSelected(widget.id);
+    if (next == _selected || !mounted) return;
+    setState(() => _selected = next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(child: widget.builder(_selected));
+  }
+}
+
+class _SelectionActionBar extends StatelessWidget {
+  const _SelectionActionBar({
+    required this.count,
+    required this.onCancel,
+    required this.onAdd,
+  });
+
+  final int count;
+  final VoidCallback onCancel;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
+    return Material(
+      type: MaterialType.transparency,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          18,
+          0,
+          18,
+          bottomInset > 0 ? bottomInset + 8 : 18,
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: AppRadius.borderXxl,
+            color: AppColors.backgroundElevated,
+            border: Border.all(color: AppColors.glassBorder, width: 0.9),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.shadow.withValues(alpha: 0.7),
+                blurRadius: 28,
+                offset: const Offset(0, 14),
+                spreadRadius: -4,
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: AppRadius.borderXxl,
+            child: ColoredBox(
+              color: AppColors.backgroundElevated,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                child: Row(
+                  children: [
+                    Material(
+                      color: AppColors.surfaceHigh,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: onCancel,
+                        child: const SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: Icon(Icons.close_rounded, size: 20),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            count == 1 ? '1 selected' : '$count selected',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            'Add to total',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppColors.textMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: count == 0 ? null : onAdd,
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: AppRadius.borderLg,
+                        ),
+                      ),
+                      icon: const Icon(Icons.add_rounded, size: 20),
+                      label: const Text('Add'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SelectedTotalSheet extends StatelessWidget {
+  const _SelectedTotalSheet({required this.transactions});
+
+  final List<Transaction> transactions;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final flow = CashFlowMetrics.fromTransactions(transactions);
+    final n = transactions.length;
+    final hasIn = flow.cashIn > 0;
+    final hasOut = flow.cashOut > 0;
+    final primary = hasIn && hasOut
+        ? flow.net
+        : hasIn
+            ? flow.cashIn
+            : flow.cashOut;
+    final primaryIsIncome = hasIn && (!hasOut || flow.net >= 0);
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(AppRadius.xl),
+      ),
+      child: ColoredBox(
+        color: AppColors.backgroundElevated,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHandle(),
+              Text('Added', style: theme.textTheme.headlineMedium),
+              const SizedBox(height: 4),
+              Text(
+                n == 1
+                    ? 'for 1 selected transaction'
+                    : 'for $n selected transactions',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textMuted,
+                ),
+              ),
+              const SizedBox(height: 20),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  border: Border.all(color: AppColors.glassBorder, width: 0.85),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 20,
+                    horizontal: 16,
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        '${primaryIsIncome ? '+' : '−'}${formatCurrency(primary.abs())}',
+                        style: theme.textTheme.displayLarge?.copyWith(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w700,
+                          color: primaryIsIncome
+                              ? AppColors.income
+                              : AppColors.expense,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        hasIn && hasOut
+                            ? 'Net of selected'
+                            : hasIn
+                                ? 'Cash in'
+                                : 'Cash out',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.textMuted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (hasIn && hasOut) ...[
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _SheetStat(
+                                label: 'Cash out',
+                                value: formatCurrency(flow.cashOut),
+                                color: AppColors.expense,
+                              ),
+                            ),
+                            Expanded(
+                              child: _SheetStat(
+                                label: 'Cash in',
+                                value: formatCurrency(flow.cashIn),
+                                color: AppColors.income,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              if (transactions.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.36,
+                  ),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                      border: Border.all(
+                        color: AppColors.glassBorder,
+                        width: 0.85,
+                      ),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        itemCount: transactions.length,
+                        separatorBuilder: (_, _) => const Divider(
+                          height: 1,
+                          color: AppColors.border,
+                        ),
+                        itemBuilder: (context, i) {
+                          final t = transactions[i];
+                          final failed = t.isFailed;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    t.merchant,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: failed
+                                          ? AppColors.textMuted
+                                          : AppColors.textPrimary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  failed
+                                      ? 'Failed'
+                                      : '${t.isDebit ? '−' : '+'}${formatCurrency(t.amount)}',
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: failed
+                                        ? AppColors.textMuted
+                                        : t.isDebit
+                                            ? AppColors.expense
+                                            : AppColors.income,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Done'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetStat extends StatelessWidget {
+  const _SheetStat({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: AppColors.textMuted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 }

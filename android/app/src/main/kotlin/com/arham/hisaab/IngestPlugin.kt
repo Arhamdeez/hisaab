@@ -238,6 +238,11 @@ class IngestPlugin(
                 "\\bspend\\s+globally\\b|" +
                 "\\b(?:honda|yadea).{0,48}(?:ebike|e-bike|cd\\s*70|jeet|mauqa)\\b|" +
                 "\\b(?:ebike|e-bike|cd\\s*70).{0,48}(?:jeet|mauqa|honda|yadea)\\b|" +
+                // Airport lounge / "sirf Rs. 1 mein" card perk promos — not spends.
+                "\\b(?:airport\\s+)?lounge\\s+access\\b|" +
+                "\\bpremium\\s+lounge\\b|" +
+                "\\bsirf\\s+(?:rs\\.?|pkr)\\b|" +
+                "\\b(?:rs\\.?|pkr)\\.?\\s*[\\d,]+\\s+mein\\b|" +
                 "\\boffer\\s+valid\\b|\\bvalid\\s+(?:till|until)\\b|" +
                 "\\bmaintain\\s+(?:rs\\.?|pkr)\\b|" +
                 "\\b(?:refer(?:ral)?|invite\\s+(?:friends?|and\\s+earn))\\b|" +
@@ -321,7 +326,16 @@ class IngestPlugin(
                 "\\bkarein\\s+aur\\b|\\bhasil\\s+kar(?:ein|o|iye)\\b|\\bkijiye\\b|" +
                 "\\buthayein\\b|\\bbanayein\\b|\\bpayein\\b|" +
                 "\\bt\\s*&\\s*cs?\\b|\\bterms\\s+(?:and|&)\\s+conditions\\b|" +
-                "\\bfx\\s+fee\\b|\\bbachat\\b|\\bfaida\\b|\\bmoassar\\b",
+                "\\bfx\\s+fee\\b|\\bbachat\\b|\\bfaida\\b|\\bmoassar\\b|" +
+                "\\b(?:airport\\s+)?lounge\\s+access\\b|\\bpremium\\s+lounge\\b|" +
+                "\\bsirf\\s+(?:rs\\.?|pkr)\\b|\\b(?:rs\\.?|pkr)\\.?\\s*[\\d,]+\\s+mein\\b|" +
+                "\\binvest(?:ing)?\\s+in\\b|" +
+                "\\binvest\\s+kar(?:ein|o|iye)\\b|" +
+                "\\bt-?bills?\\b|" +
+                "\\btreasury\\s+bills?\\b|" +
+                "\\b(?:yaqeeni\\s+)?munafa\\b|" +
+                "\\b(?:government\\s+ki\\s+)?zamanat\\b|" +
+                "\\bmehfooz\\b",
             RegexOption.IGNORE_CASE,
         )
 
@@ -613,7 +627,7 @@ class IngestPlugin(
             }
             val safeEnd = end.coerceAtMost(text.length)
             val tail = text.substring(safeEnd).trimStart()
-            if (Regex("^(?:mb|gb|kb|tb|%)\\b", RegexOption.IGNORE_CASE).containsMatchIn(tail)) {
+            if (Regex("^(?:mb|gb|kb|tb)\\b|^%", RegexOption.IGNORE_CASE).containsMatchIn(tail)) {
                 return true
             }
             if (Regex("^:\\d{2}\\b", RegexOption.IGNORE_CASE).containsMatchIn(tail)) {
@@ -824,7 +838,7 @@ class IngestPlugin(
                 "cashback.{0,50}(?:received|credited|in\\s+your)|" +
                 "\\bcash\\s+(?:deposit|withdrawal|wdl|wdr|in|out)\\b|\\bdeposit(?:ed)?\\b|" +
                 "salary|transfer|withdrawal|" +
-                "payment|charged|bill|added|successful|completed|processed|" +
+                "payment|charged|\\b(?<![tT]-)bills?\\b|added|successful|completed|processed|" +
                 "money\\s+received|money\\s+sent|payment\\s+received|payment\\s+sent|" +
                 "transfer\\s*successful|successfully\\s*transferred|" +
                 "you\\s+sent|you\\s+paid|you\\s+transferred|sent\\s+to|paid\\s+to|" +

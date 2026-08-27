@@ -171,5 +171,21 @@ void main() {
       expect(result.type, TransactionType.credit);
       expect(result.merchant, 'Muhammad Shahbakht Khurram');
     });
+
+    test('Easypaisa: paid PKR for Order ID to Delivery Hero is Foodpanda', () {
+      final result = parser.parse(
+        'easypaisa — Dear Customer, You have paid PKR 3,432.79 for Order ID: '
+        '26082590680282129768 to Delivery Hero Pakistan Pvt Ltd against '
+        'Transaction ID: 54759465177',
+        source: TransactionSource.sms,
+        notificationTitle: 'easypaisa',
+      );
+      expect(result, isNotNull);
+      expect(result!.amount, 3432.79);
+      expect(result.type, TransactionType.debit);
+      expect(result.merchant, 'Foodpanda');
+      expect(result.category, SpendingCategory.food);
+      expect(result.referenceId, '54759465177');
+    });
   });
 }

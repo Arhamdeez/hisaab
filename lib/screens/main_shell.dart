@@ -138,11 +138,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       _history.add(_index);
       _index = index;
     });
-    // Transactions tab shares Home's selected month — refresh list data but
-    // keep the month the user already picked (don't jump back to "now").
-    if (index == 1) {
-      unawaited(context.read<TransactionProvider>().reload());
-    }
   }
 
   void _selectPrimaryTab(int index) {
@@ -185,11 +180,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                   index: _index,
                   children: [
                     HomeScreen(
+                      key: const ValueKey('tab-home'),
                       netBalanceToggleKey: _netBalanceToggleKey,
                       scrollController: _homeScrollController,
                       onHeroIntroComplete: _onHeroIntroComplete,
                     ),
-                    const TransactionsScreen(),
+                    const TransactionsScreen(key: ValueKey('tab-tx')),
                   ],
                 ),
               ),
@@ -200,14 +196,20 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 child: ValueListenableBuilder<bool>(
                   valueListenable: appRefreshActive,
                   builder: (context, refreshing, child) {
-                    return IgnorePointer(
-                      ignoring: refreshing,
-                      child: AnimatedOpacity(
-                        opacity: refreshing ? 0 : 1,
-                        duration: const Duration(milliseconds: 140),
-                        curve: Curves.easeOut,
-                        child: child,
-                      ),
+                    return ValueListenableBuilder<bool>(
+                      valueListenable: txSelectionActive,
+                      builder: (context, selecting, _) {
+                        final hide = refreshing || selecting;
+                        return IgnorePointer(
+                          ignoring: hide,
+                          child: AnimatedOpacity(
+                            opacity: hide ? 0 : 1,
+                            duration: const Duration(milliseconds: 140),
+                            curve: Curves.easeOut,
+                            child: child,
+                          ),
+                        );
+                      },
                     );
                   },
                   child: RepaintBoundary(
@@ -243,34 +245,40 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           ),
           floatingActionButton: ValueListenableBuilder<bool>(
             valueListenable: appRefreshActive,
-            builder: (context, refreshing, _) => AnimatedSwitcher(
-            duration: AppMotion.fast,
-            switchInCurve: AppMotion.easeOut,
-            switchOutCurve: AppMotion.easeIn,
-            transitionBuilder: (child, animation) {
-              return FadeTransition(
-                opacity: animation,
-                child: child,
+            builder: (context, refreshing, _) {
+              return ValueListenableBuilder<bool>(
+                valueListenable: txSelectionActive,
+                builder: (context, selecting, _) => AnimatedSwitcher(
+                  duration: AppMotion.fast,
+                  switchInCurve: AppMotion.easeOut,
+                  switchOutCurve: AppMotion.easeIn,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: child,
+                    );
+                  },
+                  child: _index == 1 && !refreshing && !selecting
+                      ? Padding(
+                          key: const ValueKey('add_fab'),
+                          padding: EdgeInsets.only(
+                            bottom:
+                                GlassBottomNavBar.reservedHeight(context) - 10,
+                          ),
+                          child: FloatingActionButton.extended(
+                            onPressed: () => _showAddSheet(context),
+                            elevation: 0,
+                            highlightElevation: 0,
+                            backgroundColor: AppColors.ui,
+                            foregroundColor: AppColors.textOnPrimary,
+                            icon: const Icon(Icons.add_rounded),
+                            label: const Text('Add'),
+                          ),
+                        )
+                      : const SizedBox.shrink(key: ValueKey('no_fab')),
+                ),
               );
             },
-            child: _index == 1 && !refreshing
-                ? Padding(
-                    key: const ValueKey('add_fab'),
-                    padding: EdgeInsets.only(
-                      bottom: GlassBottomNavBar.reservedHeight(context) - 10,
-                    ),
-                    child: FloatingActionButton.extended(
-                      onPressed: () => _showAddSheet(context),
-                      elevation: 0,
-                      highlightElevation: 0,
-                      backgroundColor: AppColors.ui,
-                      foregroundColor: AppColors.textOnPrimary,
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('Add'),
-                    ),
-                  )
-                : const SizedBox.shrink(key: ValueKey('no_fab')),
-          ),
           ),
         ),
       ),

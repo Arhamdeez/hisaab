@@ -24,29 +24,30 @@ class AppLogoMark extends StatelessWidget {
   Widget build(BuildContext context) {
     final tint = color ??
         (emphasized ? AppColors.brand : AppColors.textPrimary);
+    final painted = tint.withValues(alpha: opacity);
 
-    Widget child = Image.asset(
-      _assetPath,
+    // Tint on the image itself — a wrapping ColorFiltered save-layer can
+    // leak across the screen on Impeller/Vulkan (Samsung).
+    return SizedBox(
       width: size,
       height: size,
-      fit: BoxFit.contain,
-      filterQuality: FilterQuality.high,
-      gaplessPlayback: true,
-      errorBuilder: (context, error, stackTrace) => _FallbackMark(
-        size: size,
-        color: tint.withValues(alpha: opacity),
+      child: RepaintBoundary(
+        child: Image.asset(
+          _assetPath,
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+          color: painted,
+          colorBlendMode: BlendMode.srcIn,
+          filterQuality: FilterQuality.high,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => _FallbackMark(
+            size: size,
+            color: painted,
+          ),
+        ),
       ),
     );
-
-    child = ColorFiltered(
-      colorFilter: ColorFilter.mode(
-        tint.withValues(alpha: opacity),
-        BlendMode.srcIn,
-      ),
-      child: child,
-    );
-
-    return SizedBox(width: size, height: size, child: child);
   }
 }
 

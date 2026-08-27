@@ -323,13 +323,6 @@ class _NetPositionChip extends StatelessWidget {
           ],
         ),
         border: Border.all(color: accent.withValues(alpha: 0.42)),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: 0.16),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
-          ),
-        ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -556,7 +549,7 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
 
   bool _pressed = false;
 
-  List<BoxShadow> _buttonShadow({required Color accent}) {
+  List<BoxShadow> _buttonShadow() {
     if (_pressed) {
       // Flat, inset feel when depressed.
       return [
@@ -571,8 +564,8 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
     return [
       BoxShadow(
         color: AppColors.shadow.withValues(alpha: 0.55),
-        blurRadius: 22,
-        offset: const Offset(0, 10),
+        blurRadius: 12,
+        offset: const Offset(0, 6),
       ),
       BoxShadow(
         color: AppColors.shadow.withValues(alpha: 0.28),
@@ -580,11 +573,10 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
         offset: const Offset(0, 3),
       ),
       BoxShadow(
-        color: (widget.active ? accent : AppColors.ui)
-            .withValues(alpha: widget.active ? 0.22 : 0.10),
-        blurRadius: 20,
-        spreadRadius: -2,
-        offset: const Offset(0, 6),
+        color: AppColors.ui.withValues(alpha: 0.08),
+        blurRadius: 12,
+        spreadRadius: -4,
+        offset: const Offset(0, 4),
       ),
     ];
   }
@@ -704,7 +696,7 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
                         : AppColors.ui.withValues(alpha: 0.42)),
                 width: widget.active || !_pressed ? 1.5 : 1.1,
               ),
-              boxShadow: _buttonShadow(accent: netColor),
+              boxShadow: _buttonShadow(),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -738,18 +730,6 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
                               : AppColors.ui.withValues(alpha: 0.35),
                           width: 1.25,
                         ),
-                        boxShadow: _pressed
-                            ? null
-                            : [
-                                BoxShadow(
-                                  color: (widget.active
-                                          ? netColor
-                                          : AppColors.ui)
-                                      .withValues(alpha: 0.18),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 3),
-                                ),
-                              ],
                       ),
                       child: _SequentialFadeSwap(
                         swapKey: widget.active,
@@ -920,42 +900,39 @@ class BudgetSlider extends StatelessWidget {
               duration: AppMotion.hero,
               curve: AppMotion.easeOut,
               builder: (context, animatedPct, _) {
-                final fillW = (w * animatedPct).clamp(_trackH, w);
+                if (!w.isFinite || w <= 0) {
+                  return const SizedBox(height: _thumb);
+                }
+                final fillW =
+                    animatedPct <= 0 ? 0.0 : (w * animatedPct).clamp(0.0, w);
                 final thumbLeft =
                     (w * animatedPct - _thumb / 2).clamp(0.0, w - _thumb);
 
                 return SizedBox(
                   height: _thumb,
+                  width: w,
                   child: Stack(
-                    clipBehavior: Clip.none,
+                    clipBehavior: Clip.hardEdge,
                     alignment: Alignment.centerLeft,
                     children: [
-                      Container(
-                        height: _trackH,
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceHigh,
-                          borderRadius: BorderRadius.circular(AppRadius.pill),
-                        ),
-                      ),
-                      Container(
-                        height: _trackH,
-                        width: fillW,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              AppColors.expense.withValues(alpha: 0.85),
-                              AppColors.expense,
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(AppRadius.pill),
-                          boxShadow: [
-                            BoxShadow(
-                              color:
-                                  AppColors.expense.withValues(alpha: 0.35),
-                              blurRadius: 12,
-                              offset: const Offset(0, 2),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                        child: SizedBox(
+                          height: _trackH,
+                          width: w,
+                          child: ColoredBox(
+                            color: AppColors.surfaceHigh,
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: SizedBox(
+                                height: _trackH,
+                                width: fillW,
+                                child: const ColoredBox(
+                                  color: AppColors.expense,
+                                ),
+                              ),
                             ),
-                          ],
+                          ),
                         ),
                       ),
                       Positioned(

@@ -130,6 +130,7 @@ void main() {
         'Johny and Jugnu',
         'Cakes and Bakes',
         'Foodpanda Order',
+        'Delivery Hero Pakistan Pvt Ltd',
         'Hyperstar Defence',
         'Chase Up Supermarket',
         'Alfatah',

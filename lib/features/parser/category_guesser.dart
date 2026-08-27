@@ -86,9 +86,11 @@ class CategoryGuesser {
       'juice',
       'icecream',
       'ice cream',
-      // Delivery / aggregators.
+      // Delivery aggregators (SMS often uses the parent-company legal name).
       'foodpanda',
       'food panda',
+      'delivery hero',
+      'deliveryhero',
       'swiggy',
       'zomato',
       'talabat',
