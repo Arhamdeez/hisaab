@@ -566,4 +566,26 @@ void main() {
     expect(all.where((t) => t.type == TransactionType.debit).length, 1);
     expect(all.where((t) => t.type == TransactionType.credit).length, 1);
   });
+
+  test('keeps a user-renamed merchant when the same alert is ingested again', () async {
+    final when = DateTime(2026, 6, 16, 14, 30);
+    const text = 'PKR 1,200 paid to Ali Khan via wallet';
+    final first = await ingest(text: text, messageTime: when);
+    expect(first.result, DedupResult.created);
+    final id = first.transaction!.id;
+    final original = (await repository.getById(id))!.merchant;
+
+    await repository.updateMerchant(id, 'Lunch');
+    expect((await repository.getById(id))!.merchant, 'Lunch');
+    expect((await repository.getById(id))!.merchantLocked, isTrue);
+
+    final second = await ingest(
+      text: text,
+      messageTime: when.add(const Duration(seconds: 20)),
+    );
+    expect(second.result, DedupResult.merged);
+    final row = (await repository.getAll()).single;
+    expect(row.merchant, 'Lunch');
+    expect(row.merchant, isNot(original));
+  });
 }

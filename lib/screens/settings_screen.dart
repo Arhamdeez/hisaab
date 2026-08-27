@@ -1,12 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/brand.dart';
 import '../core/theme/app_decorations.dart';
+import '../core/motion/app_haptics.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/settings_tour_overlay.dart';
 import '../core/theme/app_spacing.dart';
@@ -469,6 +469,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                   child: const _CashFlowSettingsGroup(),
                 ),
                 const SizedBox(height: AppSpacing.section),
+                const _AppSettingsGroup(),
+                const SizedBox(height: AppSpacing.section),
                 KeyedSubtree(
                   key: _aboutKey,
                   child: _SettingsGroup(
@@ -620,6 +622,33 @@ class _CashFlowSettingsGroup extends StatelessWidget {
   }
 }
 
+class _AppSettingsGroup extends StatelessWidget {
+  const _AppSettingsGroup();
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<AppPreferences, bool>(
+      selector: (_, prefs) => prefs.hapticsEnabled,
+      builder: (context, hapticsEnabled, _) {
+        return _SettingsGroup(
+          title: 'App',
+          children: [
+            _SettingsSwitchTile(
+              icon: Icons.vibration_rounded,
+              title: 'Haptics',
+              subtitle: hapticsEnabled
+                  ? 'Vibration on taps, switches, and gestures'
+                  : 'All vibration is off',
+              value: hapticsEnabled,
+              onChanged: context.read<AppPreferences>().setHapticsEnabled,
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _SettingsGroup extends StatelessWidget {
   const _SettingsGroup({required this.title, required this.children});
 
@@ -692,7 +721,7 @@ class _SettingsTile extends StatelessWidget {
         onTap: onTap == null
             ? null
             : () {
-                HapticFeedback.selectionClick();
+                AppHaptics.selectionClick();
                 onTap!();
               },
         child: Padding(
@@ -852,8 +881,8 @@ class _SmoothToggleState extends State<_SmoothToggle> {
   void _handleTap() {
     final next = !_on;
     setState(() => _on = next);
-    HapticFeedback.selectionClick();
     widget.onChanged(next);
+    AppHaptics.selectionClick();
   }
 
   @override

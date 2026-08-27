@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/motion/app_haptics.dart';
 
 /// Play Console use case: SMS-based money management — wallet/bank txn alerts only.
 abstract final class SmsPermission {
@@ -30,7 +30,7 @@ abstract final class SmsPermission {
     if (await isGranted()) return true;
     if (!context.mounted) return false;
 
-    HapticFeedback.lightImpact();
+    AppHaptics.lightImpact();
     final agreed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(

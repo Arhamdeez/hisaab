@@ -266,6 +266,7 @@ class TransactionProvider extends ChangeNotifier {
         source: TransactionSource.manual,
         status: TransactionStatus.confirmed,
         fingerprint: fingerprint,
+        merchantLocked: true,
       ),
     );
     await load();
@@ -317,5 +318,20 @@ class TransactionProvider extends ChangeNotifier {
   Future<void> updateTransactionDescription(String id, String? description) async {
     await _repository.updateDescription(id, description);
     await load();
+  }
+
+  Future<void> updateTransactionMerchant(String id, String merchant) async {
+    final trimmed = merchant.trim();
+    if (trimmed.isEmpty) return;
+    await _repository.updateMerchant(id, trimmed);
+    final index = _transactions.indexWhere((t) => t.id == id);
+    if (index >= 0) {
+      _transactions[index] = _transactions[index].copyWith(
+        merchant: trimmed,
+        merchantLocked: true,
+      );
+    }
+    _invalidateCaches();
+    notifyListeners();
   }
 }

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'app_haptics.dart';
+
 /// Soft scrub/slide haptics — dense low ticks that feel like dragging, not a buzz.
 class SlideHaptics {
   SlideHaptics._();
@@ -11,6 +13,7 @@ class SlideHaptics {
 
   /// [intensity] 0–1; keep low (≈0.15–0.4) for a subtle slide.
   static Future<void> slideTick({double intensity = 0.28}) async {
+    if (!AppHaptics.enabled) return;
     if (kIsWeb) return;
     if (Platform.isAndroid) {
       try {
@@ -22,6 +25,6 @@ class SlideHaptics {
         // Fall through to Flutter haptic.
       }
     }
-    await HapticFeedback.selectionClick();
+    await AppHaptics.selectionClick();
   }
 }

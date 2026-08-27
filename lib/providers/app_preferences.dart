@@ -18,13 +18,15 @@ class AppPreferences extends ChangeNotifier {
     bool settingsTourSeen = false,
     bool homeTourSeen = false,
     String accountHolderName = '',
+    bool hapticsEnabled = true,
   })  : _showIncome = showIncome,
         _monthlyIncome = monthlyIncome,
         _incomeByMonth = incomeByMonth ?? <String, double>{},
         _trackInwardFlow = trackInwardFlow,
         _settingsTourSeen = settingsTourSeen,
         _homeTourSeen = homeTourSeen,
-        _accountHolderName = accountHolderName;
+        _accountHolderName = accountHolderName,
+        _hapticsEnabled = hapticsEnabled;
 
   static const _showIncomeKey = 'show_income';
   static const _monthlyIncomeKey = 'monthly_income';
@@ -33,6 +35,7 @@ class AppPreferences extends ChangeNotifier {
   static const _settingsTourSeenKey = 'settings_tour_seen';
   static const _homeTourSeenKey = 'home_tour_seen';
   static const _accountHolderNameKey = 'account_holder_name';
+  static const _hapticsEnabledKey = 'haptics_enabled';
 
   static AppPreferences? _instance;
   static Future<void>? _hydrating;
@@ -60,6 +63,7 @@ class AppPreferences extends ChangeNotifier {
   bool? _settingsTourSeen;
   bool? _homeTourSeen;
   String? _accountHolderName;
+  bool? _hapticsEnabled;
 
   /// Off by default for new users — enable in Settings when you want a budget.
   bool get showIncome => _showIncome ?? false;
@@ -117,6 +121,9 @@ class AppPreferences extends ChangeNotifier {
 
   bool get hasAccountHolderName => accountHolderName.trim().isNotEmpty;
 
+  /// Vibration on taps, switches, and gestures. On by default.
+  bool get hapticsEnabled => _hapticsEnabled ?? true;
+
   void _repairAfterHotReload() {
     _showIncome ??= false;
     _monthlyIncome ??= 0;
@@ -125,6 +132,7 @@ class AppPreferences extends ChangeNotifier {
     _settingsTourSeen ??= false;
     _homeTourSeen ??= false;
     _accountHolderName ??= '';
+    _hapticsEnabled ??= true;
   }
 
   static Map<String, double> _decodeOverrides(String? raw) {
@@ -154,6 +162,7 @@ class AppPreferences extends ChangeNotifier {
     final settingsTourSeen = prefs.getBool(_settingsTourSeenKey) ?? false;
     final homeTourSeen = prefs.getBool(_homeTourSeenKey) ?? false;
     final accountHolderName = prefs.getString(_accountHolderNameKey) ?? '';
+    final hapticsEnabled = prefs.getBool(_hapticsEnabledKey) ?? true;
 
     if (_instance != null) {
       _instance!._prefs = prefs;
@@ -164,6 +173,7 @@ class AppPreferences extends ChangeNotifier {
       _instance!._settingsTourSeen = settingsTourSeen;
       _instance!._homeTourSeen = homeTourSeen;
       _instance!._accountHolderName = accountHolderName;
+      _instance!._hapticsEnabled = hapticsEnabled;
       _instance!.notifyListeners();
     } else {
       _instance = AppPreferences._(
@@ -175,6 +185,7 @@ class AppPreferences extends ChangeNotifier {
         settingsTourSeen: settingsTourSeen,
         homeTourSeen: homeTourSeen,
         accountHolderName: accountHolderName,
+        hapticsEnabled: hapticsEnabled,
       );
     }
 
@@ -247,6 +258,15 @@ class AppPreferences extends ChangeNotifier {
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     _prefs = prefs;
     await prefs.setBool(_homeTourSeenKey, true);
+  }
+
+  Future<void> setHapticsEnabled(bool value) async {
+    if (hapticsEnabled == value) return;
+    _hapticsEnabled = value;
+    notifyListeners();
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    _prefs = prefs;
+    await prefs.setBool(_hapticsEnabledKey, value);
   }
 
   Future<void> setAccountHolderName(String value) async {

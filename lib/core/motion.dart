@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+export 'motion/app_haptics.dart';
+
 /// Shared motion tokens — keep transitions consistent and premium.
 abstract final class AppMotion {
   /// Press / micro feedback.

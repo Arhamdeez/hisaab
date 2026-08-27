@@ -2,12 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../brand.dart';
+import '../motion/app_haptics.dart';
 import 'crash_buffer.dart';
 
 enum IssueReportStatus { sent, shared, cancelled, failed }
@@ -86,7 +86,7 @@ abstract final class IssueReport {
   }
 
   static Future<void> openSheet(BuildContext context) async {
-    HapticFeedback.lightImpact();
+    AppHaptics.lightImpact();
     final crash = await CrashBuffer.latest();
     if (!context.mounted) return;
 

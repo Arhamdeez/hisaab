@@ -16,7 +16,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -28,6 +28,9 @@ class AppDatabase extends _$AppDatabase {
           // Additive-only migrations — never drop user tables or rows.
           if (from < 2) {
             await m.addColumn(transactions, transactions.description);
+          }
+          if (from < 3) {
+            await m.addColumn(transactions, transactions.merchantLocked);
           }
         },
         beforeOpen: (details) async {
@@ -193,6 +196,9 @@ class AppDatabase extends _$AppDatabase {
       TransactionsCompanion(
         status: Value(status),
         merchant: merchant == null ? const Value.absent() : Value(merchant),
+        merchantLocked: merchant == null
+            ? const Value.absent()
+            : const Value(true),
         category: category == null ? const Value.absent() : Value(category),
       ),
     );
@@ -204,10 +210,22 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  Future<void> updateTransactionMerchant(String id, String merchant) async {
-    await (update(transactions)..where((t) => t.id.equals(id))).write(
-      TransactionsCompanion(merchant: Value(merchant)),
+  Future<int> updateTransactionMerchant(String id, String merchant) {
+    return (update(transactions)..where((t) => t.id.equals(id))).write(
+      TransactionsCompanion(
+        merchant: Value(merchant),
+        merchantLocked: const Value(true),
+      ),
     );
+  }
+
+  /// Ingest may only improve an auto-parsed label — never a name the user set.
+  Future<int> upgradeParsedMerchantIfUnlocked(String id, String merchant) {
+    return (update(transactions)
+          ..where(
+            (t) => t.id.equals(id) & t.merchantLocked.equals(false),
+          ))
+        .write(TransactionsCompanion(merchant: Value(merchant)));
   }
 
   Future<void> updateTransactionCategory(String id, String categoryId) async {

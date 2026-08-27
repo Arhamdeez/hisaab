@@ -1,11 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../splash_timing.dart';
 import '../theme/app_colors.dart';
+import '../motion/app_haptics.dart';
 import '../../widgets/app_logo_mark.dart';
 import '../../features/ingest/ingest_service.dart';
 import '../../providers/transaction_provider.dart';
@@ -218,7 +218,7 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
     appRefreshActive.value = true;
     _showCurtain();
 
-    HapticFeedback.mediumImpact();
+    AppHaptics.mediumImpact();
     // Raise the curtain immediately; slide the pull indicator away underneath
     // it so there's no dead time between the haptic and the logo appearing.
     _animatePullTo(0, ms: 140);

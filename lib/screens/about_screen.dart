@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/brand.dart';
@@ -8,6 +7,7 @@ import '../core/privacy/local_data_policy.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
+import '../core/motion/app_haptics.dart';
 import '../widgets/app_logo_mark.dart';
 import '../widgets/glass_container.dart';
 
@@ -23,7 +23,7 @@ class AboutScreen extends StatelessWidget {
   }
 
   Future<void> _openVawcom(BuildContext context) async {
-    HapticFeedback.lightImpact();
+    AppHaptics.lightImpact();
     final uri = Uri.parse(_vawcomUrl);
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
       if (!context.mounted) return;

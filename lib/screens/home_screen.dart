@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/brand.dart';
@@ -190,7 +189,7 @@ class _HeaderIconButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          HapticFeedback.selectionClick();
+          AppHaptics.selectionClick();
           onTap();
         },
         customBorder: const CircleBorder(),
@@ -309,7 +308,7 @@ class _MonthSelectorState extends State<_MonthSelector> {
     final current = provider.selectedMonth;
     final next = DateTime(current.year, current.month + delta);
     if (next.isAfter(DateTime.now())) return;
-    HapticFeedback.selectionClick();
+    AppHaptics.selectionClick();
     setState(() => _slideDx = delta < 0 ? -0.12 : 0.12);
     provider.setSelectedMonth(next);
   }
@@ -318,7 +317,7 @@ class _MonthSelectorState extends State<_MonthSelector> {
     BuildContext context,
     TransactionProvider provider,
   ) async {
-    HapticFeedback.selectionClick();
+    AppHaptics.selectionClick();
     final picked = await showModalBottomSheet<DateTime>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -327,7 +326,7 @@ class _MonthSelectorState extends State<_MonthSelector> {
       builder: (_) => _MonthPickerSheet(selected: provider.selectedMonth),
     );
     if (picked != null && mounted) {
-      HapticFeedback.selectionClick();
+      AppHaptics.selectionClick();
       final current = provider.selectedMonth;
       final older = picked.isBefore(DateTime(current.year, current.month));
       setState(() => _slideDx = older ? -0.12 : 0.12);

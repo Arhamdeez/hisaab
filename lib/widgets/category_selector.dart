@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
+import '../core/motion/app_haptics.dart';
 import '../models/category_info.dart';
 import '../models/transaction.dart';
 import '../providers/category_catalog.dart';
@@ -101,7 +101,7 @@ class _CategoryChip extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          HapticFeedback.selectionClick();
+          AppHaptics.selectionClick();
           onTap();
         },
         borderRadius: BorderRadius.circular(AppRadius.pill),
@@ -175,7 +175,7 @@ class _CategoryTile extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          HapticFeedback.selectionClick();
+          AppHaptics.selectionClick();
           onTap();
         },
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -286,7 +286,7 @@ class _FlowOption extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          HapticFeedback.selectionClick();
+          AppHaptics.selectionClick();
           onTap();
         },
         borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -401,7 +401,7 @@ class _CategoryPickerSheet extends StatelessWidget {
               compact: true,
               label: null,
               onSelected: (id) {
-                HapticFeedback.selectionClick();
+                AppHaptics.selectionClick();
                 Navigator.pop(context, id);
               },
             ),

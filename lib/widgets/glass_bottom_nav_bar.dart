@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
+import '../core/motion/app_haptics.dart';
 
 class GlassNavDestination {
   const GlassNavDestination({
@@ -160,7 +160,7 @@ class _GlassBottomNavBarState extends State<GlassBottomNavBar>
   }
 
   void _onTap(int index) {
-    HapticFeedback.selectionClick();
+    AppHaptics.selectionClick();
     _expandThenCollapse();
     if (index != widget.selectedIndex) {
       widget.onSelected(index);

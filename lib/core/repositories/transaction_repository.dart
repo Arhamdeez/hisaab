@@ -152,8 +152,21 @@ class TransactionRepository {
     return null;
   }
 
-  Future<void> updateMerchant(String id, String merchant) =>
-      _db.updateTransactionMerchant(id, merchant);
+  Future<void> updateMerchant(String id, String merchant) async {
+    final trimmed = merchant.trim();
+    if (trimmed.isEmpty) return;
+    final rows = await _db.updateTransactionMerchant(id, trimmed);
+    if (rows > 0) return;
+    final existing = await getById(id);
+    if (existing == null) return;
+    await save(existing.copyWith(merchant: trimmed, merchantLocked: true));
+  }
+
+  Future<void> upgradeParsedMerchant(String id, String merchant) async {
+    final trimmed = merchant.trim();
+    if (trimmed.isEmpty) return;
+    await _db.upgradeParsedMerchantIfUnlocked(id, trimmed);
+  }
 
   Future<void> updateCategory(String id, String categoryId) =>
       _db.updateTransactionCategory(id, categoryId);
@@ -256,6 +269,7 @@ class TransactionRepository {
       fingerprint: row.fingerprint,
       linkedSources: domain.linkedSourcesFromJson(row.linkedSources),
       description: row.description,
+      merchantLocked: row.merchantLocked,
     );
   }
 
@@ -275,6 +289,7 @@ class TransactionRepository {
       fingerprint: Value(t.fingerprint),
       linkedSources: Value(domain.linkedSourcesToJson(t.linkedSources)),
       description: Value(t.description),
+      merchantLocked: Value(t.merchantLocked),
     );
   }
 }

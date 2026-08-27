@@ -1,11 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/brand.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/motion/app_haptics.dart';
 import 'ingest_bridge.dart';
 import 'ingest_service.dart';
 
@@ -30,7 +30,7 @@ abstract final class NotificationAccess {
     BuildContext context, {
     required bool refreshAfter,
   }) async {
-    HapticFeedback.lightImpact();
+    AppHaptics.lightImpact();
     final ingest = context.read<IngestService>();
     final result = await openSettings();
 

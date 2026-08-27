@@ -1,7 +1,6 @@
 import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../core/motion.dart';
 import '../core/theme/app_colors.dart';
@@ -658,12 +657,12 @@ class _NetBalanceToggleState extends State<_NetBalanceToggle> {
       onTapDown: (_) {
         setState(() => _pressed = true);
         // Hard, weighty click going down.
-        HapticFeedback.heavyImpact();
+        AppHaptics.heavyImpact();
       },
       onTapUp: (_) {
         setState(() => _pressed = false);
         // Hard click again as it springs back out.
-        HapticFeedback.heavyImpact();
+        AppHaptics.heavyImpact();
       },
       onTapCancel: () => setState(() => _pressed = false),
       onTap: widget.onTap,

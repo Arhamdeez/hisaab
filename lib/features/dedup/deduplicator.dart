@@ -197,9 +197,11 @@ class Deduplicator {
   }) async {
     final linked = {...existing.linkedSources, existing.source, source}.toList();
     await _repository.updateLinkedSources(existing.id, linked);
-    final better = BurstDedup.pickBetterMerchant(existing.merchant, merchant);
-    if (better != existing.merchant) {
-      await _repository.updateMerchant(existing.id, better);
+    if (!existing.merchantLocked) {
+      final better = BurstDedup.pickBetterMerchant(existing.merchant, merchant);
+      if (better != existing.merchant) {
+        await _repository.upgradeParsedMerchant(existing.id, better);
+      }
     }
     // Prefer a real category from the richer alert (e.g. SMS "FOOD POINT")
     // over "Others" from a stripped EasyPaisa push.

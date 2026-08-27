@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
+import '../core/motion/app_haptics.dart';
 import '../core/utils/formatters.dart';
 import '../models/category_info.dart';
 import '../models/transaction.dart';
@@ -34,16 +35,44 @@ class TransactionDetailScreen extends StatefulWidget {
 
 class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   late String _categoryId;
+  late String _merchant;
   late String? _description;
+  late final TextEditingController _nameCtrl;
+  late final FocusNode _nameFocus;
+  late TransactionProvider _txProvider;
   bool _saving = false;
   bool _deleting = false;
   bool _savingNote = false;
+  bool _savingName = false;
+  bool _editingName = false;
+  bool _committingName = false;
 
   @override
   void initState() {
     super.initState();
     _categoryId = widget.transaction.categoryId;
+    _merchant = widget.transaction.merchant;
     _description = widget.transaction.description;
+    _nameCtrl = TextEditingController(text: _merchant);
+    _nameFocus = FocusNode()..addListener(_handleNameFocus);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _txProvider = context.read<TransactionProvider>();
+  }
+
+  @override
+  void dispose() {
+    _nameFocus.removeListener(_handleNameFocus);
+    final pending = _nameCtrl.text.trim();
+    if (_editingName && pending.isNotEmpty && pending != _merchant) {
+      _txProvider.updateTransactionMerchant(widget.transaction.id, pending);
+    }
+    _nameFocus.dispose();
+    _nameCtrl.dispose();
+    super.dispose();
   }
 
   CategoryInfo _category(BuildContext context) {
@@ -51,7 +80,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   }
 
   Future<void> _pickCategory() async {
-    if (_saving) return;
+    if (_saving || _deleting || _savingName) return;
 
     final picked = await showCategoryPickerSheet(
       context,
@@ -61,12 +90,12 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
     if (picked == null || picked == _categoryId || !mounted) return;
 
     setState(() => _saving = true);
-    HapticFeedback.lightImpact();
+    AppHaptics.lightImpact();
 
     await context.read<TransactionProvider>().updateTransactionCategory(
-          widget.transaction.id,
-          picked,
-        );
+      widget.transaction.id,
+      picked,
+    );
 
     if (!mounted) return;
 
@@ -85,7 +114,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   }
 
   Future<void> _editDescription() async {
-    if (_saving || _deleting || _savingNote) return;
+    if (_saving || _deleting || _savingNote || _savingName) return;
 
     final controller = TextEditingController(text: _description ?? '');
     final saved = await showModalBottomSheet<String?>(
@@ -117,9 +146,9 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
               const SizedBox(height: 16),
               Text(
                 'Note',
-                style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                style: Theme.of(
+                  ctx,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -130,9 +159,9 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                 style: Theme.of(ctx).textTheme.bodyMedium,
                 decoration: InputDecoration(
                   hintText: 'What was this for?',
-                  hintStyle: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textMuted,
-                      ),
+                  hintStyle: Theme.of(
+                    ctx,
+                  ).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
                   filled: true,
                   fillColor: AppColors.surfaceMuted,
                   border: OutlineInputBorder(
@@ -160,8 +189,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                     ),
                   const Spacer(),
                   FilledButton(
-                    onPressed: () =>
-                        Navigator.pop(ctx, controller.text.trim()),
+                    onPressed: () => Navigator.pop(ctx, controller.text.trim()),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.ui,
                       foregroundColor: AppColors.textOnPrimary,
@@ -180,13 +208,13 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
     if (!mounted || saved == null) return;
 
     setState(() => _savingNote = true);
-    HapticFeedback.lightImpact();
+    AppHaptics.lightImpact();
 
     final next = saved.isEmpty ? null : saved;
     await context.read<TransactionProvider>().updateTransactionDescription(
-          widget.transaction.id,
-          next,
-        );
+      widget.transaction.id,
+      next,
+    );
 
     if (!mounted) return;
     setState(() {
@@ -195,8 +223,62 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
     });
   }
 
+  void _handleNameFocus() {
+    if (_nameFocus.hasFocus || !_editingName || _committingName) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _nameFocus.hasFocus) return;
+      _commitName();
+    });
+  }
+
+  void _beginNameEdit() {
+    if (_saving || _deleting || _savingNote || _savingName || _editingName) {
+      return;
+    }
+    AppHaptics.selectionClick();
+    setState(() => _editingName = true);
+    _nameCtrl
+      ..text = _merchant
+      ..selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _merchant.length,
+      );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _nameFocus.requestFocus();
+    });
+  }
+
+  Future<void> _commitName([String? raw]) async {
+    if (_committingName || !_editingName) return;
+    _committingName = true;
+    final next = (raw ?? _nameCtrl.text).trim();
+    if (mounted) setState(() => _editingName = false);
+    if (_nameFocus.hasFocus) _nameFocus.unfocus();
+
+    try {
+      if (next.isEmpty || next == _merchant) {
+        _nameCtrl.text = _merchant;
+        return;
+      }
+
+      if (mounted) setState(() => _savingName = true);
+      AppHaptics.lightImpact();
+      await _txProvider.updateTransactionMerchant(widget.transaction.id, next);
+      _merchant = next;
+      _nameCtrl.text = next;
+    } finally {
+      _committingName = false;
+      if (mounted) setState(() => _savingName = false);
+    }
+  }
+
+  Future<void> _leave() async {
+    await _commitName();
+    if (mounted) Navigator.of(context).pop();
+  }
+
   Future<void> _confirmDelete() async {
-    if (_saving || _deleting) return;
+    if (_saving || _deleting || _savingNote || _savingName) return;
 
     final tx = widget.transaction;
     final isDebit = tx.isDebit;
@@ -208,7 +290,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete transaction?'),
         content: Text(
-          '$amountLabel ${isDebit ? 'to' : 'from'} ${tx.merchant} will be '
+          '$amountLabel ${isDebit ? 'to' : 'from'} $_merchant will be '
           'removed. Your totals will update everywhere.',
         ),
         actions: [
@@ -230,11 +312,11 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
     if (confirmed != true || !mounted) return;
 
     setState(() => _deleting = true);
-    HapticFeedback.mediumImpact();
+    AppHaptics.mediumImpact();
 
-    final deleted = await context
-        .read<TransactionProvider>()
-        .deleteTransaction(tx.id);
+    final deleted = await context.read<TransactionProvider>().deleteTransaction(
+      tx.id,
+    );
 
     if (!mounted) return;
 
@@ -260,238 +342,342 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
     final isDebit = tx.isDebit;
     final amountColor = isDebit ? AppColors.textPrimary : AppColors.income;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          const AppBackground(),
-          SafeArea(
-            child: CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.fromLTRB(8, 4, AppSpacing.pageH, 0),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.arrow_back_rounded),
-                          color: AppColors.textSecondary,
-                        ),
-                        Expanded(
-                          child: Text(
-                            'Transaction',
-                            style: theme.textTheme.titleLarge,
-                            textAlign: TextAlign.center,
+    return PopScope(
+      canPop: !_editingName,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        await _leave();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            const AppBackground(),
+            SafeArea(
+              child: CustomScrollView(
+                physics: const BouncingScrollPhysics(),
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        8,
+                        4,
+                        AppSpacing.pageH,
+                        0,
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            onPressed: _leave,
+                            icon: const Icon(Icons.arrow_back_rounded),
+                            color: AppColors.textSecondary,
                           ),
-                        ),
-                        const SizedBox(width: 48),
-                      ],
-                    ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.pageH,
-                      8,
-                      AppSpacing.pageH,
-                      AppSpacing.section,
-                    ),
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            color: category.color.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(AppRadius.lg),
-                          ),
-                          child: Icon(
-                            category.icon,
-                            color: category.color,
-                            size: 30,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          tx.merchant,
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.headlineMedium,
-                        ),
-                        const SizedBox(height: 12),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            '${isDebit ? '−' : '+'}${formatCurrency(tx.amount, showDecimals: true)}',
-                            style: theme.textTheme.displayLarge?.copyWith(
-                              fontSize: 42,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -1.5,
-                              color: amountColor,
+                          Expanded(
+                            child: Text(
+                              'Transaction',
+                              style: theme.textTheme.titleLarge,
+                              textAlign: TextAlign.center,
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          isDebit ? 'Expense' : 'Income',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: AppColors.textMuted,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                          const SizedBox(width: 48),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.pageH,
-                      AppSpacing.section,
-                      AppSpacing.pageH,
-                      0,
-                    ),
-                    child: GlassCard(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.pageH,
+                        8,
+                        AppSpacing.pageH,
+                        AppSpacing.section,
+                      ),
                       child: Column(
                         children: [
-                          _DetailRow(
-                            label: 'Category',
-                            value: _CategoryPickerChip(
-                              category: category,
-                              saving: _saving,
-                              onTap: _pickCategory,
+                          Container(
+                            width: 64,
+                            height: 64,
+                            decoration: BoxDecoration(
+                              color: category.color.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(AppRadius.lg),
+                            ),
+                            child: Icon(
+                              category.icon,
+                              color: category.color,
+                              size: 30,
                             ),
                           ),
-                          const _DetailDivider(),
-                          _DetailRow(
-                            label: 'Date',
-                            value: Text(
-                              _formatFullDate(tx.occurredAt),
-                              style: theme.textTheme.titleMedium,
+                          const SizedBox(height: 20),
+                          _MerchantName(
+                            editing: _editingName,
+                            merchant: _merchant,
+                            style: theme.textTheme.headlineMedium,
+                            controller: _nameCtrl,
+                            focusNode: _nameFocus,
+                            onDoubleTap: _beginNameEdit,
+                            onSubmitted: _commitName,
+                          ),
+                          const SizedBox(height: 12),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              '${isDebit ? '−' : '+'}${formatCurrency(tx.amount, showDecimals: true)}',
+                              style: theme.textTheme.displayLarge?.copyWith(
+                                fontSize: 42,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -1.5,
+                                color: amountColor,
+                              ),
                             ),
                           ),
-                          const _DetailDivider(),
-                          _DetailRow(
-                            label: 'Time',
-                            value: Text(
-                              formatTime(tx.occurredAt),
-                              style: theme.textTheme.titleMedium,
+                          const SizedBox(height: 6),
+                          Text(
+                            isDebit ? 'Expense' : 'Income',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: AppColors.textMuted,
+                              fontWeight: FontWeight.w600,
                             ),
-                          ),
-                          const _DetailDivider(),
-                          _DetailRow(
-                            label: 'Source',
-                            value: SourceBadge(source: tx.source),
-                          ),
-                          if (tx.status != TransactionStatus.confirmed) ...[
-                            const _DetailDivider(),
-                            _DetailRow(
-                              label: 'Status',
-                              value: _StatusChip(status: tx.status),
-                            ),
-                          ],
-                          const _DetailDivider(),
-                          _NoteRow(
-                            description: _description,
-                            saving: _savingNote,
-                            onTap: _editDescription,
                           ),
                         ],
                       ),
                     ),
                   ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.pageH,
-                      AppSpacing.section,
-                      AppSpacing.pageH,
-                      0,
-                    ),
-                    child: OutlinedButton.icon(
-                      onPressed: (_saving || _deleting) ? null : _confirmDelete,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.expense,
-                        disabledForegroundColor:
-                            AppColors.expense.withValues(alpha: 0.45),
-                        minimumSize: const Size(double.infinity, 48),
-                        side: BorderSide(
-                          color: AppColors.expense.withValues(
-                            alpha: _deleting ? 0.25 : 0.45,
-                          ),
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.md),
-                        ),
-                      ),
-                      icon: _deleting
-                          ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: AppColors.expense.withValues(alpha: 0.7),
-                              ),
-                            )
-                          : const Icon(Icons.delete_outline_rounded, size: 20),
-                      label: Text(_deleting ? 'Deleting…' : 'Delete transaction'),
-                    ),
-                  ),
-                ),
-                if (tx.rawText != null && tx.rawText!.trim().isNotEmpty)
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(
                         AppSpacing.pageH,
                         AppSpacing.section,
                         AppSpacing.pageH,
-                        AppSpacing.navBottom,
+                        0,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Original message',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          GlassCard(
-                            padding: const EdgeInsets.all(16),
-                            child: Text(
-                              tx.rawText!,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: AppColors.textSecondary,
-                                height: 1.5,
+                      child: GlassCard(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 6,
+                        ),
+                        child: Column(
+                          children: [
+                            _DetailRow(
+                              label: 'Category',
+                              value: _CategoryPickerChip(
+                                category: category,
+                                saving: _saving,
+                                onTap: _pickCategory,
                               ),
                             ),
-                          ),
-                        ],
+                            const _DetailDivider(),
+                            _DetailRow(
+                              label: 'Date',
+                              value: Text(
+                                _formatFullDate(tx.occurredAt),
+                                style: theme.textTheme.titleMedium,
+                              ),
+                            ),
+                            const _DetailDivider(),
+                            _DetailRow(
+                              label: 'Time',
+                              value: Text(
+                                formatTime(tx.occurredAt),
+                                style: theme.textTheme.titleMedium,
+                              ),
+                            ),
+                            const _DetailDivider(),
+                            _DetailRow(
+                              label: 'Source',
+                              value: SourceBadge(source: tx.source),
+                            ),
+                            if (tx.status != TransactionStatus.confirmed) ...[
+                              const _DetailDivider(),
+                              _DetailRow(
+                                label: 'Status',
+                                value: _StatusChip(status: tx.status),
+                              ),
+                            ],
+                            const _DetailDivider(),
+                            _NoteRow(
+                              description: _description,
+                              saving: _savingNote,
+                              onTap: _editDescription,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  )
-                else
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: AppSpacing.navBottom),
                   ),
-              ],
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.pageH,
+                        AppSpacing.section,
+                        AppSpacing.pageH,
+                        0,
+                      ),
+                      child: OutlinedButton.icon(
+                        onPressed: (_saving || _deleting || _savingName)
+                            ? null
+                            : _confirmDelete,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.expense,
+                          disabledForegroundColor: AppColors.expense.withValues(
+                            alpha: 0.45,
+                          ),
+                          minimumSize: const Size(double.infinity, 48),
+                          side: BorderSide(
+                            color: AppColors.expense.withValues(
+                              alpha: _deleting ? 0.25 : 0.45,
+                            ),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                          ),
+                        ),
+                        icon: _deleting
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.expense.withValues(
+                                    alpha: 0.7,
+                                  ),
+                                ),
+                              )
+                            : const Icon(
+                                Icons.delete_outline_rounded,
+                                size: 20,
+                              ),
+                        label: Text(
+                          _deleting ? 'Deleting…' : 'Delete transaction',
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (tx.rawText != null && tx.rawText!.trim().isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.pageH,
+                          AppSpacing.section,
+                          AppSpacing.pageH,
+                          AppSpacing.navBottom,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Original message',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            GlassCard(
+                              padding: const EdgeInsets.all(16),
+                              child: Text(
+                                tx.rawText!,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: AppColors.textSecondary,
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: AppSpacing.navBottom),
+                    ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   static String _formatFullDate(DateTime date) {
     return DateFormat('EEEE, d MMMM yyyy').format(date);
+  }
+}
+
+class _MerchantName extends StatelessWidget {
+  const _MerchantName({
+    required this.editing,
+    required this.merchant,
+    required this.style,
+    required this.controller,
+    required this.focusNode,
+    required this.onDoubleTap,
+    required this.onSubmitted,
+  });
+
+  final bool editing;
+  final String merchant;
+  final TextStyle? style;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final VoidCallback onDoubleTap;
+  final ValueChanged<String> onSubmitted;
+
+  static const _fieldDecoration = InputDecoration(
+    isDense: true,
+    isCollapsed: true,
+    border: InputBorder.none,
+    enabledBorder: InputBorder.none,
+    focusedBorder: InputBorder.none,
+    filled: false,
+    fillColor: Colors.transparent,
+    contentPadding: EdgeInsets.zero,
+    counterText: '',
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final nameStyle = style;
+
+    if (!editing) {
+      return GestureDetector(
+        onDoubleTap: onDoubleTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Text(merchant, textAlign: TextAlign.center, style: nameStyle),
+        ),
+      );
+    }
+
+    return Theme(
+      data: Theme.of(context).copyWith(
+        inputDecorationTheme: const InputDecorationTheme(
+          filled: false,
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          contentPadding: EdgeInsets.zero,
+        ),
+      ),
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        autofocus: true,
+        textAlign: TextAlign.center,
+        textCapitalization: TextCapitalization.words,
+        textInputAction: TextInputAction.done,
+        maxLines: 2,
+        minLines: 1,
+        cursorColor: AppColors.ui,
+        cursorWidth: 1.6,
+        cursorRadius: const Radius.circular(1),
+        style: nameStyle,
+        inputFormatters: [LengthLimitingTextInputFormatter(80)],
+        onSubmitted: onSubmitted,
+        onTapOutside: (_) => onSubmitted(controller.text),
+        decoration: _fieldDecoration,
+      ),
+    );
   }
 }
 
@@ -657,17 +843,14 @@ class _DetailRow extends StatelessWidget {
             flex: 2,
             child: Text(
               label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.textMuted,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
             ),
           ),
           Expanded(
             flex: 3,
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: value,
-            ),
+            child: Align(alignment: Alignment.centerRight, child: value),
           ),
         ],
       ),
@@ -707,9 +890,9 @@ class _StatusChip extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

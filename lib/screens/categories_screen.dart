@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
+import '../core/motion/app_haptics.dart';
 import '../models/category_info.dart';
 import '../models/transaction.dart';
 import '../providers/category_catalog.dart';
@@ -435,7 +435,7 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
                   final selected = icon.codePoint == _icon.codePoint;
                   return InkWell(
                     onTap: () {
-                      HapticFeedback.selectionClick();
+                      AppHaptics.selectionClick();
                       setState(() => _icon = icon);
                     },
                     borderRadius: BorderRadius.circular(AppRadius.md),
@@ -477,7 +477,7 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
                   final selected = color.toARGB32() == _color.toARGB32();
                   return InkWell(
                     onTap: () {
-                      HapticFeedback.selectionClick();
+                      AppHaptics.selectionClick();
                       setState(() => _color = color);
                     },
                     customBorder: const CircleBorder(),

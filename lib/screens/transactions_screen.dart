@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/motion.dart';
@@ -117,7 +116,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     if (_searchFocused == focused) return;
     setState(() => _searchFocused = focused);
     _syncSearchAnimation();
-    if (focused) HapticFeedback.selectionClick();
+    if (focused) AppHaptics.selectionClick();
   }
 
   void _syncSearchAnimation() {
@@ -164,7 +163,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
 
   void _toggleSelection(String id) {
     if (_scrubbing) return;
-    HapticFeedback.selectionClick();
+    AppHaptics.selectionClick();
     if (!_selectedIds.remove(id)) {
       _selectedIds.add(id);
     }
@@ -178,7 +177,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     }
     _selectionBeforeScrub = Set.of(_selectedIds)..add(id);
     _scrubAnchorIndex = index;
-    HapticFeedback.mediumImpact();
+    AppHaptics.mediumImpact();
     _selectedIds.add(id);
     setState(() => _scrubbing = true);
     _publishSelection();
@@ -343,7 +342,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
 
   void _showAddedResult(List<Transaction> selected) {
     if (selected.isEmpty) return;
-    HapticFeedback.mediumImpact();
+    AppHaptics.mediumImpact();
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -360,7 +359,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
   }
 
   void _exitSearch() {
-    HapticFeedback.lightImpact();
+    AppHaptics.lightImpact();
     _searchController.clear();
     _query = '';
     _searchFocus.unfocus();
@@ -375,7 +374,15 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         final selected = provider.selectedMonth;
         final searching = _isSearching;
         final hasQuery = _query.trim().isNotEmpty;
-        final categoryId = searching ? null : _filterCategoryId;
+        final monthHistory = provider.historyForMonth(selected);
+        final usedCategoryIds = <String>{
+          for (final t in monthHistory) t.categoryId,
+        };
+        final rawFilter = searching ? null : _filterCategoryId;
+        final categoryId =
+            rawFilter != null && usedCategoryIds.contains(rawFilter)
+                ? rawFilter
+                : null;
 
         final now = DateTime.now();
         final isCurrentMonth =
@@ -422,7 +429,18 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         final monthlyAvg =
             monthsWithSpend == 0 ? 0.0 : monthlySum / monthsWithSpend;
 
-        var txs = provider.historyForMonth(selected);
+        var txs = monthHistory;
+        if (!searching &&
+            _filterCategoryId != null &&
+            !usedCategoryIds.contains(_filterCategoryId)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            if (_filterCategoryId != null &&
+                !usedCategoryIds.contains(_filterCategoryId)) {
+              setState(() => _filterCategoryId = null);
+            }
+          });
+        }
 
         if (hasQuery) {
           final q = _query.trim().toLowerCase();
@@ -550,7 +568,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                                                       current.year ||
                                                   selected.month !=
                                                       current.month) {
-                                                HapticFeedback.selectionClick();
+                                                AppHaptics.selectionClick();
                                                 _clearSelection();
                                                 provider
                                                     .setSelectedMonth(current);
@@ -689,21 +707,23 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                             children: [
                               _FilterChip(
                                 label: 'All',
-                                selected: _filterCategoryId == null,
+                                selected: categoryId == null,
                                 onTap: () => setState(
                                   () => _filterCategoryId = null,
                                 ),
                               ),
-                              ...catalog.all.map(
-                                (c) => _FilterChip(
-                                  label: c.label,
-                                  selected: _filterCategoryId == c.id,
-                                  color: c.color,
-                                  onTap: () => setState(
-                                    () => _filterCategoryId = c.id,
+                              ...catalog.all
+                                  .where((c) => usedCategoryIds.contains(c.id))
+                                  .map(
+                                    (c) => _FilterChip(
+                                      label: c.label,
+                                      selected: categoryId == c.id,
+                                      color: c.color,
+                                      onTap: () => setState(
+                                        () => _filterCategoryId = c.id,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
                             ],
                           ),
                         ),
@@ -1643,7 +1663,7 @@ class _FilterChip extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: () {
-            HapticFeedback.selectionClick();
+            AppHaptics.selectionClick();
             onTap();
           },
           borderRadius: BorderRadius.circular(AppRadius.pill),

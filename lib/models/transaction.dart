@@ -105,6 +105,7 @@ class Transaction {
     this.confidence = 1.0,
     this.linkedSources = const [],
     this.description,
+    this.merchantLocked = false,
   });
 
   final String id;
@@ -121,6 +122,9 @@ class Transaction {
   final String fingerprint;
   final List<TransactionSource> linkedSources;
   final String? description;
+
+  /// True after the user sets the display name; ingest must not overwrite it.
+  final bool merchantLocked;
 
   bool get isDebit => type == TransactionType.debit;
   bool get isPending => status == TransactionStatus.pendingReview;
@@ -142,13 +146,15 @@ class Transaction {
     String? categoryId,
     List<TransactionSource>? linkedSources,
     String? description,
+    String? merchant,
+    bool? merchantLocked,
   }) {
     return Transaction(
       id: id,
       amount: amount,
       currency: currency,
       type: type,
-      merchant: merchant,
+      merchant: merchant ?? this.merchant,
       categoryId: categoryId ?? this.categoryId,
       occurredAt: occurredAt,
       source: source,
@@ -158,6 +164,7 @@ class Transaction {
       fingerprint: fingerprint,
       linkedSources: linkedSources ?? this.linkedSources,
       description: description ?? this.description,
+      merchantLocked: merchantLocked ?? this.merchantLocked,
     );
   }
 }

@@ -15,6 +15,8 @@ class Transactions extends Table {
   TextColumn get fingerprint => text()();
   TextColumn get linkedSources => text().withDefault(const Constant('[]'))();
   TextColumn get description => text().nullable()();
+  BoolColumn get merchantLocked =>
+      boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column> get primaryKey => {id};

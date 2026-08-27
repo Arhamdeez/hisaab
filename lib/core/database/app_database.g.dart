@@ -156,6 +156,21 @@ class $TransactionsTable extends Transactions
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _merchantLockedMeta = const VerificationMeta(
+    'merchantLocked',
+  );
+  @override
+  late final GeneratedColumn<bool> merchantLocked = GeneratedColumn<bool>(
+    'merchant_locked',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("merchant_locked" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -172,6 +187,7 @@ class $TransactionsTable extends Transactions
     fingerprint,
     linkedSources,
     description,
+    merchantLocked,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -293,6 +309,15 @@ class $TransactionsTable extends Transactions
         ),
       );
     }
+    if (data.containsKey('merchant_locked')) {
+      context.handle(
+        _merchantLockedMeta,
+        merchantLocked.isAcceptableOrUnknown(
+          data['merchant_locked']!,
+          _merchantLockedMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -358,6 +383,10 @@ class $TransactionsTable extends Transactions
         DriftSqlType.string,
         data['${effectivePrefix}description'],
       ),
+      merchantLocked: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}merchant_locked'],
+      )!,
     );
   }
 
@@ -382,6 +411,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
   final String fingerprint;
   final String linkedSources;
   final String? description;
+  final bool merchantLocked;
   const Transaction({
     required this.id,
     required this.amount,
@@ -397,6 +427,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     required this.fingerprint,
     required this.linkedSources,
     this.description,
+    required this.merchantLocked,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -419,6 +450,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     if (!nullToAbsent || description != null) {
       map['description'] = Variable<String>(description);
     }
+    map['merchant_locked'] = Variable<bool>(merchantLocked);
     return map;
   }
 
@@ -442,6 +474,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       description: description == null && nullToAbsent
           ? const Value.absent()
           : Value(description),
+      merchantLocked: Value(merchantLocked),
     );
   }
 
@@ -465,6 +498,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       fingerprint: serializer.fromJson<String>(json['fingerprint']),
       linkedSources: serializer.fromJson<String>(json['linkedSources']),
       description: serializer.fromJson<String?>(json['description']),
+      merchantLocked: serializer.fromJson<bool>(json['merchantLocked']),
     );
   }
   @override
@@ -485,6 +519,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       'fingerprint': serializer.toJson<String>(fingerprint),
       'linkedSources': serializer.toJson<String>(linkedSources),
       'description': serializer.toJson<String?>(description),
+      'merchantLocked': serializer.toJson<bool>(merchantLocked),
     };
   }
 
@@ -503,6 +538,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     String? fingerprint,
     String? linkedSources,
     Value<String?> description = const Value.absent(),
+    bool? merchantLocked,
   }) => Transaction(
     id: id ?? this.id,
     amount: amount ?? this.amount,
@@ -518,6 +554,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     fingerprint: fingerprint ?? this.fingerprint,
     linkedSources: linkedSources ?? this.linkedSources,
     description: description.present ? description.value : this.description,
+    merchantLocked: merchantLocked ?? this.merchantLocked,
   );
   Transaction copyWithCompanion(TransactionsCompanion data) {
     return Transaction(
@@ -545,6 +582,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       description: data.description.present
           ? data.description.value
           : this.description,
+      merchantLocked: data.merchantLocked.present
+          ? data.merchantLocked.value
+          : this.merchantLocked,
     );
   }
 
@@ -564,7 +604,8 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           ..write('status: $status, ')
           ..write('fingerprint: $fingerprint, ')
           ..write('linkedSources: $linkedSources, ')
-          ..write('description: $description')
+          ..write('description: $description, ')
+          ..write('merchantLocked: $merchantLocked')
           ..write(')'))
         .toString();
   }
@@ -585,6 +626,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     fingerprint,
     linkedSources,
     description,
+    merchantLocked,
   );
   @override
   bool operator ==(Object other) =>
@@ -603,7 +645,8 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           other.status == this.status &&
           other.fingerprint == this.fingerprint &&
           other.linkedSources == this.linkedSources &&
-          other.description == this.description);
+          other.description == this.description &&
+          other.merchantLocked == this.merchantLocked);
 }
 
 class TransactionsCompanion extends UpdateCompanion<Transaction> {
@@ -621,6 +664,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
   final Value<String> fingerprint;
   final Value<String> linkedSources;
   final Value<String?> description;
+  final Value<bool> merchantLocked;
   final Value<int> rowid;
   const TransactionsCompanion({
     this.id = const Value.absent(),
@@ -637,6 +681,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     this.fingerprint = const Value.absent(),
     this.linkedSources = const Value.absent(),
     this.description = const Value.absent(),
+    this.merchantLocked = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TransactionsCompanion.insert({
@@ -654,6 +699,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     required String fingerprint,
     this.linkedSources = const Value.absent(),
     this.description = const Value.absent(),
+    this.merchantLocked = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        amount = Value(amount),
@@ -679,6 +725,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     Expression<String>? fingerprint,
     Expression<String>? linkedSources,
     Expression<String>? description,
+    Expression<bool>? merchantLocked,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -696,6 +743,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
       if (fingerprint != null) 'fingerprint': fingerprint,
       if (linkedSources != null) 'linked_sources': linkedSources,
       if (description != null) 'description': description,
+      if (merchantLocked != null) 'merchant_locked': merchantLocked,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -715,6 +763,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     Value<String>? fingerprint,
     Value<String>? linkedSources,
     Value<String?>? description,
+    Value<bool>? merchantLocked,
     Value<int>? rowid,
   }) {
     return TransactionsCompanion(
@@ -732,6 +781,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
       fingerprint: fingerprint ?? this.fingerprint,
       linkedSources: linkedSources ?? this.linkedSources,
       description: description ?? this.description,
+      merchantLocked: merchantLocked ?? this.merchantLocked,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -781,6 +831,9 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     if (description.present) {
       map['description'] = Variable<String>(description.value);
     }
+    if (merchantLocked.present) {
+      map['merchant_locked'] = Variable<bool>(merchantLocked.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -804,6 +857,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
           ..write('fingerprint: $fingerprint, ')
           ..write('linkedSources: $linkedSources, ')
           ..write('description: $description, ')
+          ..write('merchantLocked: $merchantLocked, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1848,6 +1902,7 @@ typedef $$TransactionsTableCreateCompanionBuilder =
       required String fingerprint,
       Value<String> linkedSources,
       Value<String?> description,
+      Value<bool> merchantLocked,
       Value<int> rowid,
     });
 typedef $$TransactionsTableUpdateCompanionBuilder =
@@ -1866,6 +1921,7 @@ typedef $$TransactionsTableUpdateCompanionBuilder =
       Value<String> fingerprint,
       Value<String> linkedSources,
       Value<String?> description,
+      Value<bool> merchantLocked,
       Value<int> rowid,
     });
 
@@ -1945,6 +2001,11 @@ class $$TransactionsTableFilterComposer
 
   ColumnFilters<String> get description => $composableBuilder(
     column: $table.description,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get merchantLocked => $composableBuilder(
+    column: $table.merchantLocked,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -2027,6 +2088,11 @@ class $$TransactionsTableOrderingComposer
     column: $table.description,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get merchantLocked => $composableBuilder(
+    column: $table.merchantLocked,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$TransactionsTableAnnotationComposer
@@ -2089,6 +2155,11 @@ class $$TransactionsTableAnnotationComposer
     column: $table.description,
     builder: (column) => column,
   );
+
+  GeneratedColumn<bool> get merchantLocked => $composableBuilder(
+    column: $table.merchantLocked,
+    builder: (column) => column,
+  );
 }
 
 class $$TransactionsTableTableManager
@@ -2136,6 +2207,7 @@ class $$TransactionsTableTableManager
                 Value<String> fingerprint = const Value.absent(),
                 Value<String> linkedSources = const Value.absent(),
                 Value<String?> description = const Value.absent(),
+                Value<bool> merchantLocked = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TransactionsCompanion(
                 id: id,
@@ -2152,6 +2224,7 @@ class $$TransactionsTableTableManager
                 fingerprint: fingerprint,
                 linkedSources: linkedSources,
                 description: description,
+                merchantLocked: merchantLocked,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2170,6 +2243,7 @@ class $$TransactionsTableTableManager
                 required String fingerprint,
                 Value<String> linkedSources = const Value.absent(),
                 Value<String?> description = const Value.absent(),
+                Value<bool> merchantLocked = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TransactionsCompanion.insert(
                 id: id,
@@ -2186,6 +2260,7 @@ class $$TransactionsTableTableManager
                 fingerprint: fingerprint,
                 linkedSources: linkedSources,
                 description: description,
+                merchantLocked: merchantLocked,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

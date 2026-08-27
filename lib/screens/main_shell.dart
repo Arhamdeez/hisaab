@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/app_launch_scope.dart';
@@ -133,7 +132,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   void _selectTab(int index) {
     if (index == _index) return;
-    HapticFeedback.selectionClick();
+    AppHaptics.selectionClick();
     setState(() {
       _history.add(_index);
       _index = index;
@@ -297,9 +296,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     var shakeTick = 0;
 
     void pulseInvalidHaptics() {
-      HapticFeedback.heavyImpact();
+      AppHaptics.heavyImpact();
       Future<void>.delayed(const Duration(milliseconds: 70), () {
-        HapticFeedback.mediumImpact();
+        AppHaptics.mediumImpact();
       });
     }
 

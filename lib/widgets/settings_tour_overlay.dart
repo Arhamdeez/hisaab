@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
+import '../core/motion/app_haptics.dart';
 import 'glass_container.dart';
 
 class SettingsTourStep {
@@ -242,7 +242,7 @@ class _SettingsTourOverlayState extends State<SettingsTourOverlay>
   }
 
   Future<void> _next() async {
-    HapticFeedback.lightImpact();
+    AppHaptics.lightImpact();
     if (_step >= widget.steps.length - 1) {
       _finish();
       return;
@@ -259,7 +259,7 @@ class _SettingsTourOverlayState extends State<SettingsTourOverlay>
   }
 
   void _finish() {
-    HapticFeedback.mediumImpact();
+    AppHaptics.mediumImpact();
     _spotlightTimer?.cancel();
     widget.onComplete();
   }
