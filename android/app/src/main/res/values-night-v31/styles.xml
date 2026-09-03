@@ -5,5 +5,11 @@
     <item name="android:windowSplashScreenBackground">@color/splash_background</item>
     <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon_empty</item>
     <item name="android:windowSplashScreenIconBackgroundColor">@color/splash_background</item>
+    <item name="android:statusBarColor">@android:color/transparent</item>
+    <item name="android:navigationBarColor">@android:color/transparent</item>
+    <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    <item name="android:enforceStatusBarContrast">false</item>
+    <item name="android:enforceNavigationBarContrast">false</item>
   </style>
 </resources>

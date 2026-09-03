@@ -197,68 +197,91 @@ class _RecentLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDebit = transaction.isDebit;
+    final failed = transaction.isFailed;
     final category =
         context.watch<CategoryCatalog>().resolve(transaction.categoryId);
-    final color = category.color;
+    final color = failed ? AppColors.textDim : category.color;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: () => TransactionDetailScreen.open(context, transaction),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: AppDecorations.iconBadge(color),
-                child: Icon(category.icon, color: color, size: 18),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        child: Opacity(
+          opacity: failed ? 0.48 : 1,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: AppDecorations.iconBadge(color),
+                  child: Icon(category.icon, color: color, size: 18),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        transaction.merchant,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: failed
+                              ? AppColors.textMuted
+                              : AppColors.textPrimary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        failed ? 'Failed payment' : category.label,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      transaction.merchant,
+                      failed
+                          ? 'Failed'
+                          : '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
                       style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
+                        color: failed
+                            ? AppColors.textMuted
+                            : isDebit
+                                ? AppColors.expense
+                                : AppColors.income,
+                        fontWeight: FontWeight.w700,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
+                    if (failed && transaction.amount > 0) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        formatCurrency(transaction.amount),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.textDim,
+                          decoration: TextDecoration.lineThrough,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 2),
                     Text(
-                      category.label,
+                      formatTime(transaction.occurredAt),
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppColors.textMuted,
+                        color: AppColors.textDim,
                       ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: isDebit ? AppColors.expense : AppColors.income,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    formatTime(transaction.occurredAt),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppColors.textDim,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

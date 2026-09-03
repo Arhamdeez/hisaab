@@ -1,9 +1,18 @@
 package com.arham.hisaab
 
+import android.os.Bundle
+import androidx.core.view.WindowCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
 class MainActivity : FlutterActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // FlutterActivity is not a ComponentActivity, so Activity.enableEdgeToEdge()
+        // cannot be used. This is the same WindowCompat call that API uses.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        super.onCreate(savedInstanceState)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         IngestPlugin(this, flutterEngine)

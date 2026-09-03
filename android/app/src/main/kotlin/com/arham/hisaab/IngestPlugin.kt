@@ -245,6 +245,19 @@ class IngestPlugin(
                 "\\b(?:rs\\.?|pkr)\\.?\\s*[\\d,]+\\s+mein\\b|" +
                 "\\boffer\\s+valid\\b|\\bvalid\\s+(?:till|until)\\b|" +
                 "\\bmaintain\\s+(?:rs\\.?|pkr)\\b|" +
+                // Card / ATM perk marketing — "100% FREE withdrawals" is not a cash-out.
+                "\\b100\\s*%\\s*free\\b|" +
+                "\\bfree\\s+atm\\s+withdrawals?\\b|" +
+                "\\batm\\s+withdrawals?\\b.{0,48}\\b(?:100\\s*%\\s*)?free\\b|" +
+                "\\bfree\\b.{0,48}\\batm\\s+withdrawals?\\b|" +
+                "\\bget\\s+your\\s+(?:debit|credit)\\s+card\\s+(?:for\\s+)?free\\b|" +
+                "\\b(?:debit|credit)\\s+card\\s+for\\s+free\\b|" +
+                // Wallet "pay bills" marketing — "1200 billers" is a count, not cash.
+                "\\bgot\\s+a\\s+bill\\s+right\\s+now\\b|" +
+                "\\bpick\\s+from\\s+more\\s+than\\b|" +
+                "\\bmore\\s+than\\s+[\\d,]+\\s+billers?\\b|" +
+                "\\b[\\d,]+\\s+billers?\\b|" +
+                "\\bquicker\\s+than\\s+you\\s+think\\b|" +
                 "\\b(?:refer(?:ral)?|invite\\s+(?:friends?|and\\s+earn))\\b|" +
                 "\\b\\d+\\s*(?:mb|gb|kb|tb)\\s+of\\s+\\d+\\s*(?:mb|gb|kb|tb)\\b|" +
                 // Crypto / token marketing pushes that mention \$ amounts.
@@ -315,6 +328,13 @@ class IngestPlugin(
                 "\\bstand\\s+a\\s+chance\\b|\\bfor\\s+a\\s+chance\\b|" +
                 "\\bchance\\s+to\\s+(?:win|earn)\\b|" +
                 "\\bget\\s+(?:up\\s*to|a\\s+free|your\\s+free)\\b|" +
+                "\\b100\\s*%\\s*free\\b|" +
+                "\\bminimum\\s+balance\\b|" +
+                "\\bfree\\s+atm\\s+withdrawals?\\b|" +
+                "\\b(?:debit|credit)\\s+card\\s+for\\s+free\\b|" +
+                "\\bbillers?\\b|" +
+                "\\bopen\\s+your\\s+app\\b|" +
+                "\\bgot\\s+a\\s+bill\\s+right\\s+now\\b|" +
                 "\\bearn\\s+(?:up\\s*to|points|rewards|\\$)\\b|" +
                 "\\bbuy\\s+any\\s+amount\\b|" +
                 "\\bupgrade\\s+(?:your|to|now)\\b|\\bshop\\s+(?:now|and\\s+win|&\\s+win)\\b|" +

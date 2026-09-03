@@ -46,6 +46,67 @@ void main() {
     );
   });
 
+  test('still accepts a paid utility bill with currency and trx id', () {
+    final parser = TransactionParser();
+    final result = parser.parse(
+      'You paid Rs 1,200.00 for your K-Electric bill. Trx ID: JC998877. '
+      'Available balance Rs 4,500.00.',
+      source: TransactionSource.notification,
+      notificationTitle: 'JazzCash',
+      packageName: 'com.techlogix.mobilinkcustomer',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 1200);
+    expect(result.type, TransactionType.debit);
+    expect(result.isFailed, isFalse);
+  });
+
+  test('rejects pay-bills marketing that counts billers as an amount', () {
+    final parser = TransactionParser();
+    const body =
+        "Open your app, pick from more than 1200 billers, pay. "
+        "It's quicker than you think.";
+    expect(
+      parser.parse(
+        body,
+        source: TransactionSource.notification,
+        notificationTitle: 'Got a bill right now?',
+        packageName: 'com.techlogix.mobilinkcustomer',
+      ),
+      isNull,
+    );
+    expect(
+      parser.parse(
+        'Got a bill right now? — $body',
+        source: TransactionSource.sms,
+      ),
+      isNull,
+    );
+  });
+
+  test('rejects free ATM withdrawal perk promo with minimum balance', () {
+    final parser = TransactionParser();
+    const body =
+        'Enjoy 100% FREE ATM withdrawals. Plus, get your Debit Card for Free '
+        'with a minimum balance of PKR 10,000 in your account.';
+    expect(
+      parser.parse(
+        body,
+        source: TransactionSource.notification,
+        notificationTitle: 'ATM Withdrawals — 100% FREE!',
+        packageName: 'com.ubluk.dc',
+      ),
+      isNull,
+    );
+    expect(
+      parser.parse(
+        'ATM Withdrawals — 100% FREE! — $body',
+        source: TransactionSource.sms,
+      ),
+      isNull,
+    );
+  });
+
   test('rejects generic card promo with amount and prize wording', () {
     final parser = TransactionParser();
     expect(

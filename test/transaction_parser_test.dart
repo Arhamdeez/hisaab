@@ -895,6 +895,34 @@ void main() {
       expect(result.merchant.toLowerCase(), contains('shopify'));
     });
 
+    test('registers Cursor Google Wallet DECLINED as failed', () {
+      final result = parser.parse(
+        'CURSOR — DECLINED -\n'
+        'PKR18,337.00 with Visa ••3865',
+        source: TransactionSource.notification,
+        notificationTitle: 'Original message',
+        packageName: 'com.google.android.apps.walletnfcrel',
+      );
+      expect(result, isNotNull);
+      expect(result!.isFailed, isTrue);
+      expect(result.amount, 18337);
+      expect(result.merchant.toUpperCase(), contains('CURSOR'));
+    });
+
+    test('registers Cursor-style unsuccessful card payment as failed', () {
+      final result = parser.parse(
+        'CURSOR — Payment unsuccessful\n'
+        'PKR 18,337.00 with Visa ••3865',
+        source: TransactionSource.notification,
+        notificationTitle: 'Original message',
+        packageName: 'com.google.android.apps.walletnfcrel',
+      );
+      expect(result, isNotNull);
+      expect(result!.isFailed, isTrue);
+      expect(result.amount, 18337);
+      expect(result.type, TransactionType.debit);
+    });
+
     test('registers Google Wallet DECLINED as failed, not spend', () {
       final result = parser.parse(
         'JOHNNY AND JUGNU — DECLINED -\n'

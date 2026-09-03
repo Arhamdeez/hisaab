@@ -31,7 +31,14 @@ abstract final class AppTheme {
         scrolledUnderElevation: 0,
         backgroundColor: Colors.transparent,
         foregroundColor: AppColors.textPrimary,
-        systemOverlayStyle: SystemUiOverlayStyle.light,
+        systemOverlayStyle: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarIconBrightness: Brightness.light,
+          systemNavigationBarContrastEnforced: false,
+          systemStatusBarContrastEnforced: false,
+        ),
         titleTextStyle: GoogleFonts.plusJakartaSans(
           fontSize: 18,
           fontWeight: FontWeight.w600,

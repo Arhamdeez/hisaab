@@ -54,77 +54,87 @@ class TransactionTile extends StatelessWidget {
             horizontal: compact ? 16 : 16,
             vertical: compact ? 13 : 14,
           ),
-          child: Row(
-            children: [
-              _LeadingBadge(
-                category: category,
-                selecting: selecting,
-                selected: selected,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          child: Opacity(
+            opacity: isFailed ? 0.48 : 1,
+            child: Row(
+              children: [
+                _LeadingBadge(
+                  category: category,
+                  selecting: selecting,
+                  selected: selected,
+                  muted: isFailed,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        transaction.merchant,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: isFailed
+                              ? AppColors.textMuted
+                              : AppColors.textPrimary,
+                        ),
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        _subtitle(category),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.textMuted,
+                        ),
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      transaction.merchant,
-                      style: theme.textTheme.titleMedium,
-                      maxLines: 1,
-                      softWrap: false,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      _subtitle(category),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppColors.textMuted,
+                      isFailed
+                          ? 'Failed'
+                          : '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: isFailed
+                            ? AppColors.textMuted
+                            : isDebit
+                                ? AppColors.expense
+                                : AppColors.income,
+                        fontWeight: FontWeight.w700,
                       ),
                       maxLines: 1,
                       softWrap: false,
-                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (isFailed && transaction.amount > 0) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        formatCurrency(transaction.amount),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.textDim,
+                          decoration: TextDecoration.lineThrough,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 3),
+                    Text(
+                      '${formatShortDate(transaction.occurredAt)} · '
+                      '${formatTime(transaction.occurredAt)}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.textDim,
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    isFailed ? 'Failed' : '${isDebit ? '−' : '+'}${formatCurrency(transaction.amount)}',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: isFailed
-                          ? AppColors.textMuted
-                          : isDebit
-                              ? AppColors.expense
-                              : AppColors.income,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    maxLines: 1,
-                    softWrap: false,
-                  ),
-                  if (isFailed && transaction.amount > 0) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      formatCurrency(transaction.amount),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppColors.textDim,
-                        decoration: TextDecoration.lineThrough,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 3),
-                  Text(
-                    '${formatShortDate(transaction.occurredAt)} · '
-                    '${formatTime(transaction.occurredAt)}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppColors.textDim,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -151,11 +161,13 @@ class _LeadingBadge extends StatelessWidget {
     required this.category,
     required this.selecting,
     required this.selected,
+    this.muted = false,
   });
 
   final CategoryInfo category;
   final bool selecting;
   final bool selected;
+  final bool muted;
 
   @override
   Widget build(BuildContext context) {
@@ -179,13 +191,14 @@ class _LeadingBadge extends StatelessWidget {
       );
     }
 
+    final color = muted ? AppColors.textDim : category.color;
     return Container(
       width: 42,
       height: 42,
-      decoration: AppDecorations.iconBadge(category.color),
+      decoration: AppDecorations.iconBadge(color),
       child: Icon(
         category.icon,
-        color: category.color,
+        color: color,
         size: 19,
       ),
     );

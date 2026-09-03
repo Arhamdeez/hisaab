@@ -25,6 +25,8 @@ class AppLogoMark extends StatelessWidget {
     final tint = color ??
         (emphasized ? AppColors.brand : AppColors.textPrimary);
     final painted = tint.withValues(alpha: opacity);
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cachePx = (size * dpr).round().clamp(1, 512);
 
     // Tint on the image itself — a wrapping ColorFiltered save-layer can
     // leak across the screen on Impeller/Vulkan (Samsung).
@@ -36,10 +38,12 @@ class AppLogoMark extends StatelessWidget {
           _assetPath,
           width: size,
           height: size,
+          cacheWidth: cachePx,
+          cacheHeight: cachePx,
           fit: BoxFit.contain,
           color: painted,
           colorBlendMode: BlendMode.srcIn,
-          filterQuality: FilterQuality.high,
+          filterQuality: FilterQuality.medium,
           gaplessPlayback: true,
           errorBuilder: (context, error, stackTrace) => _FallbackMark(
             size: size,

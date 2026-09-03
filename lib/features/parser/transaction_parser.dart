@@ -379,6 +379,11 @@ class TransactionParser {
     r'(?:declined|rejected|unsuccessful|not\s+(?:processed|completed))\b|'
     r'\bunsuccessful\s+(?:transaction|payment|transfer|purchase)\b|'
     r'\bcould\s+not\s+(?:be\s+)?(?:processed|completed)\b|'
+    r'\bcouldn.?t\s+(?:go\s+through|be\s+processed|complete)\b|'
+    r'\bunable\s+to\s+(?:process|complete|go\s+through)\b|'
+    r'\bpayment\s+unsuccessful\b|'
+    r'\bauthorization\s+(?:failed|declined|denied)\b|'
+    r'\btxn\s+(?:failed|declined)\b|'
     r'\bfailed\s+because\s+of\b|'
     r'\binsufficient\s+funds\b|'
     // Google Wallet / card: "JOHNNY AND JUGNU — DECLINED - PKR3,560.00 with …"
@@ -513,6 +518,19 @@ class TransactionParser {
     r'\binvo8\.meezan\b|'
     r'\boffer\s+valid\b|\bvalid\s+(?:till|until)\b|'
     r'\bmaintain\s+(?:rs\.?|pkr)\b|'
+    // Card / ATM perk marketing — "100% FREE withdrawals" is not a cash-out.
+    r'\b100\s*%\s*free\b|'
+    r'\bfree\s+atm\s+withdrawals?\b|'
+    r'\batm\s+withdrawals?\b.{0,48}\b(?:100\s*%\s*)?free\b|'
+    r'\bfree\b.{0,48}\batm\s+withdrawals?\b|'
+    r'\bget\s+your\s+(?:debit|credit)\s+card\s+(?:for\s+)?free\b|'
+    r'\b(?:debit|credit)\s+card\s+for\s+free\b|'
+    // Wallet "pay bills" marketing — "1200 billers" is a count, not cash.
+    r'\bgot\s+a\s+bill\s+right\s+now\b|'
+    r'\bpick\s+from\s+more\s+than\b|'
+    r'\bmore\s+than\s+[\d,]+\s+billers?\b|'
+    r'\b[\d,]+\s+billers?\b|'
+    r'\bquicker\s+than\s+you\s+think\b|'
     r'\b(?:refer(?:ral)?|invite\s+(?:friends?|and\s+earn))\b|'
     r'\b\d+\s*(?:mb|gb|kb|tb)\s+of\s+\d+\s*(?:mb|gb|kb|tb)\b|'
     // Crypto / token marketing pushes that mention \$ amounts.
@@ -586,6 +604,13 @@ class TransactionParser {
     r'\bstand\s+a\s+chance\b|\bfor\s+a\s+chance\b|'
     r'\bchance\s+to\s+(?:win|earn)\b|'
     r'\bget\s+(?:up\s*to|a\s+free|your\s+free)\b|'
+    r'\b100\s*%\s*free\b|'
+    r'\bminimum\s+balance\b|'
+    r'\bfree\s+atm\s+withdrawals?\b|'
+    r'\b(?:debit|credit)\s+card\s+for\s+free\b|'
+    r'\bbillers?\b|'
+    r'\bopen\s+your\s+app\b|'
+    r'\bgot\s+a\s+bill\s+right\s+now\b|'
     r'\bearn\s+(?:up\s*to|points|rewards|\$)\b|'
     r'\bbuy\s+any\s+amount\b|'
     r'\bupgrade\s+(?:your|to|now)\b|\bshop\s+(?:now|and\s+win|&\s+win)\b|'
@@ -1801,6 +1826,17 @@ class TransactionParser {
     final before = text.substring(0, start);
     final tail = text.substring(end).trimLeft();
     if (RegExp(r'^(?:mb|gb|kb|tb)\b|^%', caseSensitive: false).hasMatch(tail)) {
+      return true;
+    }
+    // Counts, not cash — "more than 1200 billers", "50 merchants".
+    if (RegExp(
+      r'^(?:billers?|merchants?|stores?|partners?|vendors?|options?|'
+      r'categories)\b',
+      caseSensitive: false,
+    ).hasMatch(tail)) {
+      return true;
+    }
+    if (RegExp(r'\bmore\s+than\s*$', caseSensitive: false).hasMatch(before)) {
       return true;
     }
     // Clock times — "05:00 AM", "5:00 PM".

@@ -23,22 +23,33 @@ import 'providers/transaction_provider.dart';
 import 'screens/app_bootstrap.dart';
 import 'core/brand.dart';
 import 'core/motion.dart';
+import 'core/splash_timing.dart';
 import 'core/theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _installCrashHandlers();
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
       systemNavigationBarColor: Colors.transparent,
       systemNavigationBarIconBrightness: Brightness.light,
+      systemNavigationBarContrastEnforced: false,
+      systemStatusBarContrastEnforced: false,
     ),
   );
 
   final logoBytes = await rootBundle.load('assets/images/logo.png');
-  await ui.instantiateImageCodec(logoBytes.buffer.asUint8List());
+  final dpr =
+      WidgetsBinding.instance.platformDispatcher.views.first.devicePixelRatio;
+  final logoPx = (SplashTiming.logoSize * dpr).round().clamp(64, 512);
+  await ui.instantiateImageCodec(
+    logoBytes.buffer.asUint8List(),
+    targetWidth: logoPx,
+    targetHeight: logoPx,
+  );
 
   final database = AppDatabase();
   final repository = TransactionRepository(database);

@@ -340,7 +340,12 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
     final tx = widget.transaction;
     final category = _category(context);
     final isDebit = tx.isDebit;
-    final amountColor = isDebit ? AppColors.textPrimary : AppColors.income;
+    final failed = tx.isFailed;
+    final amountColor = failed
+        ? AppColors.textMuted
+        : isDebit
+            ? AppColors.textPrimary
+            : AppColors.income;
 
     return PopScope(
       canPop: !_editingName,
@@ -395,17 +400,26 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                       ),
                       child: Column(
                         children: [
-                          Container(
-                            width: 64,
-                            height: 64,
-                            decoration: BoxDecoration(
-                              color: category.color.withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(AppRadius.lg),
-                            ),
-                            child: Icon(
-                              category.icon,
-                              color: category.color,
-                              size: 30,
+                          Opacity(
+                            opacity: failed ? 0.48 : 1,
+                            child: Container(
+                              width: 64,
+                              height: 64,
+                              decoration: BoxDecoration(
+                                color: (failed
+                                        ? AppColors.textDim
+                                        : category.color)
+                                    .withValues(alpha: 0.14),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.lg),
+                              ),
+                              child: Icon(
+                                category.icon,
+                                color: failed
+                                    ? AppColors.textDim
+                                    : category.color,
+                                size: 30,
+                              ),
                             ),
                           ),
                           const SizedBox(height: 20),
@@ -428,12 +442,19 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: -1.5,
                                 color: amountColor,
+                                decoration: failed
+                                    ? TextDecoration.lineThrough
+                                    : null,
                               ),
                             ),
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            isDebit ? 'Expense' : 'Income',
+                            failed
+                                ? 'Failed payment · not counted'
+                                : isDebit
+                                    ? 'Expense'
+                                    : 'Income',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: AppColors.textMuted,
                               fontWeight: FontWeight.w600,
