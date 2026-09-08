@@ -27,9 +27,11 @@ void main() {
       expect(event.source, TransactionSource.sms);
     });
 
-    test('rejects wrong scheme or empty text', () {
+    test('rejects other hosts and empty text', () {
       expect(
-        ShortcutsIngest.eventFromUri(Uri.parse('https://example.com/import?text=x')),
+        ShortcutsIngest.eventFromUri(
+          Uri.parse('https://example.com/import?text=x'),
+        ),
         isNull,
       );
       expect(
@@ -49,6 +51,42 @@ void main() {
       expect(
         event.timestamp.millisecondsSinceEpoch,
         1700000000000,
+      );
+    });
+  });
+
+  group('ShortcutsIngest.eventFromRaw', () {
+    test('accepts a plain SMS body from the App Intent', () {
+      final event = ShortcutsIngest.eventFromRaw(
+        'Rs.500 sent to Ali via JazzCash',
+      );
+      expect(event, isNotNull);
+      expect(event!.text, 'Rs.500 sent to Ali via JazzCash');
+      expect(event.source, TransactionSource.sms);
+    });
+
+    test('pulls text= from a messy unencoded URL', () {
+      final event = ShortcutsIngest.eventFromRaw(
+        'hisaab://import?text=Rs.500 sent to Ali via JazzCash',
+      );
+      expect(event, isNotNull);
+      expect(event!.text, contains('Rs.500'));
+    });
+
+    test('ignores blank input', () {
+      expect(ShortcutsIngest.eventFromRaw(''), isNull);
+      expect(ShortcutsIngest.eventFromRaw('   '), isNull);
+    });
+
+    test('does not ingest a capture URL', () {
+      expect(
+        ShortcutsIngest.eventFromUri(Uri.parse('hisaab://capture')),
+        isNull,
+      );
+      expect(ShortcutsIngest.isCaptureUri(Uri.parse('hisaab://capture')), isTrue);
+      expect(
+        ShortcutsIngest.isCaptureUri(Uri.parse('hisaab://import?text=x')),
+        isFalse,
       );
     });
   });

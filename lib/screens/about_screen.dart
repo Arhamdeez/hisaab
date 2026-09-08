@@ -8,6 +8,7 @@ import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/motion/app_haptics.dart';
+import '../widgets/app_back_button.dart';
 import '../widgets/app_logo_mark.dart';
 import '../widgets/glass_container.dart';
 
@@ -44,6 +45,7 @@ class AboutScreen extends StatelessWidget {
         children: [
           const AppBackground(),
           SafeArea(
+            bottom: false,
             child: CustomScrollView(
               physics: const BouncingScrollPhysics(),
               slivers: [
@@ -57,11 +59,7 @@ class AboutScreen extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        IconButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.arrow_back_rounded),
-                          color: AppColors.textSecondary,
-                        ),
+                        const AppBackButton(),
                         Expanded(
                           child: Row(
                             children: [
@@ -83,11 +81,11 @@ class AboutScreen extends StatelessWidget {
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.pageH,
+                    padding: EdgeInsets.fromLTRB(
+                      AppSpacing.pageHFor(context),
                       20,
-                      AppSpacing.pageH,
-                      AppSpacing.navBottom,
+                      AppSpacing.pageHFor(context),
+                      AppSpacing.scrollBottom(context),
                     ),
                     child: Column(
                       children: [

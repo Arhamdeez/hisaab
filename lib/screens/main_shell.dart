@@ -59,7 +59,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      NotificationService.instance.requestPermission();
+      NotificationService.instance.requestPermissionAtLaunch();
       // Own-account transfer notification body tap (incl. cold start) → Inbox.
       NotificationService.instance.consumePendingInboxOpen();
     });

@@ -78,5 +78,6 @@ void main() {
     expect(result, isNotNull);
     expect(result!.amount, 2000);
     expect(result.type, TransactionType.debit);
+    expect(result.merchant.toUpperCase(), contains('GULBERG'));
   });
 }

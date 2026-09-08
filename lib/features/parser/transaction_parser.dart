@@ -1007,7 +1007,7 @@ class TransactionParser {
     // Use full tokens only — bare `trans` would steal "action" from
     // "Transaction ID …".
     final pattern = RegExp(
-      r'\b(?:trx|txn|trxn|tid|transaction|ref(?:erence)?|'
+      r'\b(?:trx|txn|trxn|tid|tx|transaction|ref(?:erence)?|'
       r'rrn|stan|auth(?:orization)?(?:\s*(?:code|id))?)\b'
       r'\s*(?:id|no|number|#)?\s*[:#.\-]*\s*'
       r'([a-z0-9]{5,})\b',
@@ -1050,10 +1050,12 @@ class TransactionParser {
     r'^(?:unknown|dear customer|customer|wallet|account|payment|money|'
     r'jazzcash|easypaisa|mobilink|sadapay|nayapay|ubl|hbl|mcb|meezan|'
     r'meezan bank|visa|mastercard|bank|'
+    r'admin(?:\.e-?banking)?|e-?banking|'
     r'order|order id|'
     r'transaction alert|money received|money sent|payment received|'
     r'transfer successful|successful transfer|transfer|'
-    r'got money|you.?ve got money|off it goes|original message)$',
+    r'got money|you.?ve got money|off it goes|original message|'
+    r'info)$',
     caseSensitive: false,
   );
 
@@ -1277,6 +1279,8 @@ class TransactionParser {
     final trimmed = value.trim();
     if (trimmed.length < 2) return false;
     if (_isSmsShortCode(trimmed)) return false;
+    // Helpline / TID / "For info: 111825888" — never a merchant name.
+    if (RegExp(r'^\d[\d\s\-/]*$').hasMatch(trimmed)) return false;
     if (_isStatementFieldLabel(trimmed)) return false;
     return !_genericMerchants.hasMatch(trimmed);
   }
@@ -1605,6 +1609,7 @@ class TransactionParser {
     r'off it goes|money in|money out|cha[\s-]?ching|payment sent|'
     r'payment received|transfer complete|transfer sent|'
     r'original message|card in action|'
+    r'admin(?:\.e-?banking)?|e-?banking|'
     r'raast (?:incoming|outgoing) payment)$',
     caseSensitive: false,
   );
@@ -2250,6 +2255,14 @@ class TransactionParser {
     return null;
   }
 
+  /// Bank SMS cash-out with no branch name: "debited … from ATM. For info: …"
+  static final _genericAtmChannel = RegExp(
+    r'\b(?:from|via)\s+ATM\b|'
+    r'\b(?:withdrawn|withdrawal)\s+(?:at|from|via)\s+ATM\b|'
+    r'\bATM\s+(?:cash\s+)?(?:withdrawal|wdl|wdr|transaction)\b(?!\s+at\s+[A-Za-z])',
+    caseSensitive: false,
+  );
+
   String? _extractMerchant(String text, {TransactionType? type}) {
     final patterns = [
       // Meezan / bank branch: "CASH DEPOSIT-LCY at AHMED PUR EAST BR … in A/C xxx9931"
@@ -2307,7 +2320,8 @@ class TransactionParser {
             r'\d{4}-\d{2}-\d{2}|\d{2}-[A-Za-z]{3}-\d{2,4})|\s*[,.]|$)',
         caseSensitive: false,
       ),
-      RegExp(r'Info:\s*([A-Za-z0-9/.\-]+)', caseSensitive: false),
+      // "Info: UPI/12345" — not "For info: 111825888" (helpline).
+      RegExp(r'(?<!for )Info:\s*([A-Za-z0-9/.\-]+)', caseSensitive: false),
     ];
     for (final p in patterns) {
       final match = p.firstMatch(text);
@@ -2320,6 +2334,7 @@ class TransactionParser {
         }
       }
     }
+    if (_genericAtmChannel.hasMatch(text)) return 'ATM';
 
     // Wallet/bank notifications often lead with "Counterparty Name. …" in the title.
     // Only split on em-dash / pipe — ISO dates (2026-07-08) use ASCII hyphens.

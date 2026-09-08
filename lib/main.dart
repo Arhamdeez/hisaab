@@ -25,6 +25,7 @@ import 'core/brand.dart';
 import 'core/motion.dart';
 import 'core/splash_timing.dart';
 import 'core/theme/app_theme.dart';
+import 'widgets/capture_island.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,6 +34,7 @@ Future<void> main() async {
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
+      statusBarBrightness: Brightness.dark,
       statusBarIconBrightness: Brightness.light,
       systemNavigationBarColor: Colors.transparent,
       systemNavigationBarIconBrightness: Brightness.light,
@@ -161,6 +163,9 @@ class SpendTrackerApp extends StatelessWidget {
           theme: AppTheme.dark,
           scrollBehavior: const AppScrollBehavior(),
           navigatorKey: NotificationService.navigatorKey,
+          builder: (context, child) => CaptureIslandHost(
+            child: child ?? const SizedBox.shrink(),
+          ),
           home: const AppBootstrap(),
         ),
       ),

@@ -11,6 +11,7 @@ import '../models/category_info.dart';
 import '../models/transaction.dart';
 import '../providers/category_catalog.dart';
 import '../providers/transaction_provider.dart';
+import '../widgets/app_back_button.dart';
 import '../widgets/category_breakdown.dart';
 import '../widgets/category_selector.dart';
 import '../widgets/glass_container.dart';
@@ -360,6 +361,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
           children: [
             const AppBackground(),
             SafeArea(
+              bottom: false,
               child: CustomScrollView(
                 physics: const BouncingScrollPhysics(),
                 slivers: [
@@ -373,11 +375,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                       ),
                       child: Row(
                         children: [
-                          IconButton(
-                            onPressed: _leave,
-                            icon: const Icon(Icons.arrow_back_rounded),
-                            color: AppColors.textSecondary,
-                          ),
+                          AppBackButton(onPressed: _leave),
                           Expanded(
                             child: Text(
                               'Transaction',
@@ -577,11 +575,11 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                   if (tx.rawText != null && tx.rawText!.trim().isNotEmpty)
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(
+                        padding: EdgeInsets.fromLTRB(
                           AppSpacing.pageH,
                           AppSpacing.section,
                           AppSpacing.pageH,
-                          AppSpacing.navBottom,
+                          AppSpacing.scrollBottom(context),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -608,8 +606,8 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                       ),
                     )
                   else
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: AppSpacing.navBottom),
+                    SliverToBoxAdapter(
+                      child: SizedBox(height: AppSpacing.scrollBottom(context)),
                     ),
                 ],
               ),

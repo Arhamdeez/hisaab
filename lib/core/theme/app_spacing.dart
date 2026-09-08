@@ -7,6 +7,21 @@ abstract final class AppSpacing {
   static const item = 12.0;
   static const navBottom = 112.0;
 
+  /// Pro Max / Plus class — extra horizontal room without changing layout.
+  static bool isLargePhone(BuildContext context) =>
+      MediaQuery.sizeOf(context).shortestSide >= 428;
+
+  static double pageHFor(BuildContext context) =>
+      isLargePhone(context) ? 24.0 : pageH;
+
+  /// Bottom inset for pushed screens (no tab bar).
+  ///
+  /// Use with [SafeArea] `bottom: false`. A `true` SafeArea plus extra padding
+  /// stacks the home-indicator gap twice and leaves a black bar on iPhone
+  /// Pro / Pro Max.
+  static double scrollBottom(BuildContext context, {double extra = 12}) =>
+      MediaQuery.paddingOf(context).bottom + extra;
+
   static const pageHorizontal = EdgeInsets.symmetric(horizontal: pageH);
   static const page = EdgeInsets.fromLTRB(pageH, 16, pageH, navBottom);
 }

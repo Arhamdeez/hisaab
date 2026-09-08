@@ -5,10 +5,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/brand.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
 import 'ingest_service.dart';
 import 'shortcuts_ingest.dart';
 
-/// Kid-simple walkthrough: prove import works, then build the Message automation.
+/// Plain-language walkthrough: test one SMS, then one Shortcuts automation.
 abstract final class ShortcutsSetupGuide {
   static Future<void> show(BuildContext context) async {
     await showModalBottomSheet<void>(
@@ -35,12 +36,15 @@ class _ShortcutsSetupSheet extends StatefulWidget {
 
 class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
   String? _importStatus;
+  bool _importOk = false;
   bool _importing = false;
+  String? _islandStatus;
 
   Future<void> _importClipboard() async {
     setState(() {
       _importing = true;
       _importStatus = null;
+      _importOk = false;
     });
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -49,7 +53,7 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
       if (text.isEmpty) {
         setState(() {
           _importStatus =
-              'Clipboard is empty. Open Messages, copy a JazzCash / EasyPaisa SMS, then try again.';
+              'Nothing was copied. Open Messages, press and hold a payment SMS, tap Copy, then try again.';
         });
         return;
       }
@@ -57,13 +61,16 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
       final ok = await ingest.ingestShortcutText(text);
       if (!mounted) return;
       setState(() {
+        _importOk = ok;
         _importStatus = ok
-            ? 'Done! Close this and check Home / Transactions. If nothing appeared, that SMS may not look like a payment.'
-            : 'Could not read that text as a payment. Try copying a full bank or wallet SMS.';
+            ? 'It worked. Close this and look at Home — you should see the payment.'
+            : 'Copied, but that text did not look like a payment. Copy the full SMS (the one with Rs / PKR) and try again.';
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
-      setState(() => _importStatus = 'Something went wrong: $e');
+      setState(() {
+        _importStatus = 'Something went wrong. Copy the SMS again and retry.';
+      });
     } finally {
       if (mounted) setState(() => _importing = false);
     }
@@ -71,21 +78,9 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
 
   Future<void> _openShortcutsApp() async {
     final uri = Uri.parse('shortcuts://');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
-  }
-
-  Future<void> _copyPrefix() async {
-    await Clipboard.setData(
-      const ClipboardData(text: ShortcutsIngest.importUrlPrefix),
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Copied. You will paste this in step 8.'),
-      ),
-    );
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
   }
 
   @override
@@ -114,7 +109,7 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Set up auto-tracking',
+                      'Log payments automatically',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
@@ -130,12 +125,18 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
             ),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  0,
+                  20,
+                  AppSpacing.scrollBottom(context, extra: 16),
+                ),
                 children: [
                   Text(
-                    'On iPhone, ${AppBrand.name} cannot read your bank app by itself. '
-                    'We use Apple’s free Shortcuts app so when a payment SMS arrives, '
-                    'it opens ${AppBrand.name} with that text.',
+                    'Your iPhone will not let ${AppBrand.name} read bank apps. '
+                    'That is an Apple rule.\n\n'
+                    'So we use Apple’s free Shortcuts app. When a payment SMS arrives, '
+                    'Shortcuts hands the text to ${AppBrand.name}. Takes a few minutes, once.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: AppColors.textMuted,
                       height: 1.45,
@@ -144,12 +145,12 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                   const SizedBox(height: 20),
                   _SectionCard(
                     emoji: '1',
-                    title: 'First: try it once (easy)',
+                    title: 'Try it once (no Shortcuts yet)',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          'This proves ${AppBrand.name} can read a payment SMS. No Shortcuts yet.',
+                          'This checks that ${AppBrand.name} can read a real payment SMS.',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: AppColors.textMuted,
                             height: 1.4,
@@ -157,24 +158,21 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                         ),
                         const SizedBox(height: 12),
                         const _MiniStep(
-                          number: 'A',
-                          text:
-                              'Open the Messages app (the green bubble app).',
+                          number: '1',
+                          text: 'Open Messages (green speech-bubble app).',
                         ),
                         const _MiniStep(
-                          number: 'B',
+                          number: '2',
                           text:
-                              'Find a JazzCash, EasyPaisa, or bank SMS about money sent or received.',
+                              'Find an SMS about money — JazzCash, EasyPaisa, or your bank. It should mention Rs or PKR.',
                         ),
                         const _MiniStep(
-                          number: 'C',
-                          text:
-                              'Touch and hold the message → tap Copy.',
+                          number: '3',
+                          text: 'Press and hold that message. Tap Copy.',
                         ),
                         const _MiniStep(
-                          number: 'D',
-                          text:
-                              'Come back here and tap the orange button below.',
+                          number: '4',
+                          text: 'Come back here. Tap the white button below.',
                         ),
                         const SizedBox(height: 12),
                         FilledButton.icon(
@@ -191,7 +189,7 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                           label: Text(
                             _importing
                                 ? 'Reading…'
-                                : 'Import the SMS I just copied',
+                                : 'Use the SMS I copied',
                           ),
                         ),
                         if (_importStatus != null) ...[
@@ -199,7 +197,9 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                           Text(
                             _importStatus!,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: AppColors.ui,
+                              color: _importOk
+                                  ? AppColors.income
+                                  : AppColors.ui,
                               height: 1.4,
                             ),
                           ),
@@ -210,12 +210,12 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                   const SizedBox(height: 14),
                   _SectionCard(
                     emoji: '2',
-                    title: 'Then: make it automatic',
+                    title: 'Make it automatic (do this once)',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          'Do these steps slowly. Look for the exact words in bold.',
+                          'Go slowly. Match the words in quotes.',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: AppColors.textMuted,
                             height: 1.4,
@@ -225,109 +225,68 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                         FilledButton.tonalIcon(
                           onPressed: _openShortcutsApp,
                           icon: const Icon(Icons.open_in_new_rounded),
-                          label: const Text('Open Shortcuts app'),
+                          label: const Text('Open the Shortcuts app'),
                         ),
                         const SizedBox(height: 14),
                         const _BigStep(
                           number: 1,
-                          title: 'Open Automations',
+                          title: 'Go to Automation',
                           body:
-                              'In Shortcuts, tap Automation at the bottom '
-                              '(looks like a clock / two arrows). '
-                              'If you only see “Gallery” and “Shortcuts”, swipe the bottom tabs.',
+                              'At the bottom of Shortcuts, tap “Automation”.\n'
+                              'It may look like a clock.\n\n'
+                              'If you only see “Shortcuts” and “Gallery”, look along the bottom for a third tab.',
                         ),
                         const _BigStep(
                           number: 2,
-                          title: 'Make a new automation',
+                          title: 'Start a new automation',
                           body:
-                              'Tap the + (plus) in the top right. '
-                              'Then choose Create Personal Automation '
-                              '(not “Create Shortcut”).',
+                              'Tap the + at the top right.\n'
+                              'Tap “New Automation” or “Create Personal Automation”.\n'
+                              'Do not tap “Create Shortcut”.',
                         ),
                         const _BigStep(
                           number: 3,
                           title: 'Choose Message',
                           body:
-                              'Scroll the list and tap Message '
-                              '(green speech bubble).',
-                        ),
-                        const _BigStep(
-                          number: 4,
-                          title: 'When a message arrives',
-                          body:
-                              'Turn ON “Message Contains” OR leave senders open.\n\n'
-                              'Easiest for beginners: leave “Sender” empty so '
-                              'every SMS can run the shortcut (you can narrow it later).\n\n'
-                              'Or tap Sender and add numbers like 3737, 8558, '
-                              'JazzCash, EasyPaisa if you know them.\n\n'
+                              'At the top, tap the search box. Type: Message\n'
+                              'Tap “Message” (green bubble). On newer iPhones it may say “When I get a Message”.\n\n'
+                              'If it asks who can send the message, tap “Anyone” (or leave Sender empty).\n\n'
                               'Tap Next.',
                         ),
                         const _BigStep(
-                          number: 5,
-                          title: 'Add the first action: URL Encode',
+                          number: 4,
+                          title: 'Add “Log payment”',
                           body:
-                              'Tap Add Action.\n'
-                              'In the search box type: URL Encode\n'
-                              'Tap URL Encode.\n\n'
-                              'Tap the small word where it says “Text” / input.\n'
-                              'Choose Shortcut Input '
-                              '(that is the SMS text).',
+                              'Tap “Add Action” or the search box.\n'
+                              'Type: Log payment\n'
+                              'Tap “Log payment”. It should show ${AppBrand.name} under it.\n\n'
+                              'If you do not see it: open ${AppBrand.name} once, wait 10 seconds, then search again.',
+                        ),
+                        const _BigStep(
+                          number: 5,
+                          title: 'Give it the SMS (do not skip)',
+                          body:
+                              'Look at the “Log payment” box.\n'
+                              'If “Payment text” already says Shortcut Input or Message, you are done — skip to the next step.\n\n'
+                              'If it looks empty: tap “Payment text”, then tap “Shortcut Input”.\n'
+                              'If you see “Message” or “Received Message”, tap that instead.',
                         ),
                         const _BigStep(
                           number: 6,
-                          title: 'Add the second action: URL',
+                          title: 'Turn off the extra question',
                           body:
-                              'Tap Add Action again.\n'
-                              'Search: URL\n'
-                              'Tap URL (not “Get Contents of URL”).\n\n'
-                              'Clear the box and type exactly:\n'
-                              'hisaab://import?text=\n'
-                              '(no spaces)',
-                        ),
-                        const SizedBox(height: 4),
-                        OutlinedButton.icon(
-                          onPressed: _copyPrefix,
-                          icon: const Icon(Icons.copy_rounded, size: 18),
-                          label: const Text('Copy hisaab://import?text='),
-                        ),
-                        const SizedBox(height: 12),
-                        const _BigStep(
-                          number: 7,
-                          title: 'Stick the encoded SMS onto that URL',
-                          body:
-                              'Tap in the URL box after text=\n'
-                              'Tap Select Variable / Shortcut Input area.\n'
-                              'Choose Encoded Text '
-                              '(from the URL Encode step).\n\n'
-                              'You should see something like:\n'
-                              'hisaab://import?text=Encoded Text',
-                        ),
-                        const _BigStep(
-                          number: 8,
-                          title: 'Open that URL',
-                          body:
-                              'Tap Add Action.\n'
-                              'Search: Open URLs\n'
-                              'Tap Open URLs.\n'
-                              'Make sure it uses the URL you just built '
-                              '(not a blank web address).',
-                        ),
-                        const _BigStep(
-                          number: 9,
-                          title: 'Turn off “Ask Before Running”',
-                          body:
-                              'Tap Next.\n'
-                              'Find Ask Before Running and turn it OFF.\n'
-                              'Confirm Don’t Ask if iPhone asks.\n\n'
-                              'Then tap Done.',
+                              'Tap Next.\n\n'
+                              'Turn OFF the switch “Ask Before Running”.\n'
+                              'If a popup says “Don’t Ask?”, tap “Don’t Ask”.\n\n'
+                              'On newer iPhones that switch is gone. Instead turn ON “Run Immediately”.\n\n'
+                              'Tap Done.',
                         ),
                         _BigStep(
-                          number: 10,
-                          title: 'Test it',
+                          number: 7,
+                          title: 'Check it',
                           body:
-                              'Ask a friend to send you a tiny JazzCash / EasyPaisa payment, '
-                              'or wait for your next real SMS.\n\n'
-                              '${AppBrand.name} should open by itself and log the payment.\n\n'
+                              'Wait for the next payment SMS, or ask someone to send you Rs 1.\n'
+                              '${AppBrand.name} should open and show the payment.\n\n'
                               'If iPhone asks “Open in ${AppBrand.name}?”, tap Open.',
                         ),
                       ],
@@ -336,58 +295,86 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                   const SizedBox(height: 14),
                   _SectionCard(
                     emoji: '3',
-                    title: 'Optional: Back Tap (double-tap phone)',
+                    title: 'Optional: tap the back of your iPhone',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          'Your iPhone can run HISAAB when you tap the back of the phone twice. '
-                          'Apple does not let apps “own” Back Tap — you assign it once in Settings.',
+                          'Double-tap the back of the phone. HISAAB stays in the background. '
+                          'iOS asks how much to log, on top of whatever app you are in. '
+                          'Type the amount and you are done.',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: AppColors.textMuted,
                             height: 1.4,
                           ),
                         ),
                         const SizedBox(height: 12),
+                        FilledButton.tonalIcon(
+                          onPressed: () async {
+                            final data = await Clipboard.getData(
+                              Clipboard.kTextPlain,
+                            );
+                            final started =
+                                await ShortcutsIngest.instance.startIsland(
+                              clipboard: data?.text,
+                            );
+                            if (!mounted) return;
+                            setState(() {
+                              _islandStatus = started
+                                  ? 'Look at the black pill at the top of the screen. Long-press it. HISAAB did not take over the screen.'
+                                  : 'Could not show the island. Copy an SMS and use “Use the SMS I copied”, or turn on Live Activities for HISAAB in Settings.';
+                            });
+                          },
+                          icon: const Icon(Icons.touch_app_rounded),
+                          label: const Text('Show the island pill'),
+                        ),
+                        if (_islandStatus != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            _islandStatus!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppColors.ui,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 14),
                         const _BigStep(
                           number: 1,
-                          title: 'Open Back Tap settings',
+                          title: 'Open Back Tap',
                           body:
+                              'On a real iPhone (not the Simulator):\n'
                               'Open the Settings app (grey gear).\n'
-                              'Tap Accessibility.\n'
-                              'Tap Touch.\n'
-                              'Tap Back Tap.',
+                              'Tap Accessibility → Touch → Back Tap.',
                         ),
                         const _BigStep(
                           number: 2,
                           title: 'Choose Double Tap',
-                          body:
-                              'Tap Double Tap '
-                              '(or Triple Tap if you prefer).',
+                          body: 'Tap “Double Tap”.',
                         ),
                         _BigStep(
                           number: 3,
-                          title: 'Pick HISAAB / Log from clipboard',
+                          title: 'Pick Add amount',
                           body:
-                              'Scroll the list.\n'
-                              'Under Shortcuts (or App Shortcuts), tap:\n'
-                              '“Log payment from clipboard” '
-                              'or “Log from clipboard”.\n\n'
-                              'If you do not see it yet: open ${AppBrand.name} once, '
-                              'force-quit Settings, open Back Tap again.\n\n'
-                              'Still missing? In Shortcuts app create a shortcut with one action:\n'
-                              '“Log payment from clipboard” (search HISAAB), save it, '
-                              'then pick that shortcut under Back Tap.',
+                              'Scroll. Under Shortcuts, tap “Add amount” (or “Log payment”).\n\n'
+                              'Do not pick Open URL. That opens the full app.\n\n'
+                              'If it is missing: open ${AppBrand.name} once, swipe Settings away, then try again.',
                         ),
-                        _BigStep(
+                        const _BigStep(
                           number: 4,
-                          title: 'Use it every day',
+                          title: 'How to use it',
                           body:
-                              'A. Open Messages → copy a payment SMS.\n'
-                              'B. Double-tap the back of your iPhone.\n'
-                              'C. ${AppBrand.name} opens and logs the payment.\n\n'
-                              'Tip: copy from the notification shade also works '
-                              'if the alert text is copyable.',
+                              '1. Stay in whatever app you are using.\n'
+                              '2. Double-tap the back of the phone.\n'
+                              '3. Type the amount when iOS asks. HISAAB does not take over the screen.',
+                        ),
+                        const _BigStep(
+                          number: 5,
+                          title: 'How to test (Simulator)',
+                          body:
+                              'The Simulator cannot feel a tap on the back of the laptop, and a URL will always open the full app.\n\n'
+                              'Open the Shortcuts app → tap Add amount (or Log payment with Payment text empty). You should only see the amount prompt.\n\n'
+                              'Or tap “Show the island pill” above to try the black pill at the top.',
                         ),
                       ],
                     ),
@@ -395,17 +382,23 @@ class _ShortcutsSetupSheetState extends State<_ShortcutsSetupSheet> {
                   const SizedBox(height: 14),
                   _SectionCard(
                     emoji: '?',
-                    title: 'Stuck? Try this',
+                    title: 'If it does not work',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '• Shortcuts app missing? Download “Shortcuts” from the App Store (Apple’s app, free).\n\n'
-                          '• Nothing happens on SMS? Open the automation → make sure it is Enabled. '
-                          'Run the “Import copied SMS” test above first.\n\n'
-                          '• ${AppBrand.name} opens but no transaction? The SMS may not be a payment alert — try another message.\n\n'
-                          '• Back Tap does nothing? Make sure you copied text first, and Double Tap is set to “Log payment from clipboard”.\n\n'
-                          '• Still hard? Use Import copied SMS each time for now — automation is optional.',
+                          'No Shortcuts app?\n'
+                          'Open the App Store. Search “Shortcuts”. Install the one from Apple (free).\n\n'
+                          'SMS arrives but nothing happens?\n'
+                          'Open Shortcuts → Automation. Tap your automation. Make sure it is on. '
+                          'Ask Before Running must be OFF (or Run Immediately ON). '
+                          'Open the Log payment box and check Payment text is Shortcut Input, not empty.\n\n'
+                          'App opens but no payment on Home?\n'
+                          'That text may not look like money. Copy an SMS that says Rs or PKR, then use “Use the SMS I copied”.\n\n'
+                          'Cannot find “Log payment”?\n'
+                          'Open ${AppBrand.name}, wait 10 seconds, search again. Old iPhones (before iOS 16) will not show this action — use “Use the SMS I copied” instead.\n\n'
+                          'Still stuck?\n'
+                          'You can always copy the SMS and tap “Use the SMS I copied”. Automation is extra, not required.',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: AppColors.textSecondary,
                             height: 1.45,

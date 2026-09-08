@@ -41,7 +41,7 @@ Apple does **not** allow reading other apps’ notifications or the SMS inbox.
 
 | Capture | How |
 |---------|-----|
-| SMS | **Apple Shortcuts** Message automation → `hisaab://import?text=…` |
+| SMS | **Apple Shortcuts** → action **Log payment** (Message automation) |
 | Manual | Add transaction in-app |
 | App push | Not available (OS restriction) |
 

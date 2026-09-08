@@ -9,6 +9,7 @@ import '../models/category_info.dart';
 import '../models/transaction.dart';
 import '../providers/category_catalog.dart';
 import '../providers/transaction_provider.dart';
+import '../widgets/app_back_button.dart';
 import '../widgets/category_selector.dart';
 import '../widgets/glass_container.dart';
 
@@ -30,6 +31,7 @@ class CategoriesScreen extends StatelessWidget {
         children: [
           const AppBackground(),
           SafeArea(
+            bottom: false,
             child: Consumer<CategoryCatalog>(
               builder: (context, catalog, _) {
                 return CustomScrollView(
@@ -40,11 +42,7 @@ class CategoriesScreen extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
                         child: Row(
                           children: [
-                            IconButton(
-                              onPressed: () => Navigator.of(context).pop(),
-                              icon: const Icon(Icons.arrow_back_rounded),
-                              color: AppColors.textSecondary,
-                            ),
+                            const AppBackButton(),
                             const AppAccentBar(height: 22),
                             const SizedBox(width: 10),
                             Expanded(
@@ -127,11 +125,11 @@ class CategoriesScreen extends StatelessWidget {
                     if (catalog.custom.isEmpty)
                       SliverToBoxAdapter(
                         child: Padding(
-                          padding: const EdgeInsets.fromLTRB(
+                          padding: EdgeInsets.fromLTRB(
                             AppSpacing.pageH,
                             0,
                             AppSpacing.pageH,
-                            24,
+                            AppSpacing.scrollBottom(context, extra: 24),
                           ),
                           child: GlassCard(
                             padding: const EdgeInsets.all(20),
@@ -147,11 +145,11 @@ class CategoriesScreen extends StatelessWidget {
                       )
                     else
                       SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(
+                        padding: EdgeInsets.fromLTRB(
                           AppSpacing.pageH,
                           8,
                           AppSpacing.pageH,
-                          32,
+                          AppSpacing.scrollBottom(context),
                         ),
                         sliver: SliverList(
                           delegate: SliverChildBuilderDelegate(

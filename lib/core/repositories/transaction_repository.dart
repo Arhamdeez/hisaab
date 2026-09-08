@@ -106,10 +106,16 @@ class TransactionRepository {
     required DateTime occurredAt,
     required DateTime messageTime,
   }) async {
-    final days = {
-      DateTime(occurredAt.year, occurredAt.month, occurredAt.day),
-      DateTime(messageTime.year, messageTime.month, messageTime.day),
-    };
+    final days = <DateTime>{};
+    void addAround(DateTime t) {
+      final day = DateTime(t.year, t.month, t.day);
+      for (var i = -2; i <= 2; i++) {
+        days.add(day.add(Duration(days: i)));
+      }
+    }
+
+    addAround(occurredAt);
+    addAround(messageTime);
     final seen = <String>{};
     final candidates = <domain.Transaction>[];
     for (final day in days) {

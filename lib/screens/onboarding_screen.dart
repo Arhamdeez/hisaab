@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import '../core/brand.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
-import '../core/theme/app_spacing.dart' show AppRadius;
+import '../core/theme/app_spacing.dart';
 import '../features/ingest/ingest_service.dart';
 import '../features/ingest/notification_access.dart';
 import '../features/ingest/shortcuts_setup_guide.dart';
@@ -59,6 +59,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         children: [
           const AppBackground(),
           SafeArea(
+            bottom: false,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -471,19 +472,20 @@ class _TrackingInfoStep extends StatelessWidget {
         eyebrow: 'iPhone tracking',
         title: 'Log spends via\nApple Shortcuts',
         body:
-            'iOS blocks reading other apps’ notifications. Forward bank and wallet SMS into HISAAB with a Shortcut — parsing stays on-device.',
+            'Your iPhone will not let apps read bank alerts. That is normal. '
+            'We use Apple’s Shortcuts app so a payment SMS can open HISAAB by itself.',
         features: [
           _SetupFeature(
             icon: Icons.sms_outlined,
             title: 'SMS via Shortcuts',
             subtitle:
-                'When JazzCash, EasyPaisa, or bank texts arrive, Shortcuts opens HISAAB with the message body.',
+                'When JazzCash, EasyPaisa, or bank texts arrive, Shortcuts hands them to HISAAB.',
           ),
           _SetupFeature(
-            icon: Icons.link_rounded,
-            title: 'Deep link import',
+            icon: Icons.touch_app_rounded,
+            title: 'Or copy and tap',
             subtitle:
-                'hisaab://import?text=… feeds the same parser used on Android.',
+                'Copy a payment SMS, then use the in-app button — or double-tap the back of the phone and pick what to add.',
           ),
           _SetupFeature(
             icon: Icons.edit_note_rounded,
@@ -619,8 +621,8 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
           ),
           const SizedBox(height: 14),
           Text(
-            'Tap the button below. First you will copy one SMS to test. '
-            'Then we walk you through Shortcuts like a recipe — one tap at a time.',
+            'First we test one SMS you copy. Then we set up Shortcuts — '
+            'slow, one tap at a time. You only do this once.',
             style: theme.textTheme.bodyLarge?.copyWith(
               color: AppColors.textMuted,
               height: 1.5,
@@ -631,7 +633,7 @@ class _SetupSourcesStepState extends State<_SetupSourcesStep>
             icon: Icons.shortcut_rounded,
             title: 'Apple Shortcuts',
             subtitle:
-                'Super simple guide: import a copied SMS, then set up auto-forward.',
+                'Copy one SMS to test, then we show you how to make it automatic.',
             enabled: true,
             recommended: true,
             actionLabel: 'Show me how',
@@ -896,7 +898,12 @@ class _SetupFooter extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+      padding: EdgeInsets.fromLTRB(
+        24,
+        8,
+        24,
+        AppSpacing.scrollBottom(context, extra: 16),
+      ),
       child: Column(
         children: [
           Row(

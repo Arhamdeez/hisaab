@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Rect;
 
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -13,6 +14,7 @@ class CsvExporter {
     required List<Transaction> transactions,
     required int year,
     required int month,
+    Rect? shareOrigin,
   }) async {
     final buffer = StringBuffer()
       ..writeln('Date,Merchant,Category,Type,Amount,Currency,Source,Status');
@@ -40,6 +42,7 @@ class CsvExporter {
     await Share.shareXFiles(
       [XFile(file.path)],
       subject: 'Spend Tracker — ${DateFormat('MMMM yyyy').format(DateTime(year, month))}',
+      sharePositionOrigin: shareOrigin,
     );
   }
 

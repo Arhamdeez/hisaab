@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../brand.dart';
 import '../motion/app_haptics.dart';
+import '../utils/share_origin.dart';
 import 'crash_buffer.dart';
 
 enum IssueReportStatus { sent, shared, cancelled, failed }
@@ -54,6 +55,7 @@ abstract final class IssueReport {
   static Future<IssueReportStatus> send({
     required String userMessage,
     bool includeCrash = true,
+    Rect? shareOrigin,
   }) async {
     final body = await buildBody(
       userMessage: userMessage,
@@ -69,18 +71,27 @@ abstract final class IssueReport {
       },
     );
 
-    if (await canLaunchUrl(mailUri)) {
-      final opened = await launchUrl(
-        mailUri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (opened) {
-        if (includeCrash) await CrashBuffer.clear();
-        return IssueReportStatus.sent;
+    try {
+      final canOpen = Platform.isIOS || await canLaunchUrl(mailUri);
+      if (canOpen) {
+        final opened = await launchUrl(
+          mailUri,
+          mode: LaunchMode.externalApplication,
+        );
+        if (opened) {
+          if (includeCrash) await CrashBuffer.clear();
+          return IssueReportStatus.sent;
+        }
       }
+    } catch (_) {
+      // Fall through to the share sheet (no mail app, or scheme blocked).
     }
 
-    await Share.share(body, subject: subject);
+    await Share.share(
+      body,
+      subject: subject,
+      sharePositionOrigin: shareOrigin,
+    );
     if (includeCrash) await CrashBuffer.clear();
     return IssueReportStatus.shared;
   }
@@ -145,6 +156,7 @@ class _IssueReportSheetState extends State<_IssueReportSheet> {
       final status = await IssueReport.send(
         userMessage: _controller.text,
         includeCrash: _includeCrash && widget.hasCrash,
+        shareOrigin: shareOriginFrom(context),
       );
       if (!mounted) return;
       Navigator.of(context).pop(status);

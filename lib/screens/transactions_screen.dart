@@ -490,6 +490,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
             fit: StackFit.expand,
             children: [
               SafeArea(
+                bottom: false,
                 child: AppRefreshScroll(
             orbTopOffset: -8,
             orbMinPull: 44,

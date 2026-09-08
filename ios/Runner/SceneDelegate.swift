@@ -22,5 +22,21 @@ class SceneDelegate: FlutterSceneDelegate {
     window.rootViewController = flutterViewController
     self.window = window
     window.makeKeyAndVisible()
+
+    if let url = connectionOptions.urlContexts.first?.url {
+      appDelegate.deliverImportURL(url)
+    }
+  }
+
+  override func scene(
+    _ scene: UIScene,
+    openURLContexts URLContexts: Set<UIOpenURLContext>
+  ) {
+    guard let appDelegate = UIApplication.shared.delegate as? AppDelegate else {
+      return
+    }
+    for context in URLContexts {
+      appDelegate.deliverImportURL(context.url)
+    }
   }
 }

@@ -192,4 +192,87 @@ void main() {
 
     expect(match, isNull);
   });
+
+  test('merges UBL You-paid email with later Raast alert for the same 15k', () {
+    final smsTime = DateTime(2026, 9, 7, 19, 8);
+    final existing = _txn(
+      id: '${smsTime.millisecondsSinceEpoch}_notification',
+      source: TransactionSource.notification,
+      type: TransactionType.debit,
+      amount: 15000,
+      occurredAt: smsTime,
+      merchant: 'MUHAMMAD SHAHBAKH',
+    );
+
+    final emailTime = DateTime(2026, 9, 7, 19, 41);
+    final match = CrossSourceDedup.findMatch(
+      candidates: [existing],
+      incomingSource: TransactionSource.gmail,
+      amount: 15000,
+      type: TransactionType.debit,
+      messageTime: emailTime,
+      occurredAt: emailTime,
+      merchant: 'admin',
+    );
+
+    expect(match?.id, existing.id);
+  });
+
+  test('merges a next-day You-paid email onto the only same-amount debit', () {
+    final smsTime = DateTime(2026, 9, 7, 19, 8);
+    final existing = _txn(
+      id: '${smsTime.millisecondsSinceEpoch}_notification',
+      source: TransactionSource.notification,
+      type: TransactionType.debit,
+      amount: 15000,
+      occurredAt: smsTime,
+      merchant: 'MUHAMMAD SHAHBAKH',
+    );
+
+    final emailTime = smsTime.add(const Duration(hours: 26));
+    final match = CrossSourceDedup.findMatch(
+      candidates: [existing],
+      incomingSource: TransactionSource.gmail,
+      amount: 15000,
+      type: TransactionType.debit,
+      messageTime: emailTime,
+      occurredAt: emailTime,
+      merchant: 'admin',
+    );
+
+    expect(match?.id, existing.id);
+  });
+
+  test('does not attach a generic email when two same-amount payments exist', () {
+    final firstTime = DateTime(2026, 9, 7, 19, 8);
+    final secondTime = DateTime(2026, 9, 7, 20, 10);
+    final first = _txn(
+      id: '${firstTime.millisecondsSinceEpoch}_notification',
+      source: TransactionSource.notification,
+      type: TransactionType.debit,
+      amount: 15000,
+      occurredAt: firstTime,
+      merchant: 'MUHAMMAD SHAHBAKH',
+    );
+    final second = _txn(
+      id: '${secondTime.millisecondsSinceEpoch}_notification',
+      source: TransactionSource.notification,
+      type: TransactionType.debit,
+      amount: 15000,
+      occurredAt: secondTime,
+      merchant: 'ALI KHAN',
+    );
+
+    final match = CrossSourceDedup.findMatch(
+      candidates: [first, second],
+      incomingSource: TransactionSource.gmail,
+      amount: 15000,
+      type: TransactionType.debit,
+      messageTime: DateTime(2026, 9, 7, 19, 41),
+      occurredAt: DateTime(2026, 9, 7, 19, 41),
+      merchant: 'admin',
+    );
+
+    expect(match, isNull);
+  });
 }

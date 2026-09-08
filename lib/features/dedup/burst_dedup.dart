@@ -48,6 +48,7 @@ abstract final class BurstDedup {
   /// Wallet/bank branding in alerts — not a counterparty name.
   static final _institutionMerchants = RegExp(
     r'^(?:jazzcash|easypaisa|nayapay|sadapay|mobilink|ubl|hbl|mcb|'
+    r'admin(?:ebanking)?|ebanking|'
     r'transaction alert|money transfer|money received|money sent|'
     r'payment received|transfer successful|successful transfer|'
     r'e statement|estatement|debit alert|credit alert|'

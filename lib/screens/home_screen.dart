@@ -5,7 +5,7 @@ import '../core/brand.dart';
 import '../core/motion.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
-import '../core/theme/app_spacing.dart' show AppRadius;
+import '../core/theme/app_spacing.dart';
 import '../core/utils/app_refresh.dart';
 import '../core/utils/formatters.dart';
 import '../navigation/shell_scope.dart';
@@ -46,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final recent = provider.recentForMonth(month);
 
         return SafeArea(
+          bottom: false,
           child: AppRefreshScroll(
             child: CustomScrollView(
               controller: widget.scrollController,
@@ -53,7 +54,12 @@ class _HomeScreenState extends State<HomeScreen> {
               slivers: [
                     SliverToBoxAdapter(
                       child: CenteredContent(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                        padding: EdgeInsets.fromLTRB(
+                          AppSpacing.pageHFor(context),
+                          8,
+                          AppSpacing.pageHFor(context),
+                          0,
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -80,7 +86,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     SliverToBoxAdapter(
                       child: CenteredContent(
-                        padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+                        padding: EdgeInsets.fromLTRB(
+                          AppSpacing.pageHFor(context),
+                          24,
+                          AppSpacing.pageHFor(context),
+                          0,
+                        ),
                         child: HomeRecentActivity(
                           transactions: recent,
                           onViewAll: () => ShellScope.goToTransactions(context),

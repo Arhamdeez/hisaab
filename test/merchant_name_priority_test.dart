@@ -127,4 +127,17 @@ void main() {
       expect(result!.merchant, 'Inam Ullah');
     });
   });
+
+  test('does not use admin.ebanking as the merchant for a You-paid email', () {
+    final result = parser.parse(
+      'admin.ebanking — You paid PKR. 15,000.00',
+      source: TransactionSource.gmail,
+      notificationTitle: 'admin.ebanking',
+    );
+    expect(result, isNotNull);
+    expect(result!.amount, 15000);
+    expect(result.type, TransactionType.debit);
+    expect(result.merchant.toLowerCase(), isNot(contains('admin')));
+    expect(result.merchant.toLowerCase(), isNot(contains('ebanking')));
+  });
 }

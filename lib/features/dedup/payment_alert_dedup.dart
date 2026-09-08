@@ -6,6 +6,7 @@ import 'burst_dedup.dart';
 abstract final class PaymentAlertDedup {
   static const amountTolerance = 0.01;
   static const window = Duration(hours: 3);
+  static const genericWindow = Duration(hours: 48);
 
   static Transaction? findMatch({
     required Iterable<Transaction> candidates,
@@ -15,40 +16,41 @@ abstract final class PaymentAlertDedup {
     required String merchant,
     String? referenceId,
   }) {
+    Transaction? strong;
+    final genericHits = <Transaction>[];
+
     for (final existing in candidates) {
-      if (!_isDuplicateOf(
-        existing: existing,
-        amount: amount,
-        type: type,
-        messageTime: messageTime,
-        merchant: merchant,
-        referenceId: referenceId,
-      )) {
+      if (existing.type != type) continue;
+      if ((existing.amount - amount).abs() > amountTolerance) continue;
+      if (BurstDedup.referencesConflict(referenceId, existing)) continue;
+      if (BurstDedup.referencesMatch(referenceId, existing)) {
+        return existing;
+      }
+      if (!BurstDedup.paymentAlertsLikelySame(existing.merchant, merchant)) {
         continue;
       }
-      return existing;
+
+      final gap = messageTime.difference(existing.capturedAt).abs();
+      final namesAgree =
+          BurstDedup.merchantsCompatible(existing.merchant, merchant);
+      final oneGeneric = BurstDedup.isGenericInstitution(existing.merchant) ||
+          BurstDedup.isGenericInstitution(merchant);
+      final allowed = namesAgree
+          ? window
+          : oneGeneric
+              ? genericWindow
+              : window;
+      if (gap > allowed) continue;
+
+      if (namesAgree) {
+        strong ??= existing;
+      } else {
+        genericHits.add(existing);
+      }
     }
+
+    if (strong != null) return strong;
+    if (genericHits.length == 1) return genericHits.single;
     return null;
-  }
-
-  static bool _isDuplicateOf({
-    required Transaction existing,
-    required double amount,
-    required TransactionType type,
-    required DateTime messageTime,
-    required String merchant,
-    String? referenceId,
-  }) {
-    if (existing.type != type) return false;
-    if ((existing.amount - amount).abs() > amountTolerance) return false;
-    // Different transaction ids -> genuinely different payments.
-    if (BurstDedup.referencesConflict(referenceId, existing)) return false;
-    if (BurstDedup.referencesMatch(referenceId, existing)) return true;
-    if (!BurstDedup.paymentAlertsLikelySame(existing.merchant, merchant)) {
-      return false;
-    }
-
-    final gap = messageTime.difference(existing.capturedAt).abs();
-    return gap <= window;
   }
 }

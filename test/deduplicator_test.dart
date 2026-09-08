@@ -588,4 +588,66 @@ void main() {
     expect(row.merchant, 'Lunch');
     expect(row.merchant, isNot(original));
   });
+
+  test('merges UBL You-paid Gmail with the Raast transaction alert', () async {
+    const gmail =
+        'admin.ebanking — You paid PKR. 15,000.00';
+    const alert =
+        'Transaction Alert — PKR 15,000 sent to MUHAMMAD SHAHBAKH* MEEZAN BANK '
+        'LIMITED from your UBL A/C *7613 on 07-SEP-2026 19:08 via Raast. '
+        'Tx ID 7098025152. For info 111825888.';
+
+    final gmailTime = DateTime(2026, 9, 7, 19, 41);
+    final first = await ingest(
+      text: gmail,
+      messageTime: gmailTime,
+      source: TransactionSource.gmail,
+    );
+    expect(first.result, DedupResult.created);
+
+    final second = await ingest(
+      text: alert,
+      messageTime: DateTime(2026, 9, 7, 19, 8),
+      source: TransactionSource.notification,
+    );
+    expect(second.result, DedupResult.merged);
+
+    final all = await repository.getAll();
+    expect(all, hasLength(1));
+    expect(all.single.amount, 15000);
+    expect(all.single.merchant.toUpperCase(), contains('SHAHBAKH'));
+    expect(
+      all.single.linkedSources,
+      containsAll([TransactionSource.gmail, TransactionSource.notification]),
+    );
+  });
+
+  test('merges a next-day You-paid Gmail onto the only matching Raast debit',
+      () async {
+    const alert =
+        'Transaction Alert — PKR 15,000 sent to MUHAMMAD SHAHBAKH* MEEZAN BANK '
+        'LIMITED from your UBL A/C *7613 on 07-SEP-2026 19:08 via Raast. '
+        'Tx ID 7098025152. For info 111825888.';
+    const gmail = 'admin.ebanking — You paid PKR. 15,000.00';
+
+    final first = await ingest(
+      text: alert,
+      messageTime: DateTime(2026, 9, 7, 19, 8),
+      source: TransactionSource.notification,
+    );
+    expect(first.result, DedupResult.created);
+    expect(first.transaction?.merchant.toUpperCase(), contains('SHAHBAKH'));
+
+    final second = await ingest(
+      text: gmail,
+      messageTime: DateTime(2026, 9, 8, 21, 5),
+      source: TransactionSource.gmail,
+    );
+    expect(second.result, DedupResult.merged);
+    expect((await repository.getAll()), hasLength(1));
+    expect(
+      (await repository.getAll()).single.merchant.toUpperCase(),
+      contains('SHAHBAKH'),
+    );
+  });
 }

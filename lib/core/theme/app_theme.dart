@@ -1,4 +1,4 @@
-import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -25,6 +25,9 @@ abstract final class AppTheme {
     );
 
     return base.copyWith(
+      cupertinoOverrideTheme: const CupertinoThemeData(
+        brightness: Brightness.dark,
+      ),
       textTheme: _textTheme,
       appBarTheme: AppBarTheme(
         elevation: 0,
@@ -33,6 +36,7 @@ abstract final class AppTheme {
         foregroundColor: AppColors.textPrimary,
         systemOverlayStyle: const SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
+          statusBarBrightness: Brightness.dark,
           statusBarIconBrightness: Brightness.light,
           systemNavigationBarColor: Colors.transparent,
           systemNavigationBarIconBrightness: Brightness.light,

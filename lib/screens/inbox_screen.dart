@@ -11,6 +11,7 @@ import '../features/parser/category_guesser.dart';
 import '../models/transaction.dart';
 import '../providers/category_catalog.dart';
 import '../providers/transaction_provider.dart';
+import '../widgets/app_back_button.dart';
 import '../widgets/category_breakdown.dart';
 import '../widgets/category_confirm_sheet.dart';
 
@@ -41,23 +42,20 @@ class InboxScreen extends StatelessWidget {
               final pending = provider.pendingTransactions;
 
               return SafeArea(
+                bottom: false,
                 child: AppRefreshScroll(
                   child: ListView(
                     physics: refreshScrollPhysics,
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.pageH,
+                    padding: EdgeInsets.fromLTRB(
+                      AppSpacing.pageHFor(context),
                       4,
-                      AppSpacing.pageH,
-                      32,
+                      AppSpacing.pageHFor(context),
+                      AppSpacing.scrollBottom(context),
                     ),
                     children: [
                       Row(
                         children: [
-                          IconButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.arrow_back_rounded),
-                            color: AppColors.textSecondary,
-                          ),
+                          const AppBackButton(),
                           const AppAccentBar(height: 22),
                           const SizedBox(width: 10),
                           Expanded(

@@ -1,59 +1,111 @@
 import AppIntents
 import UIKit
+import HisaabActivityKit
 
-/// Lets users run “Log payment from clipboard” from Shortcuts / Back Tap / Siri.
+/// Shortcuts / Siri / Back Tap → HISAAB.
+///
+/// Message automation: set **Payment text** to Shortcut Input (logs in the background).
+/// Back Tap: leave Payment text empty — iOS asks for the amount on top of
+/// the current app. HISAAB does **not** come to the front.
 @available(iOS 16.0, *)
 struct LogClipboardPaymentIntent: AppIntent {
-  static var title: LocalizedStringResource = "Log payment from clipboard"
+  static var title: LocalizedStringResource { "Log payment" }
 
-  static var description = IntentDescription(
-    "Opens HISAAB with the text you copied (bank or wallet SMS) so it can log the payment."
+  static var description: IntentDescription {
+    IntentDescription(
+      "Logs a payment. Back Tap asks for the amount without opening HISAAB. Message automation can pass the SMS."
+    )
+  }
+
+  static var openAppWhenRun: Bool { false }
+
+  @Parameter(
+    title: "Payment text",
+    description: "The SMS. Leave empty for Back Tap — you will be asked for the amount.",
+    inputConnectionBehavior: .connectToPreviousIntentResult
   )
+  var paymentText: String?
 
-  /// Bring HISAAB forward so the hisaab:// deep link is handled by Flutter.
-  static var openAppWhenRun: Bool = true
+  @Parameter(
+    title: "Amount in Rs",
+    description: "Used when Payment text is empty (Back Tap).",
+    requestValueDialog: IntentDialog("How much should HISAAB log?")
+  )
+  var amount: Double?
 
-  func perform() async throws -> some IntentResult & ProvidesDialog {
-    let text = await MainActor.run {
-      UIPasteboard.general.string?
-        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log payment") {
+      \.$paymentText
+    }
+  }
+
+  func perform() async throws -> some IntentResult {
+    let fromParam = paymentText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+    if !fromParam.isEmpty {
+      CaptureInbox.stash(kind: "import", text: fromParam)
+      await _deliverToApp(fromParam)
+      return .result()
     }
 
-    guard !text.isEmpty else {
-      return .result(
-        dialog: "Copy a payment SMS first, then double-tap the back of your iPhone again."
+    // Back Tap / empty shortcut — ask for Rs on top of whatever app is open.
+    // Do not bring HISAAB to the front.
+    let value: Double
+    if let existing = amount, existing.isFinite, existing > 0 {
+      value = existing
+    } else {
+      value = try await $amount.requestValue(
+        IntentDialog("How much should HISAAB log?")
       )
     }
-
-    var allowed = CharacterSet.urlQueryAllowed
-    allowed.remove(charactersIn: ":#[]@!$&'()*+,;=")
-    guard
-      let encoded = text.addingPercentEncoding(withAllowedCharacters: allowed),
-      let url = URL(string: "hisaab://import?text=\(encoded)")
-    else {
-      return .result(dialog: "Could not build the import link from that text.")
+    guard let text = CaptureInbox.stashSpend(amount: value) else {
+      return .result()
     }
+    await _deliverToApp(text)
+    if #available(iOS 16.2, *) {
+      _ = CaptureLiveActivity.present(preview: text)
+      await CaptureLiveActivity.finish(success: true)
+    }
+    return .result()
+  }
 
+  private func _deliverToApp(_ text: String) async {
     await MainActor.run {
-      UIApplication.shared.open(url, options: [:], completionHandler: nil)
+      if let app = UIApplication.shared.delegate as? AppDelegate {
+        app.deliverImportText(text)
+      }
     }
-
-    return .result(dialog: "Sending to HISAAB…")
   }
 }
 
 @available(iOS 16.0, *)
 struct HisaabAppShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
-    AppShortcut(
-      intent: LogClipboardPaymentIntent(),
-      phrases: [
-        "Log payment in \(.applicationName)",
-        "Add expense to \(.applicationName)",
-        "Log clipboard in \(.applicationName)",
-      ],
-      shortTitle: "Log from clipboard",
-      systemImageName: "clipboard"
-    )
+    var items: [AppShortcut] = [
+      AppShortcut(
+        intent: LogClipboardPaymentIntent(),
+        phrases: [
+          "Log payment in \(.applicationName)",
+          "Add expense to \(.applicationName)",
+          "Log clipboard in \(.applicationName)",
+        ],
+        shortTitle: "Log payment",
+        systemImageName: "banknote"
+      ),
+    ]
+    if #available(iOS 16.2, *) {
+      items.append(
+        AppShortcut(
+          intent: AddAmountIslandIntent(),
+          phrases: [
+            "Add amount in \(.applicationName)",
+            "Log amount in \(.applicationName)",
+          ],
+          shortTitle: "Add amount",
+          systemImageName: "plus.circle"
+        )
+      )
+    }
+    return items
   }
 }

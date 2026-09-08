@@ -1,48 +1,54 @@
-# iOS — Apple Shortcuts & Back Tap
+# iOS — log payments automatically
 
-On iPhone, HISAAB cannot read other apps’ notifications or the SMS inbox.
-Use Apple’s free **Shortcuts** app (and optional **Back Tap**) so payment text opens HISAAB.
+HISAAB cannot read other apps on iPhone. That is an Apple rule.
 
-In the app: **Settings → Apple Shortcuts → Guide**.
+Use Apple’s free **Shortcuts** app so a payment SMS is handed to HISAAB.
 
-## Part 1 — Prove it works (no automation)
+In the app: **Settings → Apple Shortcuts**.
+
+## 1. Try it once
 
 1. Open **Messages**
-2. Find a JazzCash / EasyPaisa / bank payment SMS
-3. Touch and hold → **Copy**
-4. In HISAAB open the Shortcuts guide → tap **Import the SMS I just copied**
-5. Check Home / Transactions
+2. Find a JazzCash / EasyPaisa / bank SMS with Rs or PKR
+3. Press and hold → **Copy**
+4. In HISAAB, open the guide → **Use the SMS I copied**
+5. Check Home
 
-## Part 2 — Message automation (hands-free SMS)
+## 2. Make it automatic (once)
 
-1. **Shortcuts** → **Automation** → **+** → **Create Personal Automation**
-2. Tap **Message**
-3. Optionally set Sender (3737, 8558, JazzCash…). Beginners can leave Sender empty. Tap **Next**
-4. **Add Action** → **URL Encode** → input = **Shortcut Input**
-5. **Add Action** → **URL** → `hisaab://import?text=`
-6. After `text=` insert **Encoded Text**
-7. **Add Action** → **Open URLs**
-8. **Next** → turn **Ask Before Running** OFF → **Done**
+1. Open **Shortcuts** → **Automation** (clock tab at the bottom) → **+**
+2. **New Automation** / **Create Personal Automation** — not Create Shortcut
+3. Search **Message** → tap it. If it asks who can send, tap **Anyone**. **Next**
+4. **Add Action** → search **Log payment** → tap the one from HISAAB
+5. Tap **Payment text** → **Shortcut Input** (or **Message**). Do not leave this empty.
+6. **Next** → turn **Ask Before Running** OFF (tap **Don’t Ask** if it pops up). On newer iPhones turn **Run Immediately** ON instead → **Done**
 
-## Part 3 — Back Tap (double-tap the back of the iPhone)
+Next payment SMS should open HISAAB and log it. If iPhone asks “Open in HISAAB?”, tap **Open**.
 
-Apple only lets Back Tap run system actions or Shortcuts — apps cannot register a private “Back Tap API.”
+## 3. Optional — double-tap the back of the phone
 
-HISAAB ships an App Intent: **Log payment from clipboard**.
+HISAAB does **not** open. iOS asks for the amount on top of whatever app you are in.
 
 1. **Settings → Accessibility → Touch → Back Tap → Double Tap**
-2. Choose **Log payment from clipboard** / **Log from clipboard** (under Shortcuts)
-3. Daily use: **copy** a payment SMS → **double-tap** the back of the phone → HISAAB logs it
+2. Choose **Add amount** (or **Log payment**)
+3. Stay in Safari / Messages / Home — double-tap the back
+4. Type the Rs amount → Done
 
-If the action is missing: open HISAAB once, or create a Shortcut whose only action is “Log payment from clipboard”, then assign that Shortcut to Back Tap.
+Do **not** bind Back Tap to Open URL (`hisaab://capture`). A URL always brings the full app forward.
 
-## Deep link (advanced)
+### How to test
 
-```
-hisaab://import?text=URL_ENCODED_SMS_BODY
-hisaab://import?text=...&title=JazzCash&source=sms
-```
+**Real iPhone:** set Back Tap as above. Stay on another app, then double-tap. You should only see the amount prompt.
+
+**Simulator:** Back Tap does not work, and `xcrun simctl openurl` always opens the app (an iOS rule). Instead: open the **Shortcuts** app → **Add amount** or **Log payment** (leave Payment text empty). HISAAB should not fill the screen.
+
+## If it fails
+
+- No Shortcuts app: install **Shortcuts** from the App Store (Apple, free)
+- Nothing on SMS: automation must be on; Ask Before Running off
+- App opens but no row: that SMS may not be a payment — try one with Rs / PKR
+- “Log payment” missing: open HISAAB once, search again
 
 ## Privacy
 
-Parsing stays on-device. Nothing is uploaded.
+Parsing stays on this iPhone. Nothing is uploaded.

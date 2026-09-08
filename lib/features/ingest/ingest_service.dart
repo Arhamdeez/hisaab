@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../background_ingest.dart' show bgIngestDirtyKey;
+import '../../core/data/icloud_backup.dart';
 import '../../core/repositories/transaction_repository.dart';
 import '../../models/transaction.dart';
 import '../notifications/notification_service.dart';
@@ -65,6 +66,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
     if (Platform.isIOS) {
       // Shortcuts deep links (hisaab://import?text=…) — Android path unchanged.
+      await IcloudBackup.excludeSqlite();
       await ShortcutsIngest.instance.start(_handleIngestEvent);
       await _drainNotificationActionsIfQueued();
       await _notifyTransactionDataChanged();
@@ -95,15 +97,15 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return false;
-    await _handleIngestEvent(
-      IngestEvent(
-        text: trimmed,
-        source: source,
-        timestamp: timestamp ?? DateTime.now(),
-        notificationTitle: title?.trim().isEmpty == true ? null : title?.trim(),
-      ),
+    final event = IngestEvent(
+      text: trimmed,
+      source: source,
+      timestamp: timestamp ?? DateTime.now(),
+      notificationTitle: title?.trim().isEmpty == true ? null : title?.trim(),
     );
-    return true;
+    final ok = await _processor.processLiveEvent(event);
+    await _notifyTransactionDataChanged();
+    return ok;
   }
 
   Future<void> _notifyTransactionDataChanged() async {
@@ -173,6 +175,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _onResumed() async {
     if (Platform.isIOS) {
+      await ShortcutsIngest.instance.drainPending();
       await _drainNotificationActionsIfQueued();
       await _notifyTransactionDataChanged();
       return;

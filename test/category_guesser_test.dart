@@ -158,6 +158,8 @@ void main() {
         'Shaheen Chemist',
         'Local Medical Store',
         'Dawakhana Noor',
+        'DRUG SHOP LAHORE PK',
+        'Drug Store Gulberg',
       ];
       for (final merchant in samples) {
         expect(
@@ -166,6 +168,18 @@ void main() {
           reason: merchant,
         );
       }
+    });
+
+    test('maps EasyPaisa drug shop SMS to pharmacy', () {
+      final suggestion = CategoryGuesser.suggest(
+        merchant: 'DRUG SHOP',
+        rawText:
+            'Txn ID 55324653543. Debit Card No. ***8421. You have paid '
+            'Rs. 440.00 at DRUG SHOP        LAHORE    PK on 2026-09-05. '
+            'Transaction Fee: Rs. 0.00',
+      );
+      expect(suggestion.categoryId, SpendingCategory.pharmacy.storageKey);
+      expect(suggestion.isConfident, isTrue);
     });
 
     test('keeps hospitals in health', () {

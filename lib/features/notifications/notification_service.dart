@@ -181,6 +181,12 @@ class NotificationService {
     );
   }
 
+  /// Android only: prompt on first frame. iOS waits until a capture alert posts.
+  Future<bool> requestPermissionAtLaunch() async {
+    if (!Platform.isAndroid) return false;
+    return requestPermission();
+  }
+
   /// Asks the OS for permission to post notifications (Android 13+ / iOS).
   Future<bool> requestPermission() async {
     try {

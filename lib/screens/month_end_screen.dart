@@ -6,10 +6,12 @@ import '../core/theme/app_decorations.dart';
 import '../core/utils/app_refresh.dart';
 import '../core/utils/cash_flow.dart';
 import '../core/utils/formatters.dart';
+import '../core/utils/share_origin.dart';
 import '../models/transaction.dart';
 import '../providers/app_preferences.dart';
 import '../providers/transaction_provider.dart';
 import '../features/month_end/csv_exporter.dart';
+import '../widgets/app_back_button.dart';
 import '../widgets/glass_container.dart';
 import '../core/theme/app_spacing.dart' show AppSpacing, AppRadius;
 import '../widgets/balance_hero_card.dart';
@@ -40,6 +42,7 @@ class MonthEndScreen extends StatelessWidget {
               final income = prefs.resolveIncome(summary, provider.selectedMonth);
 
               return SafeArea(
+                bottom: false,
                 child: AppRefreshScroll(
                   child: CustomScrollView(
                     physics: refreshScrollPhysics,
@@ -49,11 +52,7 @@ class MonthEndScreen extends StatelessWidget {
                           padding: const EdgeInsets.fromLTRB(8, 4, 0, 0),
                           child: Row(
                             children: [
-                              IconButton(
-                                onPressed: () => Navigator.of(context).pop(),
-                                icon: const Icon(Icons.arrow_back_rounded),
-                                color: AppColors.textSecondary,
-                              ),
+                              const AppBackButton(),
                               const AppAccentBar(height: 22),
                               const SizedBox(width: 10),
                               Expanded(
@@ -172,11 +171,11 @@ class MonthEndScreen extends StatelessWidget {
               ),
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.pageH,
+                  padding: EdgeInsets.fromLTRB(
+                    AppSpacing.pageHFor(context),
                     24,
-                    AppSpacing.pageH,
-                    32,
+                    AppSpacing.pageHFor(context),
+                    AppSpacing.scrollBottom(context),
                   ),
                   child: OutlinedButton.icon(
                     onPressed: () => CsvExporter.exportMonth(
@@ -184,6 +183,7 @@ class MonthEndScreen extends StatelessWidget {
                           provider.transactionsForMonth(provider.selectedMonth),
                       year: summary.year,
                       month: summary.month,
+                      shareOrigin: shareOriginFrom(context),
                     ),
                     icon: const Icon(Icons.download_rounded),
                     label: const Text('Export CSV'),

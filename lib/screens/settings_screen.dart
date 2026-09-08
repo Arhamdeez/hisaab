@@ -7,10 +7,12 @@ import '../core/theme/app_colors.dart';
 import '../core/brand.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/motion/app_haptics.dart';
+import '../widgets/app_back_button.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/settings_tour_overlay.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
+import '../core/utils/share_origin.dart';
 import '../core/support/issue_report.dart';
 import '../features/backup/backup_service.dart';
 import '../features/ingest/ingest_service.dart';
@@ -235,7 +237,7 @@ class _SettingsScreenState extends State<SettingsScreen>
           targetKey: _dataSourcesKey,
           title: 'Data sources',
           body: Platform.isIOS
-              ? 'Set up Apple Shortcuts here so bank and wallet SMS open HISAAB with the message text.'
+              ? 'Tap here. Easy steps so payment texts log themselves.'
               : 'Connect app notifications and SMS here. '
                   'This is how HISAAB auto-captures your payments.',
           icon: Platform.isIOS
@@ -283,19 +285,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
 
-    // iOS (esp. iPad) needs a non-zero origin for the share popover.
-    Rect? shareOrigin;
-    final box = context.findRenderObject() as RenderBox?;
-    if (box != null && box.hasSize) {
-      final origin = box.localToGlobal(Offset.zero);
-      shareOrigin = origin & box.size;
-      if (shareOrigin.width < 1 || shareOrigin.height < 1) {
-        shareOrigin = Rect.fromLTWH(origin.dx, origin.dy, 1, 1);
-      }
-    }
-
     final result = await context.read<BackupService>().exportToFile(
-          shareOrigin: shareOrigin,
+          shareOrigin: shareOriginFrom(context),
         );
     if (!context.mounted) return;
     messenger.clearSnackBars();
@@ -335,24 +326,24 @@ class _SettingsScreenState extends State<SettingsScreen>
           Consumer2<IngestService, AppPreferences>(
             builder: (context, ingest, prefs, _) {
               return SafeArea(
+                bottom: false,
                 child: SingleChildScrollView(
                   controller: _scrollController,
                   padding: EdgeInsets.fromLTRB(
-                    AppSpacing.pageH,
+                    AppSpacing.pageHFor(context),
                     4,
-                    AppSpacing.pageH,
-                    _showTour ? 268 : 32,
+                    AppSpacing.pageHFor(context),
+                    AppSpacing.scrollBottom(
+                      context,
+                      extra: _showTour ? 268 : 12,
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          IconButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.arrow_back_rounded),
-                            color: AppColors.textSecondary,
-                          ),
+                          const AppBackButton(),
                           const AppAccentBar(height: 22),
                           const SizedBox(width: 10),
                           Expanded(
@@ -377,7 +368,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                         icon: Icons.shortcut_rounded,
                         title: 'Apple Shortcuts',
                         subtitle:
-                            'Easy guide: copy one SMS to test, then auto-forward',
+                            'Easy steps so JazzCash / bank SMS log themselves',
                         trailing: const _StatusPill(
                           enabled: true,
                           label: 'Guide',
