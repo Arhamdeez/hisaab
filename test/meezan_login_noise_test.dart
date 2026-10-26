@@ -31,4 +31,30 @@ void main() {
       isNull,
     );
   });
+
+  test('rejects EasyPaisa incorrect-pin login failure', () {
+    final parser = TransactionParser();
+    const body =
+        'Your login attempt on easypaisa account has failed due to incorrect pin. '
+        'Please try again. For further assistance, call 3737 or 021/051/042-111003737. '
+        '— pk.com.telenor.phoenix';
+    expect(
+      parser.parse(
+        body,
+        source: TransactionSource.notification,
+        notificationTitle: 'Login failed',
+        packageName: 'pk.com.telenor.phoenix',
+      ),
+      isNull,
+    );
+    expect(
+      parser.parse(
+        body,
+        source: TransactionSource.notification,
+        notificationTitle: 'easypaisa',
+      ),
+      isNull,
+    );
+    expect(TransactionParser.isFailedTransactionNotification(body), isFalse);
+  });
 }

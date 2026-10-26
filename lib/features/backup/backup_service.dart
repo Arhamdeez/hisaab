@@ -1,19 +1,15 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/data/local_data_persistence.dart';
+import '../../core/database/app_database.dart';
 import '../../core/repositories/transaction_repository.dart';
-import '../../core/utils/formatters.dart';
-import '../../models/transaction.dart';
-import '../../providers/category_catalog.dart';
+import 'backup_preferences.dart';
 
-/// Outcome of an export operation, used to drive UI feedback.
+/// Outcome of an export or restore, used to drive UI feedback.
 class BackupResult {
   const BackupResult._({
     required this.status,
@@ -23,8 +19,7 @@ class BackupResult {
 
   const BackupResult.success(int count, {String? message})
       : this._(status: BackupStatus.success, count: count, message: message);
-  const BackupResult.cancelled()
-      : this._(status: BackupStatus.cancelled);
+  const BackupResult.cancelled() : this._(status: BackupStatus.cancelled);
   const BackupResult.failure(String message)
       : this._(status: BackupStatus.failure, message: message);
 
@@ -39,159 +34,201 @@ class BackupResult {
 
 enum BackupStatus { success, cancelled, failure }
 
-/// Local-only backup: exports all transactions to a plain, human-readable
-/// text file the user can save or share. Nothing leaves the device unless the
-/// user explicitly shares the file.
+/// Restores a database file the user already has.
+///
+/// Everyday saves stay in the on-device SQLite file. The phone's own backup
+/// includes that file, so a reinstall can bring transactions back without an
+/// export step.
 class BackupService {
   BackupService(this._repository);
 
   final TransactionRepository _repository;
 
-  /// Replaces the on-device SQLite database from a picked `.sqlite` file.
-  /// Fully close and reopen the app after a successful restore.
-  Future<BackupResult> importSqliteFile(String sourcePath) async {
-    try {
-      final source = File(sourcePath);
-      if (!await source.exists()) {
-        return const BackupResult.failure('Backup file not found');
-      }
-
-      final dir = await getApplicationDocumentsDirectory();
-      final target = File(p.join(dir.path, LocalDataPersistence.dbFileName));
-      await target.parent.create(recursive: true);
-      await source.copy(target.path);
-
-      return BackupResult._(
-        status: BackupStatus.success,
-        message: 'Database restored — fully close and reopen HISAAB',
-      );
-    } catch (e) {
-      debugPrint('Backup import failed: $e');
-      return BackupResult.failure('Could not restore database: $e');
+  /// Consistent copy of the open database with preferences embedded.
+  ///
+  /// The live database is left unchanged. [destination] defaults to the app
+  /// temp directory.
+  Future<File> createSnapshotFile({Directory? destination}) async {
+    final db = _repository.database;
+    final live = await db.resolveFile();
+    if (!await live.exists()) {
+      throw StateError('Database file not found');
     }
+
+    final dir = destination ?? await getTemporaryDirectory();
+    await dir.create(recursive: true);
+    final stamp = _stamp();
+    final out = File(p.join(dir.path, 'hisaab_backup_$stamp.sqlite'));
+    if (await out.exists()) await out.delete();
+
+    await _writeConsistentCopy(db, out);
+    await _embedPreferences(out);
+    return out;
   }
 
-  /// Writes a text backup and opens the system share sheet.
+  static String _stamp() {
+    final now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${now.year}${two(now.month)}${two(now.day)}_'
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+  }
+
+  /// Replaces the on-device database with a HISAAB backup.
   ///
-  /// [shareOrigin] — required on iPad for the popover; recommended on iPhone too.
-  Future<BackupResult> exportToFile({Rect? shareOrigin}) async {
-    late final File file;
-    late final int count;
-
+  /// [confirm] is called with the number of transactions in the file. Return
+  /// false to leave the phone's data as it is.
+  Future<BackupResult> restoreFromFile(
+    String sourcePath, {
+    required Future<bool> Function(int count) confirm,
+    Directory? scratchDirectory,
+  }) async {
+    File? scratch;
     try {
-      final transactions = await _repository.getAll();
-      transactions.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
-      count = transactions.length;
+      final source = File(sourcePath);
+      if (!await _isSqliteFile(source)) {
+        return const BackupResult.failure(
+          'Choose a HISAAB backup file (.sqlite)',
+        );
+      }
 
-      final text = _buildText(transactions);
-      final dir = await getTemporaryDirectory();
-      final stamp = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
-      file = File(p.join(dir.path, 'hisaab_backup_$stamp.txt'));
-      await file.writeAsString(text);
-    } catch (e) {
-      debugPrint('Backup file write failed: $e');
-      return BackupResult.failure('Could not create backup file: $e');
-    }
-
-    try {
-      final result = await Share.shareXFiles(
-        [XFile(file.path, mimeType: 'text/plain')],
-        subject: 'HISAAB backup',
-        text: 'HISAAB transactions backup ($count entries)',
-        sharePositionOrigin: shareOrigin,
+      final scratchDir = scratchDirectory ?? await getTemporaryDirectory();
+      await scratchDir.create(recursive: true);
+      scratch = File(
+        p.join(
+          scratchDir.path,
+          'hisaab_restore_${DateTime.now().microsecondsSinceEpoch}.sqlite',
+        ),
       );
+      await source.copy(scratch.path);
 
-      if (result.status == ShareResultStatus.dismissed) {
-        // File was created; user just closed the sheet without sharing.
+      final preview = await _readBackup(scratch);
+      if (preview == null) {
+        return const BackupResult.failure(
+          'That file is not a backup exported from HISAAB',
+        );
+      }
+
+      final accepted = await confirm(preview.count);
+      if (!accepted) {
         return const BackupResult.cancelled();
       }
 
+      await _replaceLiveFile(scratch);
+      final prefs = await SharedPreferences.getInstance();
+      await BackupPreferences.apply(prefs, preview.preferences);
+
+      final count = await _repository.countTransactions();
       return BackupResult.success(
         count,
         message: count == 0
-            ? 'Backup ready (no transactions yet)'
-            : 'Backup ready ($count entries)',
-      );
-    } on PlatformException catch (e) {
-      debugPrint('Backup share PlatformException: ${e.code} ${e.message}');
-      if (_isShareCancelled(e)) {
-        return const BackupResult.cancelled();
-      }
-      return BackupResult.failure(
-        e.message?.isNotEmpty == true
-            ? e.message!
-            : 'Could not open share sheet (${e.code})',
+            ? 'Backup restored'
+            : 'Restored $count transactions',
       );
     } catch (e) {
-      debugPrint('Backup share failed: $e');
-      final msg = e.toString().toLowerCase();
-      if (msg.contains('cancel') || msg.contains('dismiss')) {
-        return const BackupResult.cancelled();
+      debugPrint('Backup restore failed: $e');
+      return BackupResult.failure('Could not restore backup: $e');
+    } finally {
+      if (scratch != null) {
+        await _deleteIfExists(scratch);
+        await _deleteSidecars(scratch);
       }
-      return BackupResult.failure('Could not share backup: $e');
     }
   }
 
-  static bool _isShareCancelled(PlatformException e) {
-    final code = e.code.toLowerCase();
-    final message = (e.message ?? '').toLowerCase();
-    return code.contains('cancel') ||
-        code == 'share_aborted' ||
-        message.contains('cancel') ||
-        message.contains('dismiss');
+  Future<void> _writeConsistentCopy(AppDatabase db, File out) async {
+    try {
+      await db.customStatement("VACUUM INTO '${_sqlString(out.path)}'");
+      return;
+    } catch (e) {
+      debugPrint('VACUUM INTO failed, copying database file: $e');
+      if (await out.exists()) await out.delete();
+    }
+    await db.customStatement('PRAGMA wal_checkpoint(TRUNCATE)');
+    final live = await db.resolveFile();
+    await live.copy(out.path);
+    await _deleteSidecars(out);
   }
 
-  String _buildText(List<Transaction> transactions) {
-    final now = DateTime.now();
-    final dateFmt = DateFormat('d MMM yyyy');
-    final stampFmt = DateFormat('d MMM yyyy, h:mm a');
-
-    var totalSpent = 0.0;
-    var totalIncome = 0.0;
-    for (final t in transactions) {
-      if (t.isDebit) {
-        totalSpent += t.amount;
-      } else {
-        totalIncome += t.amount;
-      }
-    }
-
-    final buffer = StringBuffer()
-      ..writeln('HISAAB — Transactions Backup')
-      ..writeln('Exported: ${stampFmt.format(now)}')
-      ..writeln('Currency: PKR')
-      ..writeln('Entries: ${transactions.length}')
-      ..writeln()
-      ..writeln('Total spent:  ${formatCurrency(totalSpent)}')
-      ..writeln('Total income: ${formatCurrency(totalIncome)}')
-      ..writeln()
-      ..writeln('=' * 40)
-      ..writeln();
-
-    if (transactions.isEmpty) {
-      buffer.writeln('No transactions recorded yet.');
-      return buffer.toString();
-    }
-
-    String? currentMonth;
-    for (final t in transactions) {
-      final month = formatMonthYear(t.occurredAt);
-      if (month != currentMonth) {
-        if (currentMonth != null) buffer.writeln();
-        buffer
-          ..writeln(month.toUpperCase())
-          ..writeln('-' * month.length);
-        currentMonth = month;
-      }
-
-      final sign = t.isDebit ? '-' : '+';
-      final amount = '$sign${formatCurrency(t.amount)}';
-      buffer.writeln(
-        '${dateFmt.format(t.occurredAt)}  •  '
-        '${t.merchant} (${CategoryCatalog.instance.resolve(t.categoryId).label})  •  $amount',
+  Future<void> _embedPreferences(File snapshot) async {
+    final prefs = await SharedPreferences.getInstance();
+    final staged = AppDatabase.forFile(snapshot);
+    try {
+      await staged.setSyncValue(
+        BackupPreferences.storageKey,
+        BackupPreferences.encode(prefs),
       );
+      await staged.customStatement('PRAGMA wal_checkpoint(TRUNCATE)');
+    } finally {
+      await staged.close();
     }
-
-    return buffer.toString();
+    await _deleteSidecars(snapshot);
   }
+
+  /// Returns null when [file] is not a HISAAB export.
+  Future<({int count, String preferences})?> _readBackup(File file) async {
+    final probe = AppDatabase.forFile(file);
+    try {
+      final preferences = await probe.getSyncValue(BackupPreferences.storageKey);
+      if (preferences == null) return null;
+      final count = await probe.countTransactions();
+      await probe.customStatement('PRAGMA wal_checkpoint(TRUNCATE)');
+      return (count: count, preferences: preferences);
+    } catch (e) {
+      debugPrint('Backup probe failed: $e');
+      return null;
+    } finally {
+      await probe.close();
+      await _deleteSidecars(file);
+    }
+  }
+
+  Future<void> _replaceLiveFile(File snapshot) async {
+    final previous = _repository.database;
+    final live = await previous.resolveFile();
+    await _repository.checkpointAndClose();
+
+    final bak = File('${live.path}.bak');
+    var replaced = false;
+    try {
+      await _deleteSidecars(live);
+      await _deleteIfExists(bak);
+      if (await live.exists()) {
+        await live.rename(bak.path);
+      }
+      await snapshot.copy(live.path);
+      replaced = true;
+      await _deleteIfExists(bak);
+    } catch (e) {
+      if (!replaced && !await live.exists() && await bak.exists()) {
+        await bak.rename(live.path);
+      }
+      rethrow;
+    } finally {
+      _repository.adoptDatabase(AppDatabase.forFile(live));
+    }
+  }
+
+  static Future<bool> _isSqliteFile(File file) async {
+    if (!await file.exists()) return false;
+    if (await file.length() < 16) return false;
+    final handle = await file.open();
+    try {
+      final header = await handle.read(16);
+      return String.fromCharCodes(header) == 'SQLite format 3\u0000';
+    } finally {
+      await handle.close();
+    }
+  }
+
+  static String _sqlString(String value) => value.replaceAll("'", "''");
+
+  static Future<void> _deleteIfExists(File file) async {
+    if (await file.exists()) await file.delete();
+  }
+
+  static Future<void> _deleteSidecars(File database) async {
+    await _deleteIfExists(File('${database.path}-wal'));
+    await _deleteIfExists(File('${database.path}-shm'));
+  }
+
 }

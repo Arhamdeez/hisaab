@@ -10,7 +10,21 @@ import '../../features/dedup/payment_alert_dedup.dart';
 class TransactionRepository {
   TransactionRepository(this._db);
 
-  final db.AppDatabase _db;
+  db.AppDatabase _db;
+
+  db.AppDatabase get database => _db;
+
+  /// Flushes the WAL and closes the connection so the file can be replaced.
+  Future<void> checkpointAndClose() async {
+    await _db.customStatement('PRAGMA wal_checkpoint(TRUNCATE)');
+    await _db.close();
+  }
+
+  /// Points later reads and writes at [next]. The previous connection must
+  /// already be closed.
+  void adoptDatabase(db.AppDatabase next) {
+    _db = next;
+  }
 
   Future<List<domain.Transaction>> getAll() async {
     final rows = await _db.getAllTransactions();
@@ -179,6 +193,25 @@ class TransactionRepository {
 
   Future<void> updateDescription(String id, String? description) =>
       _db.updateTransactionDescription(id, description);
+
+  Future<void> updateAmount(String id, double amount) async {
+    if (!amount.isFinite || amount <= 0) return;
+    final existing = await getById(id);
+    if (existing == null) return;
+    final raw = existing.rawText;
+    final referenceId =
+        raw == null || raw.isEmpty ? null : TransactionParser.extractReferenceId(raw);
+    final fingerprint = TransactionParser.buildFingerprint(
+      amount: amount,
+      occurredAt: existing.occurredAt,
+      merchant: existing.merchant,
+      type: existing.type,
+      referenceId: referenceId,
+    );
+    final rows = await _db.updateTransactionAmount(id, amount, fingerprint);
+    if (rows > 0) return;
+    await save(existing.copyWith(amount: amount, fingerprint: fingerprint));
+  }
 
   Future<void> save(domain.Transaction transaction) async {
     await _db.upsertTransaction(_toCompanion(transaction));

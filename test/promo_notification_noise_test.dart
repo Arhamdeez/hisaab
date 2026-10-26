@@ -372,4 +372,21 @@ void main() {
     expect(result!.amount, 2800.0);
     expect(result.type, TransactionType.debit);
   });
+
+  test('rejects Freelancer Plus free-trial membership email', () {
+    final parser = TransactionParser();
+    expect(
+      parser.parse(
+        "You've claimed your free trial of Plus membership "
+        'Hi Muhammad, Congratulations on claiming your free trial of Plus membership. '
+        'Your Plus membership will automatically renew from Oct 14, 2026 at a cost of '
+        '\$14.95 SGD per month, unless cancelled. You can downgrade your membership '
+        'at any time for no extra cost. Freelancer Technology Pty Limited.',
+        source: TransactionSource.gmail,
+        notificationTitle: "You've claimed your free trial of Plus membership",
+        packageName: 'com.google.android.gm',
+      ),
+      isNull,
+    );
+  });
 }

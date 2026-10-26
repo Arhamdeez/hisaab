@@ -37,6 +37,7 @@ class TransactionDetailScreen extends StatefulWidget {
 class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   late String _categoryId;
   late String _merchant;
+  late double _amount;
   late String? _description;
   late final TextEditingController _nameCtrl;
   late final FocusNode _nameFocus;
@@ -45,14 +46,18 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   bool _deleting = false;
   bool _savingNote = false;
   bool _savingName = false;
+  bool _savingAmount = false;
   bool _editingName = false;
   bool _committingName = false;
+  bool _leaving = false;
+  bool _amountSheetOpen = false;
 
   @override
   void initState() {
     super.initState();
     _categoryId = widget.transaction.categoryId;
     _merchant = widget.transaction.merchant;
+    _amount = widget.transaction.amount;
     _description = widget.transaction.description;
     _nameCtrl = TextEditingController(text: _merchant);
     _nameFocus = FocusNode()..addListener(_handleNameFocus);
@@ -81,7 +86,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   }
 
   Future<void> _pickCategory() async {
-    if (_saving || _deleting || _savingName) return;
+    if (_saving || _deleting || _savingName || _savingAmount) return;
 
     final picked = await showCategoryPickerSheet(
       context,
@@ -115,7 +120,9 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   }
 
   Future<void> _editDescription() async {
-    if (_saving || _deleting || _savingNote || _savingName) return;
+    if (_saving || _deleting || _savingNote || _savingName || _savingAmount) {
+      return;
+    }
 
     final controller = TextEditingController(text: _description ?? '');
     final saved = await showModalBottomSheet<String?>(
@@ -233,7 +240,13 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   }
 
   void _beginNameEdit() {
-    if (_saving || _deleting || _savingNote || _savingName || _editingName) {
+    if (_saving ||
+        _deleting ||
+        _savingNote ||
+        _savingName ||
+        _savingAmount ||
+        _amountSheetOpen ||
+        _editingName) {
       return;
     }
     AppHaptics.selectionClick();
@@ -273,18 +286,70 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
     }
   }
 
+  Future<void> _editAmount() async {
+    if (_saving ||
+        _deleting ||
+        _savingNote ||
+        _savingName ||
+        _savingAmount ||
+        _amountSheetOpen ||
+        _editingName) {
+      return;
+    }
+
+    setState(() => _amountSheetOpen = true);
+    final saved = await showModalBottomSheet<double>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: AppColors.backgroundElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (ctx) => _AmountEditSheet(initialAmount: _amount),
+    );
+    if (mounted) setState(() => _amountSheetOpen = false);
+
+    if (!mounted || saved == null || saved == _amount) return;
+
+    setState(() => _savingAmount = true);
+    AppHaptics.lightImpact();
+
+    await context.read<TransactionProvider>().updateTransactionAmount(
+      widget.transaction.id,
+      saved,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _amount = saved;
+      _savingAmount = false;
+    });
+  }
+
   Future<void> _leave() async {
-    await _commitName();
-    if (mounted) Navigator.of(context).pop();
+    if (_leaving || _amountSheetOpen) return;
+    _leaving = true;
+    try {
+      await _commitName();
+      if (!mounted) return;
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+    } finally {
+      _leaving = false;
+    }
   }
 
   Future<void> _confirmDelete() async {
-    if (_saving || _deleting || _savingNote || _savingName) return;
+    if (_saving || _deleting || _savingNote || _savingName || _savingAmount) {
+      return;
+    }
 
     final tx = widget.transaction;
     final isDebit = tx.isDebit;
     final amountLabel =
-        '${isDebit ? '−' : '+'}${formatCurrency(tx.amount, showDecimals: true)}';
+        '${isDebit ? '−' : '+'}${formatCurrency(_amount, showDecimals: true)}';
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -349,7 +414,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
             : AppColors.income;
 
     return PopScope(
-      canPop: !_editingName,
+      canPop: !_editingName && !_amountSheetOpen && !_leaving,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
         await _leave();
@@ -427,22 +492,26 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                             style: theme.textTheme.headlineMedium,
                             controller: _nameCtrl,
                             focusNode: _nameFocus,
-                            onDoubleTap: _beginNameEdit,
+                            onEdit: _beginNameEdit,
                             onSubmitted: _commitName,
                           ),
                           const SizedBox(height: 12),
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              '${isDebit ? '−' : '+'}${formatCurrency(tx.amount, showDecimals: true)}',
-                              style: theme.textTheme.displayLarge?.copyWith(
-                                fontSize: 42,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -1.5,
-                                color: amountColor,
-                                decoration: failed
-                                    ? TextDecoration.lineThrough
-                                    : null,
+                          GestureDetector(
+                            onDoubleTap: _editAmount,
+                            onLongPress: _editAmount,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                '${isDebit ? '−' : '+'}${formatCurrency(_amount, showDecimals: true)}',
+                                style: theme.textTheme.displayLarge?.copyWith(
+                                  fontSize: 42,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -1.5,
+                                  color: amountColor,
+                                  decoration: failed
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                ),
                               ),
                             ),
                           ),
@@ -533,7 +602,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                         0,
                       ),
                       child: OutlinedButton.icon(
-                        onPressed: (_saving || _deleting || _savingName)
+                        onPressed: (_saving || _deleting || _savingName || _savingAmount)
                             ? null
                             : _confirmDelete,
                         style: OutlinedButton.styleFrom(
@@ -623,6 +692,131 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   }
 }
 
+class _AmountEditSheet extends StatefulWidget {
+  const _AmountEditSheet({required this.initialAmount});
+
+  final double initialAmount;
+
+  @override
+  State<_AmountEditSheet> createState() => _AmountEditSheetState();
+}
+
+class _AmountEditSheetState extends State<_AmountEditSheet> {
+  late final TextEditingController _controller;
+  var _invalid = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final amount = widget.initialAmount;
+    final seed = amount == amount.truncateToDouble()
+        ? amount.toStringAsFixed(0)
+        : amount.toStringAsFixed(2);
+    _controller = TextEditingController(text: seed);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final parsed = parseTransactionAmountInput(_controller.text);
+    if (parsed == null) {
+      AppHaptics.heavyImpact();
+      setState(() => _invalid = true);
+      return;
+    }
+    Navigator.pop(context, parsed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.borderLight,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Amount',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(
+              decimal: true,
+              signed: false,
+            ),
+            inputFormatters: [PositiveAmountInputFormatter()],
+            onChanged: (_) {
+              if (_invalid) setState(() => _invalid = false);
+            },
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textPrimary,
+                ),
+            decoration: InputDecoration(
+              labelText: 'Amount (Rs)',
+              hintText: '0',
+              errorText:
+                  _invalid ? transactionAmountInputError(_controller.text) : null,
+              filled: true,
+              fillColor: AppColors.surfaceMuted,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide(
+                  color: _invalid ? AppColors.expense : AppColors.border,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide(
+                  color: _invalid ? AppColors.expense : AppColors.borderLight,
+                ),
+              ),
+              contentPadding: const EdgeInsets.all(14),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: _save,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.ui,
+                foregroundColor: AppColors.textOnPrimary,
+                minimumSize: const Size(80, 40),
+              ),
+              child: const Text('Save'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MerchantName extends StatelessWidget {
   const _MerchantName({
     required this.editing,
@@ -630,7 +824,7 @@ class _MerchantName extends StatelessWidget {
     required this.style,
     required this.controller,
     required this.focusNode,
-    required this.onDoubleTap,
+    required this.onEdit,
     required this.onSubmitted,
   });
 
@@ -639,7 +833,7 @@ class _MerchantName extends StatelessWidget {
   final TextStyle? style;
   final TextEditingController controller;
   final FocusNode focusNode;
-  final VoidCallback onDoubleTap;
+  final VoidCallback onEdit;
   final ValueChanged<String> onSubmitted;
 
   static const _fieldDecoration = InputDecoration(
@@ -660,7 +854,8 @@ class _MerchantName extends StatelessWidget {
 
     if (!editing) {
       return GestureDetector(
-        onDoubleTap: onDoubleTap,
+        onDoubleTap: onEdit,
+        onLongPress: onEdit,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: Text(merchant, textAlign: TextAlign.center, style: nameStyle),

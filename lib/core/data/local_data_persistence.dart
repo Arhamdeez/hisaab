@@ -10,8 +10,9 @@ import '../../providers/category_catalog.dart';
 /// - SharedPreferences: display prefs, custom categories, onboarding flag
 /// - Native queue: `captured_ingest.db` (pending alerts, drained on launch)
 ///
-/// Updates and `flutter run` preserve this storage unless the app is uninstalled
-/// or "Clear data" is used in system settings.
+/// Updates and `flutter run` preserve this storage. Uninstall clears the app
+/// folder; Android backup and an iOS device backup can restore the database
+/// and preferences afterward. Restore in Settings loads a `.sqlite` file.
 abstract final class LocalDataPersistence {
   static const dbFileName = 'spend_tracker.sqlite';
   static const legacyAndroidPackage = 'com.example.spend_tracker';

@@ -11,9 +11,27 @@ part 'app_database.g.dart';
 
 @DriftDatabase(tables: [Transactions, MonthlySummaries, ParserRules, SyncMetadata])
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(_openConnection());
+  AppDatabase()
+      : file = null,
+        super(_openConnection());
 
-  AppDatabase.forTesting(super.e);
+  /// Opens [file] directly. Used for backup snapshots and after a restore.
+  AppDatabase.forFile(File this.file) : super(_openFile(file));
+
+  AppDatabase.forTesting(super.e) : file = null;
+
+  static const fileName = 'spend_tracker.sqlite';
+
+  /// Null for the default documents-directory database and for tests.
+  final File? file;
+
+  /// On-disk path of this connection. Default installs use the app documents folder.
+  Future<File> resolveFile() async {
+    final attached = file;
+    if (attached != null) return attached;
+    final dir = await getApplicationDocumentsDirectory();
+    return File(p.join(dir.path, fileName));
+  }
 
   @override
   int get schemaVersion => 3;
@@ -244,6 +262,19 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<int> updateTransactionAmount(
+    String id,
+    double amount,
+    String fingerprint,
+  ) {
+    return (update(transactions)..where((t) => t.id.equals(id))).write(
+      TransactionsCompanion(
+        amount: Value(amount),
+        fingerprint: Value(fingerprint),
+      ),
+    );
+  }
+
   Future<int> reassignTransactionCategory(String fromId, String toId) {
     return (update(transactions)..where((t) => t.category.equals(fromId))).write(
       TransactionsCompanion(category: Value(toId)),
@@ -285,16 +316,19 @@ class AppDatabase extends _$AppDatabase {
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dir = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dir.path, 'spend_tracker.sqlite'));
-    return NativeDatabase(
-      file,
-      setup: (db) {
-        // WAL allows a concurrent reader + writer, and a busy timeout makes the
-        // background-isolate (notification quick-reply) write wait for a lock
-        // instead of failing when the app is also open.
-        db.execute('PRAGMA journal_mode = WAL;');
-        db.execute('PRAGMA busy_timeout = 3000;');
-      },
-    );
+    return _openFile(File(p.join(dir.path, AppDatabase.fileName)));
   });
+}
+
+NativeDatabase _openFile(File file) {
+  return NativeDatabase(
+    file,
+    setup: (db) {
+      // WAL allows a concurrent reader + writer, and a busy timeout makes the
+      // background-isolate (notification quick-reply) write wait for a lock
+      // instead of failing when the app is also open.
+      db.execute('PRAGMA journal_mode = WAL;');
+      db.execute('PRAGMA busy_timeout = 3000;');
+    },
+  );
 }

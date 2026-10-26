@@ -540,6 +540,13 @@ class TransactionParser {
     r'\bturn\s+your\b.{0,40}\binto\s+more\b|'
     // Platform payout notices — not local wallet/bank alerts.
     r'\bupwork\b|'
+    r'\bfreelancer\.com\b|'
+    r'\bfreelancer\s+technology\b|'
+    r'\bfree\s+trial\b|'
+    r'\bplus\s+membership\b|'
+    r'\bmembership\s+(?:benefits|plan)\b|'
+    r'\bautomatically\s+renew\b|'
+    r'\bunless\s+cancelled\b|'
     r'withdrawal\s+of\s+your\s+upwork\s+balance|'
     r'amount\s+you\s+should\s+receive\b|'
     // Campus / university announcements — not payments.
@@ -569,6 +576,10 @@ class TransactionParser {
     r'\b(?:login|log[\s-]?in)\s+successful\b|' +
     r'\bsuccessfully\s+logged\s+in\b|' +
     r'\blogged\s+in\s+to\b|' +
+    r'\blogin\s+attempt\b|' +
+    r'\bincorrect\s+(?:pin|password|otp|mpin|passcode)\b|' +
+    r'\bfailed\s+due\s+to\s+incorrect\s+(?:pin|password|otp|mpin|passcode)\b|' +
+    r'\b(?:login|log[\s-]?in|sign[\s-]?in)\s+(?:attempt\s+)?(?:has\s+)?failed\b|' +
     r'\bdo\s+not\s+recogni[sz]e\s+this\s+login\b|' +
     r'\bunrecogni[sz]ed\s+login\b|' +
     r'\bnew\s+device\s+(?:login|sign[\s-]?in)\b|' +
@@ -604,6 +615,9 @@ class TransactionParser {
     r'\bstand\s+a\s+chance\b|\bfor\s+a\s+chance\b|'
     r'\bchance\s+to\s+(?:win|earn)\b|'
     r'\bget\s+(?:up\s*to|a\s+free|your\s+free)\b|'
+    r'\bfree\s+trial\b|'
+    r'\bautomatically\s+renew\b|'
+    r'\bplus\s+membership\b|'
     r'\b100\s*%\s*free\b|'
     r'\bminimum\s+balance\b|'
     r'\bfree\s+atm\s+withdrawals?\b|'
@@ -774,6 +788,9 @@ class TransactionParser {
   }) {
     final normalized = normalizeIngestText(text, notificationTitle: notificationTitle);
     if (normalized.isEmpty) return null;
+    // Login / promo / OTP noise wins over "failed payment" classification.
+    // EasyPaisa "login attempt … incorrect pin" contains "failed" but is not a txn.
+    if (_isNoiseNotification(normalized)) return null;
 
     if (isFailedTransactionNotification(normalized)) {
       // Failed attempts are stored with status=failed (shown, not counted).

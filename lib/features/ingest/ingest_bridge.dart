@@ -300,12 +300,20 @@ class IngestBridge {
   ///
   /// [walletShortCodesOnly] — when true, only known wallet senders (fast path for
   /// app open / resume). Pull-to-refresh uses the full 2-day scan.
-  Future<void> scanRecentSms({bool walletShortCodesOnly = false}) async {
+  Future<void> scanRecentSms({
+    bool walletShortCodesOnly = false,
+    Duration? lookback,
+    int? maxRows,
+  }) async {
     if (!Platform.isAndroid) return;
     try {
       await _methodChannel.invokeMethod<void>(
         'scanRecentSms',
-        {'walletShortCodesOnly': walletShortCodesOnly},
+        {
+          'walletShortCodesOnly': walletShortCodesOnly,
+          if (lookback != null) 'lookbackMs': lookback.inMilliseconds,
+          if (maxRows != null) 'maxRows': maxRows,
+        },
       );
     } catch (e) {
       debugPrint('IngestBridge scanRecentSms error: $e');

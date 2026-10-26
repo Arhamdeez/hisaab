@@ -37,6 +37,20 @@ class AppPreferences extends ChangeNotifier {
   static const _accountHolderNameKey = 'account_holder_name';
   static const _hapticsEnabledKey = 'haptics_enabled';
 
+  /// Preference keys written into a user-saved backup file.
+  static const persistedBackupKeys = <String>[
+    _showIncomeKey,
+    _monthlyIncomeKey,
+    _incomeByMonthKey,
+    _trackInwardFlowKey,
+    _settingsTourSeenKey,
+    _homeTourSeenKey,
+    _accountHolderNameKey,
+    _hapticsEnabledKey,
+  ];
+
+  static const monthlyIncomeKey = _monthlyIncomeKey;
+
   static AppPreferences? _instance;
   static Future<void>? _hydrating;
 

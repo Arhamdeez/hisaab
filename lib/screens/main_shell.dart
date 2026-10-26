@@ -291,6 +291,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final amountCtrl = TextEditingController();
     var categoryId = SpendingCategory.other.storageKey;
     var type = TransactionType.debit;
+    var occurredAt = DateTime.now();
     var amountInvalid = false;
     var merchantInvalid = false;
     var shakeTick = 0;
@@ -396,6 +397,68 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                               invalid: amountInvalid,
                             ),
                           ),
+                          const SizedBox(height: 12),
+                          InkWell(
+                            onTap: () async {
+                              final now = DateTime.now();
+                              final today = DateTime(
+                                now.year,
+                                now.month,
+                                now.day,
+                              );
+                              final initial = DateTime(
+                                occurredAt.year,
+                                occurredAt.month,
+                                occurredAt.day,
+                              );
+                              final picked = await showDatePicker(
+                                context: ctx,
+                                initialDate:
+                                    initial.isAfter(today) ? today : initial,
+                                firstDate: DateTime(now.year - 5),
+                                lastDate: today,
+                              );
+                              if (picked == null) return;
+                              final clock = DateTime.now();
+                              setSheetState(() {
+                                occurredAt = DateTime(
+                                  picked.year,
+                                  picked.month,
+                                  picked.day,
+                                  clock.hour,
+                                  clock.minute,
+                                  clock.second,
+                                );
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                            child: InputDecorator(
+                              decoration: addFieldDecoration(
+                                labelText: 'Date',
+                                invalid: false,
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      formatManualEntryDate(occurredAt),
+                                      style: Theme.of(ctx)
+                                          .textTheme
+                                          .bodyLarge
+                                          ?.copyWith(
+                                            color: AppColors.textPrimary,
+                                          ),
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.calendar_today_outlined,
+                                    size: 18,
+                                    color: AppColors.textMuted,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -446,6 +509,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                               merchant: merchant,
                               categoryId: categoryId,
                               type: type,
+                              occurredAt: occurredAt,
                             );
                         Navigator.pop(ctx);
                       },

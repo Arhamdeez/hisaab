@@ -12,9 +12,8 @@ import '../widgets/glass_container.dart';
 import '../widgets/settings_tour_overlay.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/utils/formatters.dart';
-import '../core/utils/share_origin.dart';
 import '../core/support/issue_report.dart';
-import '../features/backup/backup_service.dart';
+import '../features/backup/backup_actions.dart';
 import '../features/ingest/ingest_service.dart';
 import '../features/ingest/notification_access.dart';
 import '../features/ingest/shortcuts_setup_guide.dart';
@@ -247,9 +246,10 @@ class _SettingsScreenState extends State<SettingsScreen>
         SettingsTourStep(
           targetKey: _backupKey,
           title: 'Backup',
-          body: 'Export all your transactions to a file anytime — '
-              'everything stays on your device until you share it.',
-          icon: Icons.ios_share_rounded,
+          body: 'Transactions are saved on this phone automatically. '
+              'A reinstall can bring them back from the phone\'s backup. '
+              'You can also load a backup file here.',
+          icon: Icons.restore_rounded,
         ),
         SettingsTourStep(
           targetKey: _reportsKey,
@@ -281,37 +281,17 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (mounted) setState(() => _showTour = false);
   }
 
-  Future<void> _exportBackup(BuildContext context) async {
+  Future<void> _restoreBackup(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
 
-    final result = await context.read<BackupService>().exportToFile(
-          shareOrigin: shareOriginFrom(context),
-        );
+    final result = await restoreBackupInteractively(context);
     if (!context.mounted) return;
     messenger.clearSnackBars();
 
-    if (result.isCancelled) {
-      // User closed the share sheet — not an error.
-      return;
-    }
-    if (result.isFailure) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(result.message ?? 'Export failed'),
-        ),
-      );
-      return;
-    }
+    if (result.isCancelled) return;
     messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          result.message ??
-              (result.count == 0
-                  ? 'Backup ready (no transactions yet)'
-                  : 'Backup ready (${result.count} entries)'),
-        ),
-      ),
+      SnackBar(content: Text(result.message ?? 'Could not restore backup')),
     );
   }
 
@@ -431,10 +411,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                   title: 'Backup',
                   children: [
                     _SettingsTile(
-                      icon: Icons.ios_share_rounded,
-                      title: 'Export backup',
-                      subtitle: 'Save all transactions to a text file',
-                      onTap: () => _exportBackup(context),
+                      icon: Icons.restore_rounded,
+                      title: 'Restore backup',
+                      subtitle:
+                          'Load a saved file and show those transactions',
+                      onTap: () => _restoreBackup(context),
                     ),
                   ],
                 ),

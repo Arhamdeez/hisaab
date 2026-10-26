@@ -244,25 +244,26 @@ class TransactionProvider extends ChangeNotifier {
     required String merchant,
     required String categoryId,
     required TransactionType type,
+    DateTime? occurredAt,
   }) async {
     if (!amount.isFinite || amount <= 0) return;
 
-    final now = DateTime.now();
+    final when = occurredAt ?? DateTime.now();
     final fingerprint = TransactionParser.buildFingerprint(
       amount: amount,
-      occurredAt: now,
+      occurredAt: when,
       merchant: merchant,
       type: type,
     );
 
     await _repository.save(
       Transaction(
-        id: now.millisecondsSinceEpoch.toString(),
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
         amount: amount,
         type: type,
         merchant: merchant,
         categoryId: categoryId,
-        occurredAt: now,
+        occurredAt: when,
         source: TransactionSource.manual,
         status: TransactionStatus.confirmed,
         fingerprint: fingerprint,
@@ -333,5 +334,11 @@ class TransactionProvider extends ChangeNotifier {
     }
     _invalidateCaches();
     notifyListeners();
+  }
+
+  Future<void> updateTransactionAmount(String id, double amount) async {
+    if (!amount.isFinite || amount <= 0) return;
+    await _repository.updateAmount(id, amount);
+    await load();
   }
 }

@@ -38,6 +38,9 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
   static const _smsRescanCooldown = Duration(minutes: 5);
   static const _foregroundDrainInterval = Duration(minutes: 15);
+  static const _smsHistoryBackfillKey = 'sms_history_backfill_v1';
+  static const _smsHistoryLookback = Duration(days: 400);
+  static const _smsHistoryMaxRows = 2500;
 
   bool get isListening => _listening;
   bool get isBatteryUnrestricted => _batteryUnrestricted;
@@ -66,7 +69,7 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
     if (Platform.isIOS) {
       // Shortcuts deep links (hisaab://import?text=…) — Android path unchanged.
-      await IcloudBackup.excludeSqlite();
+      await IcloudBackup.includeSqliteInBackup();
       await ShortcutsIngest.instance.start(_handleIngestEvent);
       await _drainNotificationActionsIfQueued();
       await _notifyTransactionDataChanged();
@@ -75,13 +78,25 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
 
     _startForegroundSafetyTimer();
 
-    // Cold start: shade scan + recent wallet SMS (8558, 3737, …), then drain queue.
+    // After a reinstall, pull wallet/bank SMS history once so older alerts
+    // can rebuild the ledger. Everyday launches stay on the short window.
+    final prefs = await SharedPreferences.getInstance();
+    final needsHistoryBackfill =
+        !(prefs.getBool(_smsHistoryBackfillKey) ?? false);
     await _scanAndDrain(
       includeSmsRescan: true,
-      walletSmsOnly: true,
+      walletSmsOnly: !needsHistoryBackfill,
       rescanShade: true,
       forceShadeScan: true,
+      smsLookback: needsHistoryBackfill ? _smsHistoryLookback : null,
+      smsMaxRows: needsHistoryBackfill ? _smsHistoryMaxRows : null,
     );
+    if (needsHistoryBackfill) {
+      final sms = await Permission.sms.status;
+      if (sms.isGranted || sms.isLimited) {
+        await prefs.setBool(_smsHistoryBackfillKey, true);
+      }
+    }
     await _drainNotificationActionsIfQueued();
     await refreshNotificationAccess();
     await refreshBatteryOptimization();
@@ -132,6 +147,8 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
     bool walletSmsOnly = true,
     bool rescanShade = false,
     bool forceShadeScan = false,
+    Duration? smsLookback,
+    int? smsMaxRows,
   }) async {
     if (rescanShade) {
       await IngestBridge.instance.scanActiveNotifications(force: forceShadeScan);
@@ -141,6 +158,8 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
       if (sms.isGranted || sms.isLimited) {
         await IngestBridge.instance.scanRecentSms(
           walletShortCodesOnly: walletSmsOnly,
+          lookback: smsLookback,
+          maxRows: smsMaxRows,
         );
         _lastSmsRescanAt = DateTime.now();
       }
@@ -210,6 +229,12 @@ class IngestService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _onBackground() async {
+    try {
+      await _repository.database
+          .customStatement('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (_) {
+      // The phone backup still copies the last flushed database file.
+    }
     if (!Platform.isAndroid) return;
     if (_notificationAccess) {
       await IngestBridge.instance.startKeepAlive();

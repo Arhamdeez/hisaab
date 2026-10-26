@@ -16,7 +16,7 @@ import HisaabActivityKit
   ) -> Bool {
     flutterEngine.run()
     GeneratedPluginRegistrant.register(with: flutterEngine)
-    LocalStore.excludeSqliteFromBackup()
+    LocalStore.includeSqliteInBackup()
     _setupLocalStoreChannel()
     _setupShortcutsChannel()
     NotificationCenter.default.addObserver(
@@ -98,8 +98,9 @@ import HisaabActivityKit
       binaryMessenger: flutterEngine.binaryMessenger
     )
     storeChannel.setMethodCallHandler { call, result in
-      if call.method == "excludeSqliteFromBackup" {
-        LocalStore.excludeSqliteFromBackup()
+      if call.method == "includeSqliteInBackup" ||
+          call.method == "excludeSqliteFromBackup" {
+        LocalStore.includeSqliteInBackup()
         result(nil)
       } else {
         result(FlutterMethodNotImplemented)

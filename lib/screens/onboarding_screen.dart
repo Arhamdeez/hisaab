@@ -7,6 +7,7 @@ import '../core/brand.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_decorations.dart';
 import '../core/theme/app_spacing.dart';
+import '../features/backup/backup_actions.dart';
 import '../features/ingest/ingest_service.dart';
 import '../features/ingest/notification_access.dart';
 import '../features/ingest/shortcuts_setup_guide.dart';
@@ -93,13 +94,13 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                             icon: Icons.cloud_off_rounded,
                             title: 'No account required',
                             subtitle:
-                                'No sign-up, no cloud sync, and nothing uploaded without your action.',
+                                'No sign-up and no HISAAB account. Your phone keeps a backup so a reinstall can bring transactions back.',
                           ),
                           _SetupFeature(
                             icon: Icons.lock_outline_rounded,
                             title: 'You stay in control',
                             subtitle:
-                                'Export a backup or clear data anytime from Settings.',
+                                'Transactions are saved on this phone automatically.',
                           ),
                         ],
                       ),
@@ -113,6 +114,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   pageCount: _pageCount,
                   onContinue: _next,
                   onSkip: widget.onComplete,
+                  onRestore: _restoreBackup,
                 ),
               ],
             ),
@@ -131,6 +133,19 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       return;
     }
     await widget.onComplete();
+  }
+
+  Future<void> _restoreBackup() async {
+    final result = await restoreBackupInteractively(context);
+    if (!mounted) return;
+    if (result.isSuccess) {
+      await widget.onComplete();
+      return;
+    }
+    if (result.isCancelled) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(result.message ?? 'Could not restore backup')),
+    );
   }
 }
 
@@ -885,12 +900,14 @@ class _SetupFooter extends StatelessWidget {
     required this.pageCount,
     required this.onContinue,
     required this.onSkip,
+    required this.onRestore,
   });
 
   final int page;
   final int pageCount;
   final VoidCallback onContinue;
   final Future<void> Function() onSkip;
+  final Future<void> Function() onRestore;
 
   @override
   Widget build(BuildContext context) {
@@ -954,6 +971,19 @@ class _SetupFooter extends StatelessWidget {
               child: Text(isLast ? 'Enter HISAAB' : 'Continue'),
             ),
           ),
+          if (page == 0) ...[
+            const SizedBox(height: 4),
+            TextButton(
+              onPressed: () => onRestore(),
+              child: Text(
+                'Restore a saved backup',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
           if (isLast) ...[
             const SizedBox(height: 10),
             TextButton(

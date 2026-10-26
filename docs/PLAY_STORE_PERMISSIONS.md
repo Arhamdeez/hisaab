@@ -78,10 +78,10 @@ HISAAB has **no backend server**. All transaction data lives in local SQLite on 
 
 - **No cloud sync** of spending history
 - **No analytics** SDKs (Firebase, Sentry, etc.)
-- **Android auto-backup disabled** — data is not backed up to Google Drive by default
+- **Android auto-backup** includes `spend_tracker.sqlite` and preferences so a reinstall can restore transactions. HISAAB still has no server.
 - **Release builds do not log** SMS/notification bodies to logcat
 - **Cleartext HTTP blocked** in release builds
-- **Export/share** only when the user explicitly taps Export backup
+- **Restore** loads a `.sqlite` file only when the user taps Restore backup
 
 Optional network use:
 

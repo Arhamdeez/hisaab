@@ -129,6 +129,16 @@ String formatShortDate(DateTime date) {
   return DateFormat('d MMM').format(date);
 }
 
+/// Date label for the manual-add sheet: Today / Yesterday / weekday + date.
+String formatManualEntryDate(DateTime date) {
+  final now = DateTime.now();
+  final picked = DateTime(date.year, date.month, date.day);
+  final today = DateTime(now.year, now.month, now.day);
+  if (picked == today) return 'Today';
+  if (picked == today.subtract(const Duration(days: 1))) return 'Yesterday';
+  return DateFormat('EEE, d MMM yyyy').format(date);
+}
+
 String formatTime(DateTime date) {
   return DateFormat('h:mm a').format(date);
 }

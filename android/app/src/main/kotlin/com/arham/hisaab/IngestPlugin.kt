@@ -267,6 +267,13 @@ class IngestPlugin(
                 "\\bturn\\s+your\\b.{0,40}\\binto\\s+more\\b|" +
                 // Platform payout notices — not local wallet/bank alerts.
                 "\\bupwork\\b|" +
+                "\\bfreelancer\\.com\\b|" +
+                "\\bfreelancer\\s+technology\\b|" +
+                "\\bfree\\s+trial\\b|" +
+                "\\bplus\\s+membership\\b|" +
+                "\\bmembership\\s+(?:benefits|plan)\\b|" +
+                "\\bautomatically\\s+renew\\b|" +
+                "\\bunless\\s+cancelled\\b|" +
                 "withdrawal\\s+of\\s+your\\s+upwork\\s+balance|" +
                 "amount\\s+you\\s+should\\s+receive\\b|" +
                 // Campus / university announcements — not payments.
@@ -296,6 +303,10 @@ class IngestPlugin(
                 "\\b(?:login|log[\\s-]?in)\\s+successful\\b|" +
                 "\\bsuccessfully\\s+logged\\s+in\\b|" +
                 "\\blogged\\s+in\\s+to\\b|" +
+                "\\blogin\\s+attempt\\b|" +
+                "\\bincorrect\\s+(?:pin|password|otp|mpin|passcode)\\b|" +
+                "\\bfailed\\s+due\\s+to\\s+incorrect\\s+(?:pin|password|otp|mpin|passcode)\\b|" +
+                "\\b(?:login|log[\\s-]?in|sign[\\s-]?in)\\s+(?:attempt\\s+)?(?:has\\s+)?failed\\b|" +
                 "\\bdo\\s+not\\s+recogni[sz]e\\s+this\\s+login\\b|" +
                 "\\bunrecogni[sz]ed\\s+login\\b|" +
                 "\\bnew\\s+device\\s+(?:login|sign[\\s-]?in)\\b|" +
@@ -328,6 +339,9 @@ class IngestPlugin(
                 "\\bstand\\s+a\\s+chance\\b|\\bfor\\s+a\\s+chance\\b|" +
                 "\\bchance\\s+to\\s+(?:win|earn)\\b|" +
                 "\\bget\\s+(?:up\\s*to|a\\s+free|your\\s+free)\\b|" +
+                "\\bfree\\s+trial\\b|" +
+                "\\bautomatically\\s+renew\\b|" +
+                "\\bplus\\s+membership\\b|" +
                 "\\b100\\s*%\\s*free\\b|" +
                 "\\bminimum\\s+balance\\b|" +
                 "\\bfree\\s+atm\\s+withdrawals?\\b|" +
@@ -565,10 +579,13 @@ class IngestPlugin(
         /**
          * Re-read recent inbox SMS when the app opens — catches alerts missed live.
          * [walletShortCodesOnly] — when true, only scans known wallet senders (fast).
+         * [lookbackMs] / [maxRows] — optional overrides for a one-time history backfill.
          */
         fun scanRecentTransactionSms(
             context: Context,
             walletShortCodesOnly: Boolean = false,
+            lookbackMs: Long? = null,
+            maxRows: Int? = null,
         ) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) !=
                 PackageManager.PERMISSION_GRANTED
@@ -576,9 +593,10 @@ class IngestPlugin(
                 return
             }
 
-            val sinceMs = System.currentTimeMillis() -
-                if (walletShortCodesOnly) 24L * 60 * 60 * 1000 else 2L * 24 * 60 * 60 * 1000
-            val maxRows = if (walletShortCodesOnly) 20 else 40
+            val windowMs = lookbackMs
+                ?: if (walletShortCodesOnly) 24L * 60 * 60 * 1000 else 2L * 24 * 60 * 60 * 1000
+            val sinceMs = System.currentTimeMillis() - windowMs
+            val rowLimit = maxRows ?: if (walletShortCodesOnly) 20 else 40
             val cursor = context.contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI,
                 arrayOf(
@@ -594,7 +612,7 @@ class IngestPlugin(
 
             var queued = 0
             cursor.use {
-                while (it.moveToNext() && queued < maxRows) {
+                while (it.moveToNext() && queued < rowLimit) {
                     val address = it.getString(1)?.trim().orEmpty()
                     val body = it.getString(2)?.trim().orEmpty()
                     if (address.isEmpty() || body.isEmpty()) continue
@@ -1478,7 +1496,14 @@ class IngestPlugin(
                         "scanRecentSms" -> {
                             val walletOnly =
                                 call.argument<Boolean>("walletShortCodesOnly") ?: false
-                            scanRecentTransactionSms(context, walletShortCodesOnly = walletOnly)
+                            val lookbackMs = call.argument<Number>("lookbackMs")?.toLong()
+                            val maxRows = call.argument<Number>("maxRows")?.toInt()
+                            scanRecentTransactionSms(
+                                context,
+                                walletShortCodesOnly = walletOnly,
+                                lookbackMs = lookbackMs,
+                                maxRows = maxRows,
+                            )
                             result.success(null)
                         }
                         "startKeepAlive" -> {

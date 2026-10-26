@@ -3,9 +3,10 @@ abstract final class LocalDataPolicy {
   static const headline = 'Your data stays on this phone';
 
   static const summary =
-      'Transactions, categories, and preferences are stored in a local SQLite '
-      'database on your device. HISAAB has no backend server and does not upload '
-      'your spending history.';
+      'Transactions, categories, and preferences are saved automatically in a '
+      'local database on your phone. HISAAB has no account and no server. '
+      'Your phone\'s backup can include that database so a reinstall brings '
+      'your transactions back.';
 
   static const storedLocally = [
     'Parsed transactions (amount, merchant, category, date)',
@@ -14,13 +15,13 @@ abstract final class LocalDataPolicy {
   ];
 
   static const neverUploaded = [
-    'SMS or notification content',
-    'Transaction history',
+    'SMS or notification content to a HISAAB server',
     'Contacts or personal chats',
   ];
 
   static const userControlledExit = [
-    'Export backup — you choose where the file goes when you share it',
+    'Phone backup — the database is included so a reinstall can restore it',
+    'Restore backup — load a file you already saved',
   ];
 
   static const thirdPartyNetwork = [
